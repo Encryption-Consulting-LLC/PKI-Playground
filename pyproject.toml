@@ -1,5 +1,5 @@
 [project]
-name = "vm-deploy-api"
+name = "VM-Deploy-API"
 version = "0.1.0"
 description = "FastAPI backend over the vmkit / configgen / isokit libraries."
 requires-python = ">=3.14"

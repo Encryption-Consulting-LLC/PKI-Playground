@@ -1,4 +1,4 @@
-# vm-deploy-api
+# VM-Deploy-API
 
 A FastAPI backend over the VM deployment libraries — the same `vmkit` / `configgen` / `isokit`
 that back the [VM-Setup-Scripts](https://github.com/Arnesh-EC/VM-Setup-Scripts) CLIs. The
@@ -8,8 +8,8 @@ libraries are consumed as **versioned git dependencies** (see `pyproject.toml`
 ## Run
 
 ```sh
-git clone git@github-ec:Arnesh-EC/vm-deploy-api.git
-cd vm-deploy-api
+git clone git@github-ec:Arnesh-EC/VM-Deploy-API.git
+cd VM-Deploy-API
 uv sync                       # pulls fastapi + the three libs (from their git tags)
 uv run uvicorn app.main:app --reload
 ```
