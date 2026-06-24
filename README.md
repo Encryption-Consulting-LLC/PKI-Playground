@@ -1,4 +1,4 @@
-# EC-PKI-Lab
+# EC-PKI-Playground
 
 A web console + FastAPI backend over the VM deployment libraries — the same
 `vmkit` / `configgen` / `isokit` that back the

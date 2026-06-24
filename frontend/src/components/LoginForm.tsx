@@ -41,7 +41,7 @@ export function LoginForm() {
     <div className="flex min-h-svh items-center justify-center px-6 py-10">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>EC-PKI-Lab</CardTitle>
+          <CardTitle>EC-PKI-Playground</CardTitle>
           <CardDescription>Connect to an ESXi / vCenter host to continue.</CardDescription>
         </CardHeader>
         <CardContent>

@@ -52,7 +52,7 @@ function App() {
     <div className="mx-auto min-h-svh max-w-3xl px-6 py-10">
       <header className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">EC-PKI-Lab</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">EC-PKI-Playground</h1>
           <p className="text-sm text-muted-foreground">
             Web console over the vmkit / configgen / isokit deployment API.
           </p>
