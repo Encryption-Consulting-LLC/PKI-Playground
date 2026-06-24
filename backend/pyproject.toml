@@ -1,7 +1,7 @@
 [project]
-name = "VM-Deploy-API"
+name = "PKI-Deploy-API"
 version = "0.1.0"
-description = "FastAPI backend over the vmkit / configgen / isokit libraries."
+description = "FastAPI backend to automate vm/pki deloyment."
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.115",

@@ -13,9 +13,9 @@ from app.routers import api_router
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="vm-deploy-api",
+        title="pki-deploy-api",
         version="0.1.0",
-        description="HTTP API over vmkit / configgen / isokit for VM deployment.",
+        description="HTTP API for VM/PKI deployment.",
     )
     register_exception_handlers(app)
     app.include_router(api_router)

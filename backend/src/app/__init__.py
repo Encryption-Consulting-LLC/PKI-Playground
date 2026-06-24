@@ -1,1 +1,1 @@
-"""vm-deploy-api — HTTP API over the vmkit / configgen / isokit libraries."""
+"""pki-deploy-api — HTTP API to automate vm/pki deployment."""
