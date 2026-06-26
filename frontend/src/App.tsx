@@ -6,12 +6,18 @@ import { ApiError, getMode, guestConnect } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
 import { Badge } from "@/components/ui/badge"
 import { HealthBadge } from "@/components/HealthBadge"
-import { HostnameForm } from "@/components/HostnameForm"
 import { LoginForm } from "@/components/LoginForm"
 import { LogoutButton } from "@/components/LogoutButton"
 import { Splash } from "@/components/Splash"
+import { ThemeToggle } from "@/components/ThemeToggle"
+import { Workspace } from "@/components/canvas/Workspace"
+import { useApplyTheme } from "@/hooks/useTheme"
 
 function App() {
+  // Apply the resolved theme to <html> on every render. Must be called before
+  // any early returns so theme applies to the splash / login screens too.
+  useApplyTheme()
+
   const token = useAuthStore((s) => s.token)
   const host = useAuthStore((s) => s.host)
 
@@ -42,39 +48,34 @@ function App() {
 
   if (!token) {
     if (meta?.mode === AUTH_MODES.login) return <LoginForm />
-    // Guest mode: auto-connect in flight (or failed — toast already shown).
     return <Splash label="Connecting to playground…" />
   }
 
   const isGuest = meta?.mode === AUTH_MODES.guest
 
   return (
-    <div className="mx-auto min-h-svh max-w-3xl px-6 py-10">
-      <header className="mb-8 flex items-center justify-between gap-4">
+    <div className="flex h-svh flex-col overflow-hidden">
+      {/* Top bar */}
+      <header className="flex shrink-0 items-center justify-between gap-4 border-b px-4 py-2">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">EC-PKI-Playground</h1>
-          <p className="text-sm text-muted-foreground">
-            Web console over the vmkit / configgen / isokit deployment API.
-          </p>
+          <h1 className="text-base font-semibold tracking-tight">EC PKI Playground</h1>
+          {host && (
+            <p className="hidden text-xs text-muted-foreground sm:block">{host}</p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          {host && (
-            <span className="hidden text-sm text-muted-foreground sm:block">
-              {host}
-            </span>
-          )}
           <HealthBadge />
           {isGuest ? (
             <Badge variant="secondary">Guest</Badge>
           ) : (
             <LogoutButton />
           )}
+          <ThemeToggle />
         </div>
       </header>
 
-      <main className="space-y-6">
-        <HostnameForm />
-      </main>
+      {/* Canvas workspace — takes the remaining viewport height */}
+      <Workspace />
     </div>
   )
 }

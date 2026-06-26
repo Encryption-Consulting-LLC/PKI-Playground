@@ -8,6 +8,7 @@
 
 export const STORAGE_KEYS = {
   auth: "ec-pki-auth",
+  theme: "ec-pki-theme",
 } as const
 
 export const QUERY_KEYS = {
