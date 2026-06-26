@@ -21,13 +21,30 @@ import {
 import { create } from "zustand"
 
 import { AUTO_NAME_PREFIX } from "@/constants/templates"
-import { NODE_STATUS } from "@/constants/topology"
+import { EDGE_TYPE, NODE_STATUS } from "@/constants/topology"
 import type { NodeStatus } from "@/constants/topology"
+import { cloneVm } from "@/lib/api"
 import {
   canConnect,
+  domainJoinEdge,
+  domainLabel,
   edgeStyle,
+  findDomainForNode,
   inferEdgeType,
+  isDomainEligible,
 } from "@/lib/topology"
+import { useAuthStore } from "@/store/auth"
+
+// Standalone clone parameters. The base image and host specs are fixed for the
+// playground; only the per-VM name varies. Names are prefixed with
+// `guest-<uniqueId>-` (uniqueId = a short slice of the session token) so each
+// guest's clones are easy to spot in the ESXi inventory.
+const STANDALONE_CLONE = {
+  base: "ws-2025-base",
+  datastore: "datastore1",
+  cpus: 2,
+  mem_mb: 4096,
+} as const
 
 // ---------------------------------------------------------------------------
 // Node data type
@@ -38,6 +55,20 @@ export interface MachineData extends Record<string, unknown> {
   name: string
   status: NodeStatus
   config?: Record<string, string>
+}
+
+/**
+ * One node's pending domain membership transition, produced by
+ * `computeDomainChanges` and applied (after confirmation) by
+ * `applyDomainChanges`. A null `dcId`/`domainName` means the node leaves its
+ * current domain; the *Name fields are carried alongside the ids purely so the
+ * confirmation prompt can describe the change without re-deriving names.
+ */
+export interface DomainSyncChange {
+  nodeId: string
+  nodeName: string
+  dcId: string | null
+  domainName: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +85,8 @@ interface TopologyState {
   applyNodeChanges: (changes: NodeChange<Node<MachineData>>[]) => void
   applyEdgeChanges: (changes: EdgeChange[]) => void
   connect: (connection: Connection) => string | null
+  computeDomainChanges: (movedId: string) => DomainSyncChange[]
+  applyDomainChanges: (changes: DomainSyncChange[]) => void
   configureNode: (id: string, config?: Record<string, string>) => void
   renameNode: (id: string, name: string) => void
   removeNode: (id: string) => void
@@ -129,7 +162,68 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     return null // null = success
   },
 
+  computeDomainChanges(movedId) {
+    const { nodes, edges } = get()
+    const moved = nodes.find((n) => n.id === movedId)
+    if (!moved) return []
+
+    // Moving a DC reshapes its region, so every other node is re-evaluated.
+    // Moving anything else only changes that one node's membership.
+    const candidates =
+      moved.data.typeId === "domainController"
+        ? nodes.filter((n) => n.id !== movedId)
+        : [moved]
+
+    const changes: DomainSyncChange[] = []
+
+    for (const node of candidates) {
+      if (!isDomainEligible(node, edges)) continue
+
+      const dc = findDomainForNode(node, nodes)
+      const targetDcId = dc?.id ?? null
+      const currentEdge = edges.find(
+        (e) =>
+          e.source === node.id && e.data?.edgeType === EDGE_TYPE.domainJoin,
+      )
+      if ((currentEdge?.target ?? null) === targetDcId) continue
+
+      changes.push({
+        nodeId: node.id,
+        nodeName: node.data.name,
+        dcId: targetDcId,
+        domainName: dc ? domainLabel(dc) : null,
+      })
+    }
+
+    return changes
+  },
+
+  applyDomainChanges(changes) {
+    if (changes.length === 0) return
+    set((s) => {
+      let edges = s.edges
+      for (const c of changes) {
+        // Drop any existing membership, then add the new one (if joining).
+        edges = edges.filter(
+          (e) =>
+            !(e.source === c.nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin),
+        )
+        if (c.dcId) edges = [...edges, domainJoinEdge(c.nodeId, c.dcId)]
+      }
+      return { edges }
+    })
+  },
+
   configureNode(id, config) {
+    const setStatus = (status: NodeStatus) =>
+      set((s) => ({
+        nodes: s.nodes.map((n) =>
+          n.id === id ? { ...n, data: { ...n.data, status } } : n,
+        ),
+      }))
+
+    const node = get().nodes.find((n) => n.id === id)
+
     set((s) => ({
       nodes: s.nodes.map((n) =>
         n.id === id
@@ -137,14 +231,21 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
           : n,
       ),
     }))
+
+    // Standalone is the only template wired to the real clone API. Everything
+    // else still simulates the workflow delay.
+    if (node?.data.typeId === "standalone") {
+      const token = useAuthStore.getState().token
+      const uniqueId = token ? token.slice(0, 8) : "local"
+      const name = `guest-${uniqueId}-${node.data.name}`
+      cloneVm({ name, ...STANDALONE_CLONE })
+        .then(() => setStatus(NODE_STATUS.configured))
+        .catch(() => setStatus(NODE_STATUS.error))
+      return
+    }
+
     // Simulate the clone workflow delay
-    setTimeout(() => {
-      set((s) => ({
-        nodes: s.nodes.map((n) =>
-          n.id === id ? { ...n, data: { ...n.data, status: NODE_STATUS.configured } } : n,
-        ),
-      }))
-    }, 1800)
+    setTimeout(() => setStatus(NODE_STATUS.configured), 1800)
   },
 
   renameNode(id, name) {

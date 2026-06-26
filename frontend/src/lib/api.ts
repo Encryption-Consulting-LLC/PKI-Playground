@@ -149,3 +149,25 @@ export const generateNetwork = (req: NetworkRequest) =>
     { method: "POST", body: JSON.stringify(req) },
     true,
   )
+
+// --- /vm/clone -------------------------------------------------------------
+
+export interface CloneRequest {
+  name: string
+  base: string
+  datastore: string
+  cpus: number
+  mem_mb: number
+  mac?: string | null
+  iso_path?: string | null
+  guest_os?: string | null
+  max_usage_pct?: number
+  skip_disk_check?: boolean
+  power_on?: boolean
+}
+
+export const cloneVm = (req: CloneRequest) =>
+  request<Record<string, unknown>>(URLS.vm.clone, {
+    method: "POST",
+    body: JSON.stringify(req),
+  })

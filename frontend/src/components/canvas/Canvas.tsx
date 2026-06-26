@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react"
+import { useCallback, useRef, useState } from "react"
 import {
   ReactFlow,
   Background,
@@ -14,7 +14,13 @@ import {
 import { toast } from "sonner"
 import type { Node } from "@xyflow/react"
 import { MachineNode } from "./nodes/MachineNode"
-import { useTopologyStore, type MachineData } from "@/store/topology"
+import { DomainRegions } from "./DomainRegions"
+import { DomainConfirmDialog } from "./DomainConfirmDialog"
+import {
+  useTopologyStore,
+  type MachineData,
+  type DomainSyncChange,
+} from "@/store/topology"
 import { useResolvedTheme } from "@/hooks/useTheme"
 
 const DRAG_TYPE = "application/reactflow"
@@ -30,11 +36,19 @@ export function Canvas() {
   const applyNodeChanges = useTopologyStore((s) => s.applyNodeChanges)
   const applyEdgeChanges = useTopologyStore((s) => s.applyEdgeChanges)
   const connect = useTopologyStore((s) => s.connect)
+  const computeDomainChanges = useTopologyStore((s) => s.computeDomainChanges)
+  const applyDomainChanges = useTopologyStore((s) => s.applyDomainChanges)
   const selectNode = useTopologyStore((s) => s.selectNode)
   const addNode = useTopologyStore((s) => s.addNode)
   const { screenToFlowPosition } = useReactFlow()
   const wrapperRef = useRef<HTMLDivElement>(null)
   const resolvedTheme = useResolvedTheme()
+
+  // Pending domain join/leave awaiting confirmation. We remember where the
+  // dragged node started so a declined change can snap it back — keeping the
+  // circle (geometry) and membership in agreement.
+  const dragStart = useRef<{ id: string; position: { x: number; y: number } } | null>(null)
+  const [pendingChanges, setPendingChanges] = useState<DomainSyncChange[] | null>(null)
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<MachineData>>[]) => applyNodeChanges(changes),
@@ -60,6 +74,50 @@ export function Canvas() {
     },
     [selectNode],
   )
+
+  const onNodeDragStart = useCallback(
+    (_: MouseEvent | TouchEvent, node: Node<MachineData>) => {
+      dragStart.current = { id: node.id, position: { ...node.position } }
+    },
+    [],
+  )
+
+  // When a node is dropped, see whether the move changes domain membership. If
+  // so, defer it to a confirmation prompt rather than applying immediately.
+  const onNodeDragStop = useCallback(
+    (_: MouseEvent | TouchEvent, node: Node<MachineData>) => {
+      const changes = computeDomainChanges(node.id)
+      if (changes.length === 0) {
+        dragStart.current = null
+        return
+      }
+      setPendingChanges(changes)
+    },
+    [computeDomainChanges],
+  )
+
+  const confirmDomainChanges = useCallback(() => {
+    if (!pendingChanges) return
+    applyDomainChanges(pendingChanges)
+    for (const c of pendingChanges) {
+      if (c.domainName) toast.success(`${c.nodeName} joined ${c.domainName}`)
+      else toast(`${c.nodeName} left its domain`)
+    }
+    dragStart.current = null
+    setPendingChanges(null)
+  }, [pendingChanges, applyDomainChanges])
+
+  const cancelDomainChanges = useCallback(() => {
+    // Snap the dragged node back so it no longer sits in a region it didn't join.
+    const start = dragStart.current
+    if (start) {
+      applyNodeChanges([
+        { id: start.id, type: "position", position: start.position },
+      ])
+    }
+    dragStart.current = null
+    setPendingChanges(null)
+  }, [applyNodeChanges])
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -91,15 +149,23 @@ export function Canvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onSelectionChange={onSelectionChange}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
         onDragOver={onDragOver}
         onDrop={onDrop}
         colorMode={resolvedTheme}
         proOptions={{ hideAttribution: true }}
       >
+        <DomainRegions />
         <Background gap={16} size={1} />
         <Controls />
         <MiniMap zoomable pannable nodeColor={miniMapColor} />
       </ReactFlow>
+      <DomainConfirmDialog
+        changes={pendingChanges}
+        onConfirm={confirmDomainChanges}
+        onCancel={cancelDomainChanges}
+      />
     </div>
   )
 }

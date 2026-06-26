@@ -112,6 +112,87 @@ export function domainMembership(
 }
 
 // ---------------------------------------------------------------------------
+// Domain regions (spatial domain join)
+// ---------------------------------------------------------------------------
+//
+// A domain controller projects a circular "domain" region around itself. Any
+// eligible node whose centre falls inside that circle is domain-joined. The
+// radius is expressed in flow units (== node-pixel units at zoom 1), so the
+// rendered circle and the geometry test below stay in lock-step at any zoom.
+
+export const DOMAIN_RADIUS = 260
+
+/** Centre of a node in flow coordinates (position is the top-left corner). */
+export function nodeCenter(node: Node<MachineData>): { x: number; y: number } {
+  const w = node.measured?.width ?? 160
+  const h = node.measured?.height ?? 80
+  return { x: node.position.x + w / 2, y: node.position.y + h / 2 }
+}
+
+/** Human label for a domain — the DC's configured domain name, else its node name. */
+export function domainLabel(dc: Node<MachineData>): string {
+  return dc.data.config?.domainName ?? dc.data.name
+}
+
+/**
+ * Whether `node` can be auto-joined to a domain by being dragged into a region.
+ * Domain controllers define domains (they don't join others), root CAs must
+ * stay out of any domain, and a VM must be configured before it can join.
+ */
+export function isDomainEligible(node: Node<MachineData>, edges: Edge[]): boolean {
+  if (node.data.typeId === "domainController") return false
+  if (node.data.status !== NODE_STATUS.configured) return false
+  if (
+    node.data.typeId === "certificateAuthority" &&
+    caTier(node.id, edges) === "root"
+  )
+    return false
+  return true
+}
+
+/**
+ * The configured domain controller whose region contains `node`. When regions
+ * overlap, the nearest DC wins so membership is unambiguous.
+ */
+export function findDomainForNode(
+  node: Node<MachineData>,
+  nodes: Node<MachineData>[],
+): Node<MachineData> | null {
+  const c = nodeCenter(node)
+  let best: Node<MachineData> | null = null
+  let bestDist = Infinity
+  for (const dc of nodes) {
+    if (dc.id === node.id) continue
+    if (dc.data.typeId !== "domainController") continue
+    if (dc.data.status !== NODE_STATUS.configured) continue
+    const dcc = nodeCenter(dc)
+    const dist = Math.hypot(c.x - dcc.x, c.y - dcc.y)
+    if (dist <= DOMAIN_RADIUS && dist < bestDist) {
+      best = dc
+      bestDist = dist
+    }
+  }
+  return best
+}
+
+/**
+ * A domain-join edge created by dropping a node into a region. Kept hidden —
+ * the circle itself communicates membership — but still carries the
+ * `domainJoin` edgeType so existing derived logic (badges, member counts)
+ * continues to work unchanged.
+ */
+export function domainJoinEdge(source: string, target: string): Edge {
+  return {
+    id: `e-domain-${source}-${target}`,
+    source,
+    target,
+    type: "smoothstep",
+    hidden: true,
+    data: { edgeType: EDGE_TYPE.domainJoin },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Connection validation
 // ---------------------------------------------------------------------------
 
