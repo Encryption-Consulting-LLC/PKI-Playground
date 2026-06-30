@@ -30,9 +30,21 @@ def drop_session(token: str) -> bool:
         return _sessions.pop(token, None) is not None
 
 
+def resolve_token(token: str | None) -> Connection | None:
+    """Look up a token → Connection, or None if absent/unknown.
+
+    Used where a FastAPI ``Header`` dependency can't apply — notably WebSocket
+    routes, which authenticate via a query param since browsers can't set custom
+    headers on the upgrade request.
+    """
+    if not token:
+        return None
+    return _sessions.get(token)
+
+
 def get_session(x_session_token: str = Header(...)) -> Connection:
     """FastAPI dependency: resolve X-Session-Token header → Connection (401 if unknown)."""
-    conn = _sessions.get(x_session_token)
+    conn = resolve_token(x_session_token)
     if conn is None:
         raise HTTPException(status_code=401, detail="Invalid or expired session token.")
     return conn

@@ -7,6 +7,7 @@ import { EDGE_TYPE, NODE_STATUS } from "@/constants/topology"
 import { caTier, caDepth, domainMembership } from "@/lib/topology"
 import type { MachineData } from "@/store/topology"
 import { Badge } from "@/components/ui/badge"
+import { ProgressBar } from "./ProgressBar"
 
 function StatusBadge({ status }: { status: string }) {
   if (status === NODE_STATUS.unconfigured)
@@ -88,6 +89,11 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
       {/* Body */}
       <div className="px-3 py-2 flex flex-col gap-1.5">
         <StatusBadge status={data.status} />
+
+        {/* Live progress while configuring */}
+        {data.status === NODE_STATUS.configuring && (
+          <ProgressBar pct={data.progress ?? 0} />
+        )}
 
         {/* Derived chips */}
         {tier === "root" && (

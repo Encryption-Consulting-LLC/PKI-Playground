@@ -17,9 +17,11 @@ export default defineConfig({
   server: {
     proxy: {
       // Frontend calls /api/*; backend now serves under /api so no rewrite needed.
+      // `ws: true` also forwards the WebSocket upgrade for /api/ws/* (job progress).
       "/api": {
         target: API_TARGET,
         changeOrigin: true,
+        ws: true,
       },
     },
   },

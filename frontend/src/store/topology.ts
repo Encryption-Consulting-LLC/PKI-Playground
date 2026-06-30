@@ -24,6 +24,7 @@ import { AUTO_NAME_PREFIX } from "@/constants/templates"
 import { EDGE_TYPE, NODE_STATUS } from "@/constants/topology"
 import type { NodeStatus } from "@/constants/topology"
 import { cloneVm } from "@/lib/api"
+import { openJobSocket } from "@/lib/ws"
 import {
   canConnect,
   domainJoinEdge,
@@ -55,6 +56,10 @@ export interface MachineData extends Record<string, unknown> {
   name: string
   status: NodeStatus
   config?: Record<string, string>
+  /** 0–100 while `status === configuring`; drives the node's progress bar. */
+  progress?: number
+  /** Human label of the current configuration step (from the progress stream). */
+  phase?: string
 }
 
 /**
@@ -215,22 +220,22 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
   },
 
   configureNode(id, config) {
-    const setStatus = (status: NodeStatus) =>
+    // Patch one node's data; merges so callers set just the fields they touch.
+    const patch = (data: Partial<MachineData>) =>
       set((s) => ({
         nodes: s.nodes.map((n) =>
-          n.id === id ? { ...n, data: { ...n.data, status } } : n,
+          n.id === id ? { ...n, data: { ...n.data, ...data } } : n,
         ),
       }))
 
     const node = get().nodes.find((n) => n.id === id)
 
-    set((s) => ({
-      nodes: s.nodes.map((n) =>
-        n.id === id
-          ? { ...n, data: { ...n.data, status: NODE_STATUS.configuring, ...(config ? { config } : {}) } }
-          : n,
-      ),
-    }))
+    patch({
+      status: NODE_STATUS.configuring,
+      progress: 0,
+      phase: undefined,
+      ...(config ? { config } : {}),
+    })
 
     // Standalone is the only template wired to the real clone API. Everything
     // else still simulates the workflow delay.
@@ -238,14 +243,40 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       const token = useAuthStore.getState().token
       const uniqueId = token ? token.slice(0, 8) : "local"
       const name = `guest-${uniqueId}-${node.data.name}`
+
       cloneVm({ name, ...STANDALONE_CLONE })
-        .then(() => setStatus(NODE_STATUS.configured))
-        .catch(() => setStatus(NODE_STATUS.error))
+        .then(({ job_id }) => {
+          // Stream live clone progress onto the node; the socket closes itself
+          // (and we close it) once a terminal frame arrives.
+          const close = openJobSocket(job_id, token, {
+            onProgress: (e) => patch({ progress: e.percent, phase: e.phase }),
+            onDone: () => {
+              patch({ status: NODE_STATUS.configured, progress: 100 })
+              close()
+            },
+            onError: () => {
+              patch({ status: NODE_STATUS.error })
+              close()
+            },
+          })
+        })
+        .catch(() => patch({ status: NODE_STATUS.error }))
       return
     }
 
-    // Simulate the clone workflow delay
-    setTimeout(() => setStatus(NODE_STATUS.configured), 1800)
+    // Simulated templates: animate a fake 0→100 bar over the delay so every node
+    // shows consistent progress UI, then mark configured.
+    const start = Date.now()
+    const DURATION = 1800
+    const timer = setInterval(() => {
+      const pct = Math.min(100, ((Date.now() - start) / DURATION) * 100)
+      if (pct >= 100) {
+        clearInterval(timer)
+        patch({ status: NODE_STATUS.configured, progress: 100 })
+      } else {
+        patch({ progress: Math.round(pct) })
+      }
+    }, 120)
   },
 
   renameNode(id, name) {

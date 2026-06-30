@@ -166,8 +166,13 @@ export interface CloneRequest {
   power_on?: boolean
 }
 
+/** Clone is async: the POST returns a job id; progress streams over the job WS. */
+export interface CloneAccepted {
+  job_id: string
+}
+
 export const cloneVm = (req: CloneRequest) =>
-  request<Record<string, unknown>>(URLS.vm.clone, {
+  request<CloneAccepted>(URLS.vm.clone, {
     method: "POST",
     body: JSON.stringify(req),
   })

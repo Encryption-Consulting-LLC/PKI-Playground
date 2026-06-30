@@ -14,19 +14,65 @@ path. The file must already exist on the host running this API. Building or
 uploading ISOs from a client is an isokit concern and is not in scope here.
 """
 
+import asyncio
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from vmkit import Connection, clone_workflow, update_workflow
+from vmkit import Connection, Phase, ProgressEvent, clone_workflow, update_workflow
 from vmkit.errors import VmNotFoundError
 from vmkit.esxi import get_vm_by_name, list_vm_names, power_off_vm, power_on_vm
 from vmkit.workflows import get_vm_config, validate_disk_usage
 
 from app.core.authz import Capability, require_capability
+from app.core.jobs import ProgressMsg, registry, runner
+from app.core.jobs.runner import Publish
 from app.core.sessions import get_session
 
 router = APIRouter(prefix="/vm", tags=["vm"])
+
+
+class CloneProgressReducer:
+    """Collapse vmkit's multi-operation event stream into one overall percent.
+
+    A clone fans out across several keyed sub-operations (VMDK copy, nvram copy,
+    optional ISO upload, VMX upload, register, optional power-on), each reporting
+    0–100% independently. We give the client a single monotonic bar by counting
+    completed sub-ops (``Phase.END`` events) and adding the in-flight op's
+    fraction: ``percent = (done_ops + current_fraction) / total_ops``.
+
+    ``total_ops`` is derived from the request flags so the bar reaches 100%.
+    """
+
+    def __init__(self, publish: Publish, total_ops: int) -> None:
+        self._publish = publish
+        self._total = max(total_ops, 1)
+        self._done_ops = 0
+
+    def __call__(self, event: ProgressEvent) -> None:
+        # Errors propagate as exceptions and become the job's terminal message;
+        # don't emit a progress sample for them.
+        if event.phase is Phase.ERROR:
+            return
+        if event.phase is Phase.END:
+            self._done_ops += 1
+            fraction = 0.0  # the just-finished op is now fully counted above
+        else:
+            fraction = event.fraction
+        percent = min(100.0, (self._done_ops + fraction) / self._total * 100.0)
+        self._publish(
+            ProgressMsg(
+                percent=round(percent, 1),
+                phase=event.label,
+                key=event.key,
+                unit=event.unit,
+            )
+        )
+
+
+def _clone_total_ops(req: "CloneRequest") -> int:
+    # VMDK copy + nvram copy + VMX upload + register, plus ISO upload / power-on.
+    return 4 + (1 if req.iso_path else 0) + (1 if req.power_on else 0)
 
 
 # --------------------------------------------------------------------------- #
@@ -67,12 +113,28 @@ class DiskCheckRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 @router.post(
     "/clone",
+    status_code=202,
     dependencies=[Depends(require_capability(Capability.VM_CLONE))],
 )
-def clone(req: CloneRequest, conn: Connection = Depends(get_session)) -> dict:
-    """Clone a base VM: server-side disk copy, render+upload VMX, register."""
-    result = clone_workflow(conn, **req.model_dump())
-    return asdict(result)
+async def clone(req: CloneRequest, conn: Connection = Depends(get_session)) -> dict:
+    """Start a clone as a background job; stream progress over ws /api/ws/jobs/{job_id}.
+
+    Returns ``202 {"job_id": ...}`` immediately. The clone runs off the event loop
+    (vmkit is synchronous); progress events are reduced to an overall percent and
+    the terminal message carries the CloneResult (same shape this route used to
+    return synchronously) or a mapped error.
+    """
+    job = registry.create()
+    params = req.model_dump()
+    total_ops = _clone_total_ops(req)
+
+    def blocking(publish: Publish) -> dict:
+        reducer = CloneProgressReducer(publish, total_ops)
+        result = clone_workflow(conn, progress=reducer, **params)
+        return asdict(result)
+
+    asyncio.create_task(runner.start(job, blocking))
+    return {"job_id": job.id}
 
 
 @router.post(
