@@ -147,6 +147,25 @@ export function nodeCenter(node: Node<MachineData>): { x: number; y: number } {
   return { x: node.position.x + w / 2, y: node.position.y + h / 2 }
 }
 
+/** Extra clearance kept between a domain's farthest member's rect and its circle edge. */
+const DOMAIN_CIRCLE_MARGIN = 40
+
+/** Distance from `point` to the farthest corner of `node`'s rect — used so the
+ * circle clears a member's whole footprint, not just its center point. */
+function farthestCornerDistance(
+  node: Node<MachineData>,
+  point: { x: number; y: number },
+): number {
+  const { x, y, w, h } = nodeRect(node)
+  const corners = [
+    { x, y },
+    { x: x + w, y },
+    { x, y: y + h },
+    { x: x + w, y: y + h },
+  ]
+  return Math.max(...corners.map((c) => Math.hypot(c.x - point.x, c.y - point.y)))
+}
+
 /**
  * A domain controller's circle grows to keep its committed members inside
  * with padding, rather than staying a fixed size. Never shrinks below
@@ -173,6 +192,9 @@ export function domainRadius(
     const c = nodeCenter(m)
     return Math.hypot(c.x - dcCenter.x, c.y - dcCenter.y)
   })
+  // Drives the actual radius growth — the farthest corner of each member's
+  // rect, so the circle always clears its footprint, not just its center.
+  const edgeDistances = members.map((m) => farthestCornerDistance(m, dcCenter))
 
   let maxDist = 0
   members.forEach((member, i) => {
@@ -194,10 +216,10 @@ export function domainRadius(
     const isLeaving = dist > radiusWithoutMember + DOMAIN_EXIT_MARGIN && !hasNearbyNeighbor
     if (isLeaving) return
 
-    if (dist > maxDist) maxDist = dist
+    if (edgeDistances[i] > maxDist) maxDist = edgeDistances[i]
   })
 
-  return Math.max(DOMAIN_RADIUS, maxDist + DOMAIN_MEMBER_PADDING)
+  return Math.max(DOMAIN_RADIUS, maxDist + DOMAIN_CIRCLE_MARGIN)
 }
 
 /** Human label for a domain — the DC's configured domain name, else its node name. */

@@ -106,13 +106,22 @@ export function Canvas() {
 
   const onSelectionChange = useCallback(
     ({ nodes: selected }: OnSelectionChangeParams) => {
-      selectNode(selected[0]?.id ?? null)
+      // Only surface a single node to the Inspector; 0 or 2+ selected both
+      // collapse to "nothing selected" so the panel hides for multi-select.
+      selectNode(selected.length === 1 ? selected[0].id : null)
     },
     [selectNode],
   )
 
   const onNodeDragStart = useCallback(
     (_: MouseEvent | TouchEvent, node: Node<MachineData>) => {
+      // A multi-node selection is carried as a group by React Flow itself;
+      // skip the single-node domain-member/overlap orchestration below.
+      if (nodes.filter((n) => n.selected).length > 1) {
+        dragStart.current = null
+        setOverlapNode(null)
+        return
+      }
       // Dragging a domain controller carries its committed members along
       // rigidly — snapshot their starting positions too.
       const members =
@@ -134,6 +143,11 @@ export function Canvas() {
   // currently overlapping another node.
   const onNodeDrag: OnNodeDrag<Node<MachineData>> = useCallback(
     (_, node) => {
+      if (nodes.filter((n) => n.selected).length > 1) {
+        setOverlapNode(null)
+        return
+      }
+
       const start = dragStart.current
       const memberIds = start?.members.map((m) => m.id) ?? []
 
@@ -163,6 +177,11 @@ export function Canvas() {
   // than applying immediately.
   const onNodeDragStop = useCallback(
     (_: MouseEvent | TouchEvent, node: Node<MachineData>) => {
+      if (nodes.filter((n) => n.selected).length > 1) {
+        setOverlapNode(null)
+        return
+      }
+
       const start = dragStart.current
       const memberIds = start?.members.map((m) => m.id) ?? []
       const others = nodes.filter((n) => n.id !== node.id && !memberIds.includes(n.id))
@@ -264,6 +283,8 @@ export function Canvas() {
         onDragOver={onDragOver}
         onDrop={onDrop}
         onMoveEnd={onMoveEnd}
+        multiSelectionKeyCode="Shift"
+        selectionKeyCode="Shift"
         defaultViewport={initialViewport}
         colorMode={resolvedTheme}
         proOptions={{ hideAttribution: true }}

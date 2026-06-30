@@ -128,3 +128,11 @@
     @apply font-sans;
     }
 }
+
+/* React Flow draws a bounding box around a multi-node selection that doubles
+   as a group-drag handle. Keep the drag behavior but hide the visible box —
+   each node already shows its own selection ring. */
+.react-flow__nodesselection-rect {
+  background: transparent;
+  border: none;
+}
