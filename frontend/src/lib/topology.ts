@@ -108,7 +108,7 @@ export function domainMembership(
   )
   if (!joinEdge) return null
   const dcNode = nodes.find((n) => n.id === joinEdge.target)
-  return dcNode?.data.name ?? null
+  return dcNode ? domainLabel(dcNode) : null
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +203,13 @@ export function domainRadius(
 /** Human label for a domain — the DC's configured domain name, else its node name. */
 export function domainLabel(dc: Node<MachineData>): string {
   return dc.data.config?.domainName ?? dc.data.name
+}
+
+const DOMAIN_LABEL_MAX_CHARS = 24
+
+/** Truncates a label to `max` characters, appending an ellipsis if it was cut. */
+export function truncateLabel(label: string, max = DOMAIN_LABEL_MAX_CHARS): string {
+  return label.length > max ? `${label.slice(0, max)}…` : label
 }
 
 /**

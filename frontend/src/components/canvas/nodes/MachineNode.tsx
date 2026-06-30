@@ -4,7 +4,7 @@ import type { NodeProps, Node } from "@xyflow/react"
 import { cn } from "@/lib/utils"
 import { TEMPLATE_BY_ID } from "@/constants/templates"
 import { EDGE_TYPE, NODE_STATUS } from "@/constants/topology"
-import { caTier, caDepth, domainMembership } from "@/lib/topology"
+import { caTier, caDepth, domainMembership, truncateLabel } from "@/lib/topology"
 import { useTopologyStore } from "@/store/topology"
 import type { MachineData } from "@/store/topology"
 import { Badge } from "@/components/ui/badge"
@@ -120,8 +120,12 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           </Badge>
         )}
         {domain && (
-          <Badge variant="outline" className="text-[10px] border-blue-500/40 text-blue-400">
-            Domain: {domain}
+          <Badge
+            variant="outline"
+            className="text-[10px] border-blue-500/40 text-blue-400 max-w-full"
+            title={`Domain: ${domain}`}
+          >
+            <span className="truncate">Domain: {truncateLabel(domain)}</span>
           </Badge>
         )}
         {memberCount !== null && (
