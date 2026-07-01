@@ -16,7 +16,9 @@ import { TEMPLATE_BY_ID } from "@/constants/templates"
 import type { ConfigField } from "@/constants/templates"
 import { LIFECYCLE } from "@/constants/topology"
 import { caTier, caDepth, domainMembership, isDeployed } from "@/lib/topology"
+import type { StagedOp } from "@/lib/staging"
 import { useTopologyStore } from "@/store/topology"
+import { opsReferencingNode, useStagingStore } from "@/store/staging"
 import { CAPABILITIES } from "@/constants/auth"
 import { useCan } from "@/hooks/useCan"
 import { Badge } from "@/components/ui/badge"
@@ -31,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { StagedRemoveDialog } from "./StagedRemoveDialog"
 
 function PlannedAction({
   icon: Icon,
@@ -153,6 +156,7 @@ export function Inspector() {
   const [editingName, setEditingName] = useState(false)
   const [draftName, setDraftName] = useState("")
   const [reconfiguring, setReconfiguring] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<StagedOp[] | null>(null)
 
   const canPower = useCan(CAPABILITIES.vmPower)
   const canUpdate = useCan(CAPABILITIES.vmUpdate)
@@ -197,8 +201,21 @@ export function Inspector() {
   }
 
   function handleDelete() {
+    const affected = opsReferencingNode(useStagingStore.getState().ops, nodeId)
+    if (affected.length === 0) {
+      store.removeNode(nodeId)
+      toast("Node removed.")
+      return
+    }
+    setPendingDelete(affected)
+  }
+
+  function confirmDelete() {
+    // removeNode itself cascades any ops referencing the node — this dialog
+    // is purely the confirmation gate.
     store.removeNode(nodeId)
     toast("Node removed.")
+    setPendingDelete(null)
   }
 
   function handleConfigure(config?: Record<string, string>) {
@@ -468,6 +485,12 @@ export function Inspector() {
           </Button>
         </section>
       </div>
+
+      <StagedRemoveDialog
+        ops={pendingDelete}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </aside>
   )
 }

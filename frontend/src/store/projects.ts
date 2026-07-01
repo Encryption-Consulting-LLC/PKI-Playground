@@ -22,8 +22,10 @@ import type { Viewport } from "@xyflow/react"
 
 import { STORAGE_KEYS } from "@/constants"
 import { LIFECYCLE } from "@/constants/topology"
+import type { StagedOp } from "@/lib/staging"
 import type { MachineData } from "@/store/topology"
 import { DEFAULT_VIEWPORT, useTopologyStore } from "@/store/topology"
+import { useStagingStore } from "@/store/staging"
 import { withSuppressedAutosave } from "@/lib/projectAutosave"
 
 export interface Project {
@@ -34,6 +36,9 @@ export interface Project {
   counters: Record<string, number>
   /** Camera pan/zoom, restored when this project's tab is reopened. */
   viewport: Viewport
+  /** Staged ops queued ahead of a deploy — see `store/staging.ts`. Optional so pre-M2 saves keep loading (missing → treated as `[]`). */
+  stagedOps?: StagedOp[]
+  deployJobId?: string | null
   dirty: boolean
   updatedAt: number
 }
@@ -87,6 +92,8 @@ function emptyProject(name: string): Project {
     edges: [],
     counters: {},
     viewport: DEFAULT_VIEWPORT,
+    stagedOps: [],
+    deployJobId: null,
     dirty: false,
     updatedAt: Date.now(),
   }
@@ -119,7 +126,11 @@ export const useProjectsStore = create<ProjectsState>()(
         if (projects.length > 0) {
           const active =
             projects.find((p) => p.id === get().activeProjectId) ?? projects[0]
-          withSuppressedAutosave(() =>
+          withSuppressedAutosave(() => {
+            // Ops load first so `loadSnapshot`'s resumeJobs can see them —
+            // a mid-plan node reverting to `staged` rather than `draft`
+            // depends on the matching op already being in the staging store.
+            useStagingStore.getState().loadOps(active.stagedOps ?? [], active.deployJobId ?? null)
             useTopologyStore
               .getState()
               .loadSnapshot(
@@ -127,16 +138,17 @@ export const useProjectsStore = create<ProjectsState>()(
                 active.edges,
                 active.counters,
                 active.viewport ?? DEFAULT_VIEWPORT,
-              ),
-          )
+              )
+          })
           if (!get().activeProjectId) set({ activeProjectId: projects[0].id })
           return
         }
         const project = emptyProject("Project 1")
         set({ projects: [project], activeProjectId: project.id, nextProjectNumber: 2 })
-        withSuppressedAutosave(() =>
-          useTopologyStore.getState().loadSnapshot([], [], {}, DEFAULT_VIEWPORT),
-        )
+        withSuppressedAutosave(() => {
+          useStagingStore.getState().loadOps([], null)
+          useTopologyStore.getState().loadSnapshot([], [], {}, DEFAULT_VIEWPORT)
+        })
       },
 
       addProject() {
@@ -148,9 +160,10 @@ export const useProjectsStore = create<ProjectsState>()(
           activeProjectId: project.id,
           nextProjectNumber: n + 1,
         }))
-        withSuppressedAutosave(() =>
-          useTopologyStore.getState().loadSnapshot([], [], {}, DEFAULT_VIEWPORT),
-        )
+        withSuppressedAutosave(() => {
+          useStagingStore.getState().loadOps([], null)
+          useTopologyStore.getState().loadSnapshot([], [], {}, DEFAULT_VIEWPORT)
+        })
       },
 
       renameProject(id, name) {
@@ -169,7 +182,8 @@ export const useProjectsStore = create<ProjectsState>()(
         const target = get().projects.find((p) => p.id === id)
         if (!target) return
         set({ activeProjectId: id })
-        withSuppressedAutosave(() =>
+        withSuppressedAutosave(() => {
+          useStagingStore.getState().loadOps(target.stagedOps ?? [], target.deployJobId ?? null)
           useTopologyStore
             .getState()
             .loadSnapshot(
@@ -177,8 +191,8 @@ export const useProjectsStore = create<ProjectsState>()(
               target.edges,
               target.counters,
               target.viewport ?? DEFAULT_VIEWPORT,
-            ),
-        )
+            )
+        })
       },
 
       markActiveDirty() {
@@ -196,10 +210,11 @@ export const useProjectsStore = create<ProjectsState>()(
         const { activeProjectId } = get()
         if (!activeProjectId) return
         const { nodes, edges, counters, viewport } = useTopologyStore.getState()
+        const { ops: stagedOps, deployJobId } = useStagingStore.getState()
         set((s) => ({
           projects: s.projects.map((p) =>
             p.id === activeProjectId
-              ? { ...p, nodes, edges, counters, viewport, dirty: false, updatedAt: Date.now() }
+              ? { ...p, nodes, edges, counters, viewport, stagedOps, deployJobId, dirty: false, updatedAt: Date.now() }
               : p,
           ),
         }))
@@ -209,9 +224,12 @@ export const useProjectsStore = create<ProjectsState>()(
         const { activeProjectId } = get()
         if (!activeProjectId) return
         const { nodes, edges, counters, viewport } = useTopologyStore.getState()
+        const { ops: stagedOps, deployJobId } = useStagingStore.getState()
         set((s) => ({
           projects: s.projects.map((p) =>
-            p.id === activeProjectId ? { ...p, nodes, edges, counters, viewport } : p,
+            p.id === activeProjectId
+              ? { ...p, nodes, edges, counters, viewport, stagedOps, deployJobId }
+              : p,
           ),
         }))
       },

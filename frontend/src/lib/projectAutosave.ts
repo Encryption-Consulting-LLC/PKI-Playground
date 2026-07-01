@@ -12,6 +12,7 @@
 import { EDGE_TYPE } from "@/constants/topology"
 import { useTopologyStore } from "@/store/topology"
 import { useProjectsStore } from "@/store/projects"
+import { useStagingStore } from "@/store/staging"
 
 let suppressed = false
 
@@ -77,6 +78,15 @@ export function initProjectAutosave() {
       useProjectsStore.getState().saveActiveSnapshot()
     } else {
       useProjectsStore.getState().markActiveDirty()
+    }
+  })
+
+  // Staged ops change at human frequency (one stage/undo/deploy at a time),
+  // so every change is worth a real checkpoint rather than a dirty-mark.
+  useStagingStore.subscribe((state, prev) => {
+    if (suppressed) return
+    if (state.ops !== prev.ops || state.deployJobId !== prev.deployJobId) {
+      useProjectsStore.getState().saveActiveSnapshot()
     }
   })
 }

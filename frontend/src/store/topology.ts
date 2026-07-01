@@ -24,7 +24,6 @@ import { create } from "zustand"
 import { AUTO_NAME_PREFIX } from "@/constants/templates"
 import { EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
 import type { Lifecycle } from "@/constants/topology"
-import { cloneVm } from "@/lib/api"
 import { openJobSocket } from "@/lib/ws"
 import {
   canConnect,
@@ -35,18 +34,9 @@ import {
   inferEdgeType,
   isDomainEligible,
 } from "@/lib/topology"
+import { OP_KIND, findStagedOp } from "@/lib/staging"
 import { useAuthStore } from "@/store/auth"
-
-// Standalone clone parameters. The base image and host specs are fixed for the
-// playground; only the per-VM name varies. Names are prefixed with
-// `guest-<uniqueId>-` (uniqueId = a short slice of the session token) so each
-// guest's clones are easy to spot in the ESXi inventory.
-const STANDALONE_CLONE = {
-  base: "ws-2025-base",
-  datastore: "datastore1",
-  cpus: 2,
-  mem_mb: 4096,
-} as const
+import { opsReferencingNode, useStagingStore } from "@/store/staging"
 
 // ---------------------------------------------------------------------------
 // Node data type
@@ -178,13 +168,18 @@ interface TopologyState {
   /**
    * Reattaches job-progress sockets for any node still `deploying` after a
    * reload (has a persisted `jobId`), and reverts any `deploying` node with
-   * no `jobId` (simulated templates, or a reload mid-enqueue) back to
-   * `draft` so it's retryable. Called after `loadSnapshot`.
+   * no `jobId` (a plan-driven op, or a reload mid-enqueue) back to `staged`
+   * (if a matching staged op survived the reload) or `draft`. Called after
+   * `loadSnapshot`.
    */
   resumeJobs: () => void
   renameNode: (id: string, name: string) => void
+  /** Merges a partial data patch into one node — the seam the staging store's undo/cascade reverts go through. */
+  patchNodeData: (id: string, data: Partial<MachineData>) => void
   removeNode: (id: string) => void
   removeEdge: (id: string) => void
+  /** Re-adds a previously-removed edge verbatim — used by `domainLeave` undo to restore the exact membership edge it replaced. */
+  restoreEdge: (edge: Edge) => void
   selectNode: (id: string | null) => void
   setViewport: (viewport: Viewport) => void
   setOverlapNode: (id: string | null) => void
@@ -256,8 +251,9 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       rootIssuer: sourceNode.data.config?.caType === "Root",
     })
 
+    const edgeId = `e-${source}-${target}`
     const newEdge: Edge = {
-      id: `e-${source}-${target}`,
+      id: edgeId,
       source,
       target,
       sourceHandle,
@@ -266,11 +262,33 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       // and other edges keep the existing orthogonal routing.
       type: type === EDGE_TYPE.webServerCert ? "default" : "smoothstep",
       markerEnd: { type: "arrowclosed" as const },
-      data: { edgeType: type },
+      data: { edgeType: type, staged: true },
       ...style,
+      // Ghost styling until this op is deployed — commitEdge (M4) clears it.
+      style: { ...style.style, strokeDasharray: "6 4", opacity: 0.6 },
     }
 
     set((s) => ({ edges: addEdge(newEdge, s.edges) }))
+
+    // A CA-hierarchy op belongs to the child being issued to; a web-server
+    // publish op belongs to the issuing CA — see lib/staging.ts's
+    // inferDependsOn, which keys a webServerCert op's caConnect dependency
+    // off this same targetNodeId.
+    const isCaHierarchy = type === EDGE_TYPE.caHierarchy
+    const opTarget = isCaHierarchy ? targetNode : sourceNode
+    const opSecondary = isCaHierarchy ? sourceNode : targetNode
+
+    useStagingStore.getState().stageOp({
+      kind: isCaHierarchy ? OP_KIND.caConnect : OP_KIND.webServerCert,
+      targetNodeId: opTarget.id,
+      secondaryNodeId: opSecondary.id,
+      params: {},
+      label: isCaHierarchy
+        ? `Issue from ${opSecondary.data.name}`
+        : `Publish CDP/AIA to ${opSecondary.data.name}`,
+      edgeId,
+    })
+
     return null // null = success
   },
 
@@ -312,18 +330,46 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
 
   applyDomainChanges(changes) {
     if (changes.length === 0) return
-    set((s) => {
-      let edges = s.edges
-      for (const c of changes) {
-        // Drop any existing membership, then add the new one (if joining).
-        edges = edges.filter(
-          (e) =>
-            !(e.source === c.nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin),
-        )
-        if (c.dcId) edges = [...edges, domainJoinEdge(c.nodeId, c.dcId)]
+    for (const c of changes) {
+      // Capture what's being replaced before mutating — `domainLeave`'s
+      // undo needs the DC it left to re-add the exact same edge.
+      const prevEdge = get().edges.find(
+        (e) => e.source === c.nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin,
+      )
+      const prevDcId = prevEdge?.target ?? null
+
+      set((s) => ({
+        edges: s.edges.filter(
+          (e) => !(e.source === c.nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin),
+        ),
+      }))
+
+      // Retargeting (or leaving) a membership that only existed as a staged
+      // op is a pure undo of that op — no domainLeave op needed.
+      const existingJoinOp = findStagedOp(useStagingStore.getState().ops, OP_KIND.domainJoin, c.nodeId)
+      if (existingJoinOp) useStagingStore.getState().removeOpCascade(existingJoinOp.id)
+
+      if (c.dcId) {
+        const newEdge = domainJoinEdge(c.nodeId, c.dcId)
+        set((s) => ({ edges: [...s.edges, newEdge] }))
+        useStagingStore.getState().stageOp({
+          kind: OP_KIND.domainJoin,
+          targetNodeId: c.nodeId,
+          secondaryNodeId: c.dcId,
+          params: {},
+          label: `Join ${c.domainName}`,
+          edgeId: newEdge.id,
+        })
+      } else if (!existingJoinOp) {
+        // Leaving a membership that was actually deployed.
+        useStagingStore.getState().stageOp({
+          kind: OP_KIND.domainLeave,
+          targetNodeId: c.nodeId,
+          params: prevDcId ? { prevDcId } : {},
+          label: "Leave domain",
+        })
       }
-      return { edges }
-    })
+    }
   },
 
   configureNode(id, config) {
@@ -336,50 +382,37 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       }))
 
     const node = get().nodes.find((n) => n.id === id)
+    if (!node) return
+    const { lifecycle } = node.data
 
-    patch({
-      lifecycle: LIFECYCLE.deploying,
-      progress: 0,
-      phase: undefined,
-      jobId: undefined,
-      ...(config ? { config } : {}),
-    })
-
-    // Standalone is the only template wired to the real clone API. Everything
-    // else still simulates the workflow delay.
-    if (node?.data.typeId === "standalone") {
-      const token = useAuthStore.getState().token
-      const uniqueId = token ? token.slice(0, 8) : "local"
-      const name = `guest-${uniqueId}-${node.data.name}`
-
-      cloneVm({ name, ...STANDALONE_CLONE })
-        .then(({ job_id }) => {
-          patch({ jobId: job_id })
-          attachJobSocket(id, job_id, token, patch)
-        })
-        .catch(() => patch({ lifecycle: LIFECYCLE.failed }))
+    // Deployed already — config edits mark it drifted rather than restaging;
+    // reapplying a deployed node's config is out of scope for v1 (Deploy
+    // skips drifted nodes).
+    if (lifecycle === LIFECYCLE.deployed || lifecycle === LIFECYCLE.drifted) {
+      patch({ ...(config ? { config } : {}), lifecycle: LIFECYCLE.drifted })
       return
     }
 
-    // Simulated templates: animate a fake 0→100 bar over the delay so every node
-    // shows consistent progress UI, then mark deployed.
-    const start = Date.now()
-    const DURATION = 1800
-    const timer = setInterval(() => {
-      const pct = Math.min(100, ((Date.now() - start) / DURATION) * 100)
-      if (pct >= 100) {
-        clearInterval(timer)
-        const current = get().nodes.find((n) => n.id === id)
-        patch({
-          lifecycle: LIFECYCLE.deployed,
-          poweredOn: true,
-          lastDeployedConfig: current?.data.config,
-          progress: 100,
-        })
-      } else {
-        patch({ progress: Math.round(pct) })
+    // Already staged — update the pending op in place instead of staging a
+    // duplicate createVm.
+    if (lifecycle === LIFECYCLE.staged) {
+      if (config) {
+        patch({ config })
+        const op = findStagedOp(useStagingStore.getState().ops, OP_KIND.createVm, id)
+        if (op) useStagingStore.getState().updateOpParams(op.id, config)
       }
-    }, 120)
+      return
+    }
+
+    // draft or failed — stage a fresh createVm op. The real clone (or
+    // simulation) only runs once this op is flushed by Deploy.
+    patch({ ...(config ? { config } : {}), lifecycle: LIFECYCLE.staged })
+    useStagingStore.getState().stageOp({
+      kind: OP_KIND.createVm,
+      targetNodeId: id,
+      params: config ?? {},
+      label: "Create VM",
+    })
   },
 
   resumeJobs() {
@@ -404,10 +437,15 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       if (node.data.jobId) {
         attachJobSocket(node.id, node.data.jobId, token, patch)
       } else {
-        // No job to resume (simulated template, or reload happened before the
-        // clone request returned a job id) — revert so it's retryable rather
-        // than stuck "deploying" forever.
-        patch({ lifecycle: LIFECYCLE.draft, progress: undefined, phase: undefined })
+        // No job to resume — a plan-driven op mid-flight, or a reload before
+        // one enqueued. Revert to staged if a matching op survived the
+        // reload (retryable via Deploy), else draft.
+        const hasStagedOp = !!findStagedOp(useStagingStore.getState().ops, OP_KIND.createVm, node.id)
+        patch({
+          lifecycle: hasStagedOp ? LIFECYCLE.staged : LIFECYCLE.draft,
+          progress: undefined,
+          phase: undefined,
+        })
       }
     }
   },
@@ -420,9 +458,25 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     }))
   },
 
+  patchNodeData(id, data) {
+    set((s) => ({
+      nodes: s.nodes.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, ...data } } : n,
+      ),
+    }))
+  },
+
   removeNode(id) {
     activeSockets.get(id)?.()
     activeSockets.delete(id)
+    // Deleting the node makes any staged op referencing it meaningless —
+    // cascade-remove them so the Staged panel never lists a dangling op.
+    // (The UI's own confirm dialog is expected to have already asked about
+    // this before calling removeNode; this is the data-integrity backstop.)
+    const staging = useStagingStore.getState()
+    for (const op of opsReferencingNode(staging.ops, id)) {
+      useStagingStore.getState().removeOpCascade(op.id)
+    }
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
@@ -432,6 +486,10 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
 
   removeEdge(id) {
     set((s) => ({ edges: s.edges.filter((e) => e.id !== id) }))
+  },
+
+  restoreEdge(edge) {
+    set((s) => ({ edges: [...s.edges, edge] }))
   },
 
   selectNode(id) {
