@@ -106,7 +106,14 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
 
         {/* Live progress while configuring */}
         {data.status === NODE_STATUS.configuring && (
-          <ProgressBar pct={data.progress ?? 0} />
+          <>
+            {data.phase && (
+              <span className="text-[10px] text-muted-foreground truncate">
+                {data.phase}
+              </span>
+            )}
+            <ProgressBar pct={data.progress ?? 0} />
+          </>
         )}
 
         {/* Derived chips */}

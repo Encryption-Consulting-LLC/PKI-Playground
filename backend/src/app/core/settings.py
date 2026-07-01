@@ -27,6 +27,18 @@ class Settings(BaseSettings):
     esxi_password: str | None = None
     esxi_port: int = 443
 
+    # Clone job queue: Valkey is the Celery broker, a per-job pub/sub bus, and the
+    # snapshot store the job WebSocket reads from. The clone worker process opens
+    # its own ESXi connection from the esxi_* settings above (it can't share the
+    # API process's in-process session dict), so the queue only protects clones in
+    # guest mode today — see backend CLAUDE.md / the clone route docstring.
+    valkey_url: str = "redis://localhost:6379/0"
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend: str | None = "redis://localhost:6379/2"
+    # Intended `celery worker --concurrency=N`; not enforced here, just documents
+    # the global cap the deploy should run with.
+    clone_concurrency: int = 2
+
     @model_validator(mode="after")
     def _require_esxi_for_guest(self) -> "Settings":
         if self.auth_mode == "guest":

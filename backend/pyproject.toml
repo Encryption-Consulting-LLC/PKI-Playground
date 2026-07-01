@@ -7,6 +7,8 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "pydantic-settings>=2.7",
+    "celery>=5.6",
+    "redis>=5.0",
     "vmkit",
     "configgen",
     "isokit",

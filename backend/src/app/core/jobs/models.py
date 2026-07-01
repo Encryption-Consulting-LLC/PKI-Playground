@@ -13,9 +13,22 @@ from pydantic import BaseModel, Field
 
 
 class JobStatus(str, Enum):
+    queued = "queued"
     running = "running"
     done = "done"
     error = "error"
+
+
+class QueuedMsg(BaseModel):
+    """Job accepted but not yet picked up by a worker (waiting on the concurrency cap)."""
+
+    type: Literal["queued"] = "queued"
+
+
+class RunningMsg(BaseModel):
+    """Job picked up by a worker; work is about to start (no progress sample yet)."""
+
+    type: Literal["running"] = "running"
 
 
 class ProgressMsg(BaseModel):
@@ -39,7 +52,8 @@ class ErrorMsg(BaseModel):
 
 #: Anything the runner/producer can publish onto a job's channel.
 Message = Annotated[
-    Union[ProgressMsg, DoneMsg, ErrorMsg], Field(discriminator="type")
+    Union[QueuedMsg, RunningMsg, ProgressMsg, DoneMsg, ErrorMsg],
+    Field(discriminator="type"),
 ]
 
 #: Message ``type``s after which the stream ends and the socket closes.

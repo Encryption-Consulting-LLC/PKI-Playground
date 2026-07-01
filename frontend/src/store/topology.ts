@@ -271,6 +271,11 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
           // Stream live clone progress onto the node; the socket closes itself
           // (and we close it) once a terminal frame arrives.
           const close = openJobSocket(job_id, token, {
+            // Clones queue behind the backend's worker concurrency cap; surface
+            // that wait as a phase label rather than a separate node status so
+            // existing status-driven UI (badges, counts) doesn't need to change.
+            onQueued: () => patch({ phase: "Queued", progress: 0 }),
+            onRunning: () => patch({ phase: "Starting", progress: 0 }),
             onProgress: (e) => patch({ progress: e.percent, phase: e.phase }),
             onDone: () => {
               patch({ status: NODE_STATUS.configured, progress: 100 })

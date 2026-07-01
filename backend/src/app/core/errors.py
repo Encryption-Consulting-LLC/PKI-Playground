@@ -6,9 +6,9 @@ exception maps to. It is reused in two places:
 * ``register_exception_handlers(app)`` — wires it to FastAPI so HTTP routes that
   let a vmkit error propagate get the right status, as a ``{"detail": ...}`` body
   matching FastAPI/Pydantic's own error format (one error-parsing branch for callers).
-* ``app.core.jobs.runner`` — long-running ops run off-request (over WebSocket),
-  where there is no HTTP response to attach a handler to, so the runner maps the
-  error itself into a terminal progress message.
+* ``app.tasks`` — the clone Celery task runs off-request in a separate worker
+  process, where there is no HTTP response to attach a handler to, so it maps the
+  error itself into a terminal progress message published over the job transport.
 
 The table is ordered most-specific first; lookup walks it by ``isinstance`` so the
 base-class catch-all (``VmkitError`` → 500) fires only when nothing else matches.

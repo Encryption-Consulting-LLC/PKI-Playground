@@ -14,22 +14,27 @@ path. The file must already exist on the host running this API. Building or
 uploading ISOs from a client is an isokit concern and is not in scope here.
 """
 
-import asyncio
+import uuid
 from dataclasses import asdict
+from typing import Callable
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from vmkit import Connection, Phase, ProgressEvent, clone_workflow, update_workflow
+from vmkit import Connection, Phase, ProgressEvent, update_workflow
 from vmkit.errors import VmNotFoundError
 from vmkit.esxi import get_vm_by_name, list_vm_names, power_off_vm, power_on_vm
 from vmkit.workflows import get_vm_config, validate_disk_usage
 
 from app.core.authz import Capability, require_capability
-from app.core.jobs import ProgressMsg, registry, runner
-from app.core.jobs.runner import Publish
+from app.core.jobs import transport
+from app.core.jobs.models import JobStatus, Message, ProgressMsg, QueuedMsg
 from app.core.sessions import get_session
 
 router = APIRouter(prefix="/vm", tags=["vm"])
+
+#: Producer-facing sink: thread-safe, never raises. The clone task (running in the
+#: Celery worker process) passes a Valkey-backed implementation of this shape.
+Publish = Callable[[Message], None]
 
 
 class CloneProgressReducer:
@@ -116,25 +121,27 @@ class DiskCheckRequest(BaseModel):
     status_code=202,
     dependencies=[Depends(require_capability(Capability.VM_CLONE))],
 )
-async def clone(req: CloneRequest, conn: Connection = Depends(get_session)) -> dict:
-    """Start a clone as a background job; stream progress over ws /api/ws/jobs/{job_id}.
+async def clone(req: CloneRequest, _conn: Connection = Depends(get_session)) -> dict:
+    """Enqueue a clone as a Celery job; stream progress over ws /api/ws/jobs/{job_id}.
 
-    Returns ``202 {"job_id": ...}`` immediately. The clone runs off the event loop
-    (vmkit is synchronous); progress events are reduced to an overall percent and
-    the terminal message carries the CloneResult (same shape this route used to
-    return synchronously) or a mapped error.
+    Returns ``202 {"job_id": ...}`` immediately. The actual clone runs in a separate
+    Celery worker process (bounded by ``celery worker --concurrency``, the global
+    cap protecting the shared ESXi host) rather than on this request's connection —
+    the worker opens its own ``Connection`` from the guest-mode ESXi settings, since
+    a worker process can't reach this process's in-process session store. ``get_session``
+    is still required here purely as the auth/session gate (a valid token to clone at
+    all); the resolved ``Connection`` itself goes unused.
+
+    The job starts life as ``queued`` (this message is published before the task is
+    even handed to Celery) so a client watching the WebSocket sees it wait if the
+    worker pool is busy, then transition to ``running`` once picked up.
     """
-    job = registry.create()
-    params = req.model_dump()
-    total_ops = _clone_total_ops(req)
+    from app.tasks import clone_vm_task  # local import: avoids loading Celery for every route
 
-    def blocking(publish: Publish) -> dict:
-        reducer = CloneProgressReducer(publish, total_ops)
-        result = clone_workflow(conn, progress=reducer, **params)
-        return asdict(result)
-
-    asyncio.create_task(runner.start(job, blocking))
-    return {"job_id": job.id}
+    job_id = uuid.uuid4().hex
+    transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)
+    clone_vm_task.delay(job_id, req.model_dump())
+    return {"job_id": job_id}
 
 
 @router.post(

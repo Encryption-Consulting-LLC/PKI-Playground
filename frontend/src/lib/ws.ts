@@ -9,6 +9,14 @@
 
 import { API_BASE, URLS } from "@/constants"
 
+export interface QueuedEvent {
+  type: "queued"
+}
+
+export interface RunningEvent {
+  type: "running"
+}
+
 export interface ProgressEvent {
   type: "progress"
   percent: number
@@ -28,9 +36,13 @@ export interface ErrorEvent {
   detail: string
 }
 
-export type JobMessage = ProgressEvent | DoneEvent | ErrorEvent
+export type JobMessage = QueuedEvent | RunningEvent | ProgressEvent | DoneEvent | ErrorEvent
 
 export interface JobSocketHandlers {
+  /** Job accepted but waiting on the worker pool's concurrency cap. */
+  onQueued?: (event: QueuedEvent) => void
+  /** Job picked up by a worker; work is about to start. */
+  onRunning?: (event: RunningEvent) => void
   onProgress?: (event: ProgressEvent) => void
   onDone?: (event: DoneEvent) => void
   /** Backend `error` frame, or a transport failure (status 0). */
@@ -63,6 +75,12 @@ export function openJobSocket(
       return
     }
     switch (msg.type) {
+      case "queued":
+        handlers.onQueued?.(msg)
+        break
+      case "running":
+        handlers.onRunning?.(msg)
+        break
       case "progress":
         handlers.onProgress?.(msg)
         break

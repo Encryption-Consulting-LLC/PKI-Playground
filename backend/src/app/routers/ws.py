@@ -1,16 +1,26 @@
 """WebSocket routes for streaming background-job progress.
 
-Generic: any job created via ``app.core.jobs.registry`` can be watched here, not
+Generic: any job published via ``app.core.jobs.transport`` can be watched here, not
 just clones. Mounted under ``/api`` → ``ws /api/ws/jobs/{job_id}``.
 
 Auth: browsers can't set custom headers on the WS upgrade, so the session token
-comes as a ``?token=`` query param and is resolved against the same session store
-the HTTP routes use. Close codes: 4401 (bad/absent token), 4404 (unknown job).
+comes as a ``?token=`` query param and is resolved against the same in-process
+session store the HTTP routes use (the WS endpoint itself still runs in the FastAPI
+process — only the clone work runs in a separate Celery worker). Close codes: 4401
+(bad/absent token), 4404 (unknown/expired job — no snapshot in Valkey).
+
+Job state and live messages live in Valkey (see ``transport``), not in this
+process, so this works the same whether the job is being run by a local worker or
+one on another host, and the API can be scaled to multiple replicas without sticky
+routing.
 """
+
+import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.core.jobs import is_terminal, registry
+from app.core.jobs import transport
+from app.core.jobs.models import TERMINAL_TYPES
 from app.core.sessions import resolve_token
 
 router = APIRouter(prefix="/ws", tags=["ws"])
@@ -22,32 +32,37 @@ async def job_progress(websocket: WebSocket, job_id: str, token: str | None = No
         await websocket.close(code=4401)
         return
 
-    job = registry.get(job_id)
-    if job is None:
-        await websocket.close(code=4404)
-        return
-
-    await websocket.accept()
-
-    # Subscribe before reading the snapshot so nothing published in between is
-    # missed. The snapshot gives an instantly-current bar; if it's already
-    # terminal the job finished before we connected and there's nothing to stream.
-    queue = job.pubsub.subscribe()
+    redis_client = transport.make_async_client()
+    pubsub = redis_client.pubsub()
     try:
-        snapshot = job.last
-        if snapshot is not None:
-            await websocket.send_json(snapshot.model_dump())
-            if is_terminal(snapshot):
+        # Subscribe before reading the snapshot so nothing published in between is
+        # missed. The snapshot gives an instantly-current bar; if it's already
+        # terminal the job finished before we connected and there's nothing to stream.
+        await pubsub.subscribe(transport.channel(job_id))
+
+        snapshot = await transport.read_snapshot(redis_client, job_id)
+        if snapshot is None:
+            await websocket.close(code=4404)
+            return
+
+        await websocket.accept()
+
+        last = snapshot["last"]
+        if last is not None:
+            await websocket.send_json(last)
+            if last["type"] in TERMINAL_TYPES:
                 return
 
-        while True:
-            msg = await queue.get()
-            if msg is None:  # channel closed without a terminal frame
-                break
-            await websocket.send_json(msg.model_dump())
-            if is_terminal(msg):
+        async for raw in pubsub.listen():
+            if raw["type"] != "message":
+                continue
+            msg = json.loads(raw["data"])
+            await websocket.send_json(msg)
+            if msg["type"] in TERMINAL_TYPES:
                 break
     except WebSocketDisconnect:
         pass
     finally:
-        job.pubsub.unsubscribe(queue)
+        await pubsub.unsubscribe(transport.channel(job_id))
+        await pubsub.aclose()
+        await redis_client.aclose()
