@@ -9,7 +9,7 @@
  * changed). Plain drags/drops of `unconfigured` nodes only mark dirty.
  */
 
-import { EDGE_TYPE, NODE_STATUS } from "@/constants/topology"
+import { EDGE_TYPE } from "@/constants/topology"
 import { useTopologyStore } from "@/store/topology"
 import { useProjectsStore } from "@/store/projects"
 
@@ -23,10 +23,6 @@ export function withSuppressedAutosave(fn: () => void) {
   } finally {
     suppressed = false
   }
-}
-
-function isTerminal(status: string) {
-  return status === NODE_STATUS.configured || status === NODE_STATUS.error
 }
 
 function domainJoinEdgeIds(edges: ReturnType<typeof useTopologyStore.getState>["edges"]) {
@@ -54,17 +50,23 @@ export function initProjectAutosave() {
       return
     }
 
-    const prevStatusById = new Map(prev.nodes.map((n) => [n.id, n.data.status]))
-    const justFinished = state.nodes.some((n) => {
-      const prevStatus = prevStatusById.get(n.id)
-      return prevStatus !== n.data.status && isTerminal(n.data.status)
+    // A node set change (add/remove) or a status/jobId transition is worth a
+    // real checkpoint — it's what lets `unconfigured` nodes and an in-flight
+    // `configuring` + `jobId` survive a reload (see resumeJobs in
+    // store/topology.ts). Bare drags/progress ticks stay on the cheap
+    // dirty-mark path below so they don't spam localStorage.
+    const nodeSetChanged = state.nodes.length !== prev.nodes.length
+    const prevById = new Map(prev.nodes.map((n) => [n.id, n.data]))
+    const nodeStateChanged = state.nodes.some((n) => {
+      const prevData = prevById.get(n.id)
+      return !prevData || prevData.status !== n.data.status || prevData.jobId !== n.data.jobId
     })
 
     const domainChanged =
       state.edges !== prev.edges &&
       !setsEqual(domainJoinEdgeIds(state.edges), domainJoinEdgeIds(prev.edges))
 
-    if (justFinished || domainChanged) {
+    if (nodeSetChanged || nodeStateChanged || domainChanged) {
       useProjectsStore.getState().saveActiveSnapshot()
     } else {
       useProjectsStore.getState().markActiveDirty()

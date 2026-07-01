@@ -61,6 +61,13 @@ export interface MachineData extends Record<string, unknown> {
   progress?: number
   /** Human label of the current configuration step (from the progress stream). */
   phase?: string
+  /**
+   * Backend clone job id while `status === configuring` on the `standalone`
+   * template. Persisted (rides `MachineData` into localStorage) so a reload
+   * can resubscribe to the job's WebSocket instead of losing it — see
+   * `attachJobSocket`/`resumeJobs`.
+   */
+  jobId?: string
 }
 
 /**
@@ -75,6 +82,60 @@ export interface DomainSyncChange {
   nodeName: string
   dcId: string | null
   domainName: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Live job sockets
+// ---------------------------------------------------------------------------
+
+// Transient, per-node teardown for an open job-progress socket. Deliberately
+// module-level (not store state): it holds closures, not serializable data,
+// and mirrors `overlapNodeId`'s reasoning — it must never flow into
+// persistence or trip the autosave subscription.
+const activeSockets = new Map<string, () => void>()
+
+/**
+ * Opens (or, after a reload, resumes) the progress socket for one node's clone
+ * job and wires it to `patch`. Shared by `configureNode` (fresh clone) and
+ * `resumeJobs` (rehydration) so both paths handle queued/running/progress/
+ * done/error identically. Skips if a socket for `nodeId` is already tracked.
+ */
+function attachJobSocket(
+  nodeId: string,
+  jobId: string,
+  token: string | null | undefined,
+  patch: (data: Partial<MachineData>) => void,
+) {
+  if (activeSockets.has(nodeId)) return
+
+  const close = openJobSocket(jobId, token, {
+    // Clones queue behind the backend's worker concurrency cap; surface
+    // that wait as a phase label rather than a separate node status so
+    // existing status-driven UI (badges, counts) doesn't need to change.
+    onQueued: () => patch({ phase: "Queued", progress: 0 }),
+    onRunning: () => patch({ phase: "Starting", progress: 0 }),
+    onProgress: (e) => patch({ progress: e.percent, phase: e.phase }),
+    onDone: () => {
+      activeSockets.delete(nodeId)
+      patch({ status: NODE_STATUS.configured, progress: 100, jobId: undefined })
+      close()
+    },
+    onError: (e) => {
+      activeSockets.delete(nodeId)
+      // status 0 is a synthetic frame from `lib/ws.ts` for a socket that
+      // closed without a terminal frame — e.g. the backend's snapshot expired
+      // (4404) or the WS dropped mid-clone. That's not necessarily a failed
+      // clone, so revert to unconfigured (retryable) rather than a hard
+      // error; a real backend `error` frame (status > 0) is a genuine failure.
+      if (e.status === 0) {
+        patch({ status: NODE_STATUS.unconfigured, progress: undefined, phase: undefined, jobId: undefined })
+      } else {
+        patch({ status: NODE_STATUS.error, jobId: undefined })
+      }
+      close()
+    },
+  })
+  activeSockets.set(nodeId, close)
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +165,13 @@ interface TopologyState {
   computeDomainChanges: (movedId: string) => DomainSyncChange[]
   applyDomainChanges: (changes: DomainSyncChange[]) => void
   configureNode: (id: string, config?: Record<string, string>) => void
+  /**
+   * Reattaches job-progress sockets for any node still `configuring` after a
+   * reload (has a persisted `jobId`), and reverts any `configuring` node with
+   * no `jobId` (simulated templates, or a reload mid-enqueue) back to
+   * `unconfigured` so it's retryable. Called after `loadSnapshot`.
+   */
+  resumeJobs: () => void
   renameNode: (id: string, name: string) => void
   removeNode: (id: string) => void
   removeEdge: (id: string) => void
@@ -256,6 +324,7 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       status: NODE_STATUS.configuring,
       progress: 0,
       phase: undefined,
+      jobId: undefined,
       ...(config ? { config } : {}),
     })
 
@@ -268,24 +337,8 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
 
       cloneVm({ name, ...STANDALONE_CLONE })
         .then(({ job_id }) => {
-          // Stream live clone progress onto the node; the socket closes itself
-          // (and we close it) once a terminal frame arrives.
-          const close = openJobSocket(job_id, token, {
-            // Clones queue behind the backend's worker concurrency cap; surface
-            // that wait as a phase label rather than a separate node status so
-            // existing status-driven UI (badges, counts) doesn't need to change.
-            onQueued: () => patch({ phase: "Queued", progress: 0 }),
-            onRunning: () => patch({ phase: "Starting", progress: 0 }),
-            onProgress: (e) => patch({ progress: e.percent, phase: e.phase }),
-            onDone: () => {
-              patch({ status: NODE_STATUS.configured, progress: 100 })
-              close()
-            },
-            onError: () => {
-              patch({ status: NODE_STATUS.error })
-              close()
-            },
-          })
+          patch({ jobId: job_id })
+          attachJobSocket(id, job_id, token, patch)
         })
         .catch(() => patch({ status: NODE_STATUS.error }))
       return
@@ -306,6 +359,36 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     }, 120)
   },
 
+  resumeJobs() {
+    const token = useAuthStore.getState().token
+    // Without a live token we can neither authenticate a resumed socket nor
+    // legitimately conclude a job failed — leave `configuring` nodes as-is
+    // rather than reverting them (belt-and-suspenders alongside the
+    // `sessionReady` gate in App.tsx that should prevent this from firing
+    // with a null token in the first place).
+    if (!token) return
+    for (const node of get().nodes) {
+      if (node.data.status !== NODE_STATUS.configuring) continue
+      if (activeSockets.has(node.id)) continue
+
+      const patch = (data: Partial<MachineData>) =>
+        set((s) => ({
+          nodes: s.nodes.map((n) =>
+            n.id === node.id ? { ...n, data: { ...n.data, ...data } } : n,
+          ),
+        }))
+
+      if (node.data.jobId) {
+        attachJobSocket(node.id, node.data.jobId, token, patch)
+      } else {
+        // No job to resume (simulated template, or reload happened before the
+        // clone request returned a job id) — revert so it's retryable rather
+        // than stuck "configuring" forever.
+        patch({ status: NODE_STATUS.unconfigured, progress: undefined, phase: undefined })
+      }
+    }
+  },
+
   renameNode(id, name) {
     set((s) => ({
       nodes: s.nodes.map((n) =>
@@ -315,6 +398,8 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
   },
 
   removeNode(id) {
+    activeSockets.get(id)?.()
+    activeSockets.delete(id)
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
@@ -341,6 +426,13 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
   },
 
   loadSnapshot(nodes, edges, counters, viewport) {
+    // Tear down the outgoing graph's live sockets before swapping — a project
+    // switch shouldn't leak sockets tied to nodes that are about to unmount.
+    for (const close of activeSockets.values()) close()
+    activeSockets.clear()
     set({ nodes, edges, counters, viewport, selectedNodeId: null })
+    // Reattach/revert any `configuring` node in the graph just loaded — this
+    // is what makes an in-flight clone resume after a reload or project switch.
+    get().resumeJobs()
   },
 }))

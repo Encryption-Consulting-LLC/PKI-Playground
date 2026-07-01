@@ -58,13 +58,29 @@ function App() {
 
   // Once a session exists, load the active project's topology (or bootstrap a
   // default one) and start the autosave bridge. Runs once per session.
+  //
+  // Gated on `sessionReady` rather than the raw `token`: in guest mode the
+  // first render after a reload still has the *stale* persisted token (the
+  // `didInit` effect above hasn't cleared it yet), so gating on `token` would
+  // run this before `autoConnect` lands — `ensureDefaultProject`'s `loadSnapshot`
+  // would call `resumeJobs()` in the brief window where `clear()` already
+  // nulled the token but the fresh guest session hasn't arrived yet, making
+  // every resumed job socket fail its handshake (401) and revert to
+  // `unconfigured`. Waiting for `autoConnect.isSuccess` ensures a live token
+  // is in the store before resume runs.
+  const sessionReady =
+    meta?.mode === AUTH_MODES.guest
+      ? autoConnect.isSuccess
+      : meta?.mode === AUTH_MODES.login
+        ? !!token
+        : false
   const didInitProjects = useRef(false)
   useEffect(() => {
-    if (!token || didInitProjects.current) return
+    if (!sessionReady || didInitProjects.current) return
     didInitProjects.current = true
     initProjectAutosave()
     useProjectsStore.getState().ensureDefaultProject()
-  }, [token])
+  }, [sessionReady])
 
   if (modeLoading) return <Splash />
 
