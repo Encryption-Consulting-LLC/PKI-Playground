@@ -25,7 +25,6 @@ function App() {
   useBeforeUnloadWarning()
 
   const token = useAuthStore((s) => s.token)
-  const host = useAuthStore((s) => s.host)
 
   const { data: meta, isLoading: modeLoading } = useQuery({
     queryKey: QUERY_KEYS.mode,
@@ -97,9 +96,6 @@ function App() {
       <header className="flex shrink-0 items-center justify-between gap-4 border-b px-4 py-2">
         <div>
           <h1 className="text-base font-semibold tracking-tight">EC PKI Playground</h1>
-          {host && (
-            <p className="hidden text-xs text-muted-foreground sm:block">{host}</p>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <HealthBadge />

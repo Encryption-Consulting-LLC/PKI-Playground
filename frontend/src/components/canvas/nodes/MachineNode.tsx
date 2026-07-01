@@ -79,17 +79,34 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         <>
           {data.config?.caType !== "Root" && (
             <Handle
+              id="hierarchy-in"
               type="target"
               position={Position.Left}
               className="!h-3 !w-3 !bg-muted-foreground/50 !border-border"
             />
           )}
           <Handle
+            id="hierarchy"
             type="source"
             position={Position.Bottom}
             className="!h-3 !w-3 !bg-muted-foreground/50 !border-border"
           />
+          <Handle
+            id="server"
+            type="source"
+            position={Position.Right}
+            className="!h-3 !w-3 !bg-emerald-500/60 !border-border"
+          />
         </>
+      )}
+
+      {data.typeId === "webServer" &&
+        data.status === NODE_STATUS.configured && (
+        <Handle
+          type="target"
+          position={Position.Left}
+          className="!h-3 !w-3 !bg-emerald-500/60 !border-border"
+        />
       )}
 
       {/* Header */}

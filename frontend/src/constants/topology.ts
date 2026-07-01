@@ -10,6 +10,7 @@ export type NodeStatus = (typeof NODE_STATUS)[keyof typeof NODE_STATUS]
 export const EDGE_TYPE = {
   domainJoin: "domainJoin",
   caHierarchy: "caHierarchy",
+  webServerCert: "webServerCert",
   network: "network",
 } as const
 

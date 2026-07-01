@@ -234,20 +234,26 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
 
   connect(connection) {
     const { nodes, edges } = get()
-    const { source, target } = connection
+    const { source, target, sourceHandle, targetHandle } = connection
     const result = canConnect(source, target, nodes, edges)
     if (!result.ok) return result.reason ?? "Connection blocked."
 
     const sourceNode = nodes.find((n) => n.id === source)!
     const targetNode = nodes.find((n) => n.id === target)!
     const type = inferEdgeType(sourceNode.data.typeId, targetNode.data.typeId)
-    const style = edgeStyle(type)
+    const style = edgeStyle(type, {
+      rootIssuer: sourceNode.data.config?.caType === "Root",
+    })
 
     const newEdge: Edge = {
       id: `e-${source}-${target}`,
       source,
       target,
-      type: "smoothstep",
+      sourceHandle,
+      targetHandle,
+      // Web-server CDP/AIA publishing reads as a curved line; CA hierarchy
+      // and other edges keep the existing orthogonal routing.
+      type: type === EDGE_TYPE.webServerCert ? "default" : "smoothstep",
       markerEnd: { type: "arrowclosed" as const },
       data: { edgeType: type },
       ...style,

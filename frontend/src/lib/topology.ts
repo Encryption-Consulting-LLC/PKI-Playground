@@ -22,6 +22,11 @@ export function inferEdgeType(
     targetTypeId === "certificateAuthority"
   )
     return EDGE_TYPE.caHierarchy
+  if (
+    sourceTypeId === "certificateAuthority" &&
+    targetTypeId === "webServer"
+  )
+    return EDGE_TYPE.webServerCert
   return EDGE_TYPE.network
 }
 
@@ -424,11 +429,18 @@ export function canConnect(
     return { ok: false, reason: `"${target.data.name}" must be configured first.` }
   }
 
-  if (
-    source.data.typeId !== "certificateAuthority" ||
-    target.data.typeId !== "certificateAuthority"
-  ) {
-    return { ok: false, reason: "Only Certificate Authorities can be connected." }
+  const isCaToCa =
+    source.data.typeId === "certificateAuthority" &&
+    target.data.typeId === "certificateAuthority"
+  const isCaToWebServer =
+    source.data.typeId === "certificateAuthority" &&
+    target.data.typeId === "webServer"
+
+  if (!isCaToCa && !isCaToWebServer) {
+    return {
+      ok: false,
+      reason: "Certificate Authorities can only connect to another CA or a Web Server.",
+    }
   }
 
   const edgeType = inferEdgeType(source.data.typeId, target.data.typeId)
@@ -480,7 +492,16 @@ export interface EdgeStyleProps {
   labelStyle: React.CSSProperties
 }
 
-export function edgeStyle(type: EdgeType): EdgeStyleProps {
+export interface EdgeStyleOptions {
+  /**
+   * Set when the source CA is a Root CA — dashes the line to mark that the
+   * offline root's CDP/AIA is published to the web server indirectly (copied via
+   * CA02), not over a live connection the way an online issuing CA publishes.
+   */
+  rootIssuer?: boolean
+}
+
+export function edgeStyle(type: EdgeType, opts?: EdgeStyleOptions): EdgeStyleProps {
   switch (type) {
     case EDGE_TYPE.domainJoin:
       return {
@@ -495,6 +516,17 @@ export function edgeStyle(type: EdgeType): EdgeStyleProps {
         animated: false,
         label: "issues",
         labelStyle: { fill: "#f59e0b", fontSize: 11 },
+      }
+    case EDGE_TYPE.webServerCert:
+      return {
+        style: {
+          stroke: "#10b981",
+          strokeWidth: 2,
+          ...(opts?.rootIssuer ? { strokeDasharray: "6 4" } : {}),
+        },
+        animated: false,
+        label: "publishes CDP/AIA",
+        labelStyle: { fill: "#10b981", fontSize: 11 },
       }
     case EDGE_TYPE.network:
       return {
