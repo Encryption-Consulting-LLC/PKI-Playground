@@ -18,14 +18,14 @@ import uuid
 from dataclasses import asdict
 from typing import Callable
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
 from vmkit import Connection, Phase, ProgressEvent, update_workflow
 from vmkit.errors import VmNotFoundError
 from vmkit.esxi import get_vm_by_name, list_vm_names, power_off_vm, power_on_vm
 from vmkit.workflows import get_vm_config, validate_disk_usage
 
-from app.core.authz import Capability, require_capability
+from app.core.authz import Capability, enforce_guest_vm_name, require_capability
 from app.core.jobs import transport
 from app.core.jobs.models import JobStatus, Message, ProgressMsg, QueuedMsg
 from app.core.sessions import get_session
@@ -121,7 +121,11 @@ class DiskCheckRequest(BaseModel):
     status_code=202,
     dependencies=[Depends(require_capability(Capability.VM_CLONE))],
 )
-async def clone(req: CloneRequest, _conn: Connection = Depends(get_session)) -> dict:
+async def clone(
+    req: CloneRequest,
+    x_session_token: str = Header(...),
+    _conn: Connection = Depends(get_session),
+) -> dict:
     """Enqueue a clone as a Celery job; stream progress over ws /api/ws/jobs/{job_id}.
 
     Returns ``202 {"job_id": ...}`` immediately. The actual clone runs in a separate
@@ -137,6 +141,8 @@ async def clone(req: CloneRequest, _conn: Connection = Depends(get_session)) -> 
     worker pool is busy, then transition to ``running`` once picked up.
     """
     from app.tasks import clone_vm_task  # local import: avoids loading Celery for every route
+
+    req.name = enforce_guest_vm_name(req.name, x_session_token)
 
     job_id = uuid.uuid4().hex
     transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)

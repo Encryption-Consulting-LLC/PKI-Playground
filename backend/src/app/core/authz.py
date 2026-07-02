@@ -14,6 +14,7 @@ To expand or restrict a role's surface, edit ROLE_CAPABILITIES only. No other
 code needs to change for allowlist adjustments.
 """
 
+import re
 from enum import Enum
 
 from fastapi import HTTPException
@@ -86,3 +87,29 @@ def require_capability(cap: Capability):
             )
 
     return _dep
+
+
+_GUEST_VM_SUFFIX = re.compile(r"^[A-Za-z0-9-]{1,32}$")
+
+
+def enforce_guest_vm_name(name: str, token: str) -> str:
+    """Force a guest-role VM name into the caller's own ``guest-<token-prefix>-``
+    namespace before it reaches a real clone.
+
+    The prefix is always re-derived from the caller's *own* session token,
+    never trusted from the client — otherwise a guest could spoof another
+    session's namespace or pick an arbitrary, non-guest-looking name that
+    collides with / shadows unrelated inventory. If the client already sent
+    a correctly-prefixed name it's passed through unchanged (mod stripping
+    and re-adding the prefix); anything else is treated as the whole
+    requested suffix and validated against a safe charset. Operator deploys
+    are already trusted and pass through unchanged. Raises 422 on an invalid
+    suffix.
+    """
+    if current_role() != Role.GUEST:
+        return name
+    prefix = f"guest-{token[:8]}-"
+    suffix = name[len(prefix):] if name.startswith(prefix) else name
+    if not _GUEST_VM_SUFFIX.match(suffix):
+        raise HTTPException(422, detail="Invalid VM name.")
+    return f"{prefix}{suffix}"

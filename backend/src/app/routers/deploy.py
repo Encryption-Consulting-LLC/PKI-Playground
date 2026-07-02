@@ -14,14 +14,15 @@ everything else is a simulated stub for now (see ``app.tasks._simulate_op``).
 import uuid
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from vmkit import Connection
 
-from app.core.authz import Capability, require_capability
+from app.core.authz import Capability, enforce_guest_vm_name, require_capability
 from app.core.jobs import transport
 from app.core.jobs.models import JobStatus, QueuedMsg
 from app.core.sessions import get_session
+from app.core.settings import settings
 
 router = APIRouter(prefix="/deploy", tags=["deploy"])
 
@@ -48,9 +49,13 @@ class DeployRequest(BaseModel):
     ops: list[PlanOp] = Field(min_length=1, max_length=50)
 
 
-def validate_plan(ops: list[PlanOp]) -> None:
+def validate_plan(ops: list[PlanOp], token: str) -> None:
     """Raise 422 on a malformed plan: duplicate ids, unknown/self deps, cycles,
     or a non-simulated ``createVm`` missing the ``vmName`` param.
+
+    Also rewrites each non-simulated ``createVm``'s ``vmName`` in place via
+    ``enforce_guest_vm_name`` — a guest must not be able to name a real VM
+    outside its own session's namespace.
 
     Called explicitly from the route (not a pydantic validator) so the checks
     stay easy to read and the errors are unambiguous 422s.
@@ -68,14 +73,25 @@ def validate_plan(ops: list[PlanOp]) -> None:
             raise HTTPException(
                 422, detail=f"Op '{op.id}' depends on unknown op(s): {unknown}."
             )
-        if (
-            op.kind is PlanOpKind.create_vm
-            and op.params.get("simulate") != "true"
-            and not op.params.get("vmName")
-        ):
-            raise HTTPException(
-                422, detail=f"Op '{op.id}' (createVm) is missing the 'vmName' param."
-            )
+        if op.kind is PlanOpKind.create_vm and op.params.get("simulate") != "true":
+            if not op.params.get("vmName"):
+                raise HTTPException(
+                    422, detail=f"Op '{op.id}' (createVm) is missing the 'vmName' param."
+                )
+            # The worker opens its own ESXi connection from these same
+            # settings (see app.tasks.run_plan_task) — without them a real
+            # clone can't run at all, so reject it here rather than letting
+            # the worker crash on `open_connection(None, ...)` (notably every
+            # login-mode deploy, where these are never set).
+            if not (settings.esxi_host and settings.esxi_user and settings.esxi_password):
+                raise HTTPException(
+                    422,
+                    detail=(
+                        f"Op '{op.id}' (createVm) requests a real clone, but no ESXi "
+                        "connection is configured for this deploy — simulate it instead."
+                    ),
+                )
+            op.params["vmName"] = enforce_guest_vm_name(op.params["vmName"], token)
 
     # Kahn's algorithm: a plan with a dependency cycle can never fully drain.
     indegree = {op.id: 0 for op in ops}
@@ -104,7 +120,11 @@ def validate_plan(ops: list[PlanOp]) -> None:
     status_code=202,
     dependencies=[Depends(require_capability(Capability.DEPLOY))],
 )
-async def deploy(req: DeployRequest, _conn: Connection = Depends(get_session)) -> dict:
+async def deploy(
+    req: DeployRequest,
+    x_session_token: str = Header(...),
+    _conn: Connection = Depends(get_session),
+) -> dict:
     """Enqueue a deploy plan as a Celery job; stream progress over ws /api/ws/jobs/{job_id}.
 
     ``get_session`` gates on a valid token exactly like the clone route — the
@@ -115,7 +135,7 @@ async def deploy(req: DeployRequest, _conn: Connection = Depends(get_session)) -
     """
     from app.tasks import run_plan_task  # local import: avoids loading Celery for every route
 
-    validate_plan(req.ops)
+    validate_plan(req.ops, x_session_token)
 
     job_id = uuid.uuid4().hex
     transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)

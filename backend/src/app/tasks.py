@@ -16,6 +16,7 @@ import time
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
+from pyVim.connect import Disconnect
 from vmkit import clone_workflow, open_connection
 from vmkit.errors import VmkitError
 
@@ -159,9 +160,11 @@ def run_plan_task(job_id: str, plan: dict) -> None:
     and skipped rather than executed, so one failed clone doesn't take down
     independent branches of the plan. The whole body is wrapped in one
     try/except mirroring ``clone_vm_task``: only plan-level infrastructure
-    failures (bad payload, can't reach ESXi at all) become a terminal
-    ``ErrorMsg``; per-op failures are folded into the op's state and the plan
-    always finishes with a ``DoneMsg``.
+    failures (bad payload) become a terminal ``ErrorMsg``; per-op failures —
+    including a failed ``open_connection`` attempt, caught around just that
+    call — are folded into the op's state and the plan always finishes with a
+    ``DoneMsg``. The ESXi connection (opened lazily, at most once) is closed
+    in a ``finally`` regardless of outcome.
     """
     from app.routers.deploy import DeployRequest, PlanOpKind
 
@@ -180,47 +183,58 @@ def run_plan_task(job_id: str, plan: dict) -> None:
         blocked: set[str] = set()
         conn: "Connection | None" = None
 
-        while remaining:
-            for idx, op in enumerate(remaining):
-                if all(dep in finished for dep in op.depends_on):
-                    del remaining[idx]
+        try:
+            while remaining:
+                for idx, op in enumerate(remaining):
+                    if all(dep in finished for dep in op.depends_on):
+                        del remaining[idx]
+                        break
+                else:
+                    # Unreachable given a validated (acyclic, all-deps-present) plan —
+                    # guard against an infinite loop rather than hang the worker.
+                    for op in remaining:
+                        state[op.id] = OpRunState(
+                            status="cancelled", detail="Unresolvable dependency ordering."
+                        )
+                        finished.add(op.id)
+                        blocked.add(op.id)
+                        push()
                     break
-            else:
-                # Unreachable given a validated (acyclic, all-deps-present) plan —
-                # guard against an infinite loop rather than hang the worker.
-                for op in remaining:
+
+                if any(dep in blocked for dep in op.depends_on):
                     state[op.id] = OpRunState(
-                        status="cancelled", detail="Unresolvable dependency ordering."
+                        status="cancelled", detail="Skipped: a dependency failed or was cancelled."
                     )
                     finished.add(op.id)
                     blocked.add(op.id)
                     push()
-                break
+                    continue
 
-            if any(dep in blocked for dep in op.depends_on):
-                state[op.id] = OpRunState(
-                    status="cancelled", detail="Skipped: a dependency failed or was cancelled."
-                )
+                if op.kind is PlanOpKind.create_vm and op.params.get("simulate") != "true":
+                    if conn is None:
+                        try:
+                            conn = open_connection(
+                                settings.esxi_host,  # type: ignore[arg-type]
+                                settings.esxi_user,  # type: ignore[arg-type]
+                                settings.esxi_password,  # type: ignore[arg-type]
+                                settings.esxi_port,
+                            )
+                        except Exception as exc:  # noqa: BLE001 — a connection failure blocks this op only, not the whole plan
+                            state[op.id] = OpRunState(status="error", detail=str(exc))
+                            push()
+                            finished.add(op.id)
+                            blocked.add(op.id)
+                            continue
+                    ok = _run_clone_op(conn, op, state, push)
+                else:
+                    ok = _simulate_op(op, state, push)
+
                 finished.add(op.id)
-                blocked.add(op.id)
-                push()
-                continue
-
-            if op.kind is PlanOpKind.create_vm and op.params.get("simulate") != "true":
-                if conn is None:
-                    conn = open_connection(
-                        settings.esxi_host,  # type: ignore[arg-type]
-                        settings.esxi_user,  # type: ignore[arg-type]
-                        settings.esxi_password,  # type: ignore[arg-type]
-                        settings.esxi_port,
-                    )
-                ok = _run_clone_op(conn, op, state, push)
-            else:
-                ok = _simulate_op(op, state, push)
-
-            finished.add(op.id)
-            if not ok:
-                blocked.add(op.id)
+                if not ok:
+                    blocked.add(op.id)
+        finally:
+            if conn is not None:
+                Disconnect(conn.si)
 
         transport.publish(
             job_id,

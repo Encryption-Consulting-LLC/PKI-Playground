@@ -18,14 +18,16 @@ import type { Node } from "@xyflow/react"
 import { MachineNode } from "./nodes/MachineNode"
 import { DomainRegions } from "./DomainRegions"
 import { DomainConfirmDialog } from "./DomainConfirmDialog"
+import { StagedRemoveDialog } from "./StagedRemoveDialog"
 import {
   useTopologyStore,
   type MachineData,
   type DomainSyncChange,
 } from "@/store/topology"
-import { useStagingStore } from "@/store/staging"
+import { opsReferencingNode, useStagingStore } from "@/store/staging"
+import type { StagedOp } from "@/lib/staging"
 import { EDGE_TYPE } from "@/constants/topology"
-import { findOverlappingId, nearestFreePosition } from "@/lib/topology"
+import { findOverlappingId, isDeployed, nearestFreePosition } from "@/lib/topology"
 import { useResolvedTheme } from "@/hooks/useTheme"
 
 const DRAG_TYPE = "application/reactflow"
@@ -46,6 +48,7 @@ interface DragSnapshot {
 export function Canvas() {
   const nodes = useTopologyStore((s) => s.nodes)
   const edges = useTopologyStore((s) => s.edges)
+  const selectedNodeId = useTopologyStore((s) => s.selectedNodeId)
   const deploying = useStagingStore((s) => s.deploying)
   // Select individual action refs (stable across renders) rather than the
   // whole store, so the callbacks below aren't recreated on every state
@@ -57,6 +60,7 @@ export function Canvas() {
   const applyDomainChanges = useTopologyStore((s) => s.applyDomainChanges)
   const selectNode = useTopologyStore((s) => s.selectNode)
   const addNode = useTopologyStore((s) => s.addNode)
+  const removeNode = useTopologyStore((s) => s.removeNode)
   const setViewport = useTopologyStore((s) => s.setViewport)
   const setOverlapNode = useTopologyStore((s) => s.setOverlapNode)
   const { screenToFlowPosition, setViewport: rfSetViewport } = useReactFlow()
@@ -87,6 +91,55 @@ export function Canvas() {
   // the circle (geometry) and membership in agreement.
   const dragStart = useRef<DragSnapshot | null>(null)
   const [pendingChanges, setPendingChanges] = useState<DomainSyncChange[] | null>(null)
+
+  // Backspace/Delete is handled here instead of via React Flow's built-in
+  // `deleteKeyCode` (disabled below) — that default path deletes through
+  // `applyNodeChanges` directly, bypassing `removeNode`'s staged-op cascade,
+  // socket teardown, and deploying guard, leaving dangling staged ops.
+  const [pendingNodeDelete, setPendingNodeDelete] = useState<{
+    nodeId: string
+    ops: StagedOp[]
+    hostNote: boolean
+  } | null>(null)
+
+  const requestNodeDelete = useCallback(
+    (nodeId: string) => {
+      if (deploying) return
+      const target = nodes.find((n) => n.id === nodeId)
+      if (!target) return
+      const affected = opsReferencingNode(useStagingStore.getState().ops, nodeId)
+      const deployed = isDeployed(target.data)
+      if (affected.length === 0 && !deployed) {
+        removeNode(nodeId)
+        toast("Node removed.")
+        return
+      }
+      setPendingNodeDelete({ nodeId, ops: affected, hostNote: deployed })
+    },
+    [nodes, deploying, removeNode],
+  )
+
+  const confirmNodeDelete = useCallback(() => {
+    if (!pendingNodeDelete) return
+    removeNode(pendingNodeDelete.nodeId)
+    toast("Node removed.")
+    setPendingNodeDelete(null)
+  }, [pendingNodeDelete, removeNode])
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Backspace" && e.key !== "Delete") return
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return
+      }
+      if (!selectedNodeId) return
+      e.preventDefault()
+      requestNodeDelete(selectedNodeId)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [selectedNodeId, requestNodeDelete])
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<MachineData>>[]) => applyNodeChanges(changes),
@@ -286,6 +339,7 @@ export function Canvas() {
         onDragOver={onDragOver}
         onDrop={onDrop}
         onMoveEnd={onMoveEnd}
+        deleteKeyCode={null}
         multiSelectionKeyCode="Shift"
         selectionKeyCode="Shift"
         defaultViewport={initialViewport}
@@ -304,6 +358,12 @@ export function Canvas() {
         changes={pendingChanges}
         onConfirm={confirmDomainChanges}
         onCancel={cancelDomainChanges}
+      />
+      <StagedRemoveDialog
+        ops={pendingNodeDelete?.ops ?? null}
+        hostNote={pendingNodeDelete?.hostNote}
+        onConfirm={confirmNodeDelete}
+        onCancel={() => setPendingNodeDelete(null)}
       />
       {deploying && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center pt-3">

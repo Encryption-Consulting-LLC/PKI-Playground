@@ -352,6 +352,18 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       const existingJoinOp = findStagedOp(useStagingStore.getState().ops, OP_KIND.domainJoin, c.nodeId)
       if (existingJoinOp) useStagingStore.getState().removeOpCascade(existingJoinOp.id)
 
+      // A *deployed* prior membership isn't undone by cascading a staged op —
+      // the backend needs an explicit leave, staged before the new join (both
+      // whether this is a plain leave or a retarget onto a different DC).
+      if (prevDcId && !existingJoinOp) {
+        useStagingStore.getState().stageOp({
+          kind: OP_KIND.domainLeave,
+          targetNodeId: c.nodeId,
+          params: { prevDcId },
+          label: "Leave domain",
+        })
+      }
+
       if (c.dcId) {
         const newEdge = domainJoinEdge(c.nodeId, c.dcId)
         set((s) => ({ edges: [...s.edges, newEdge] }))
@@ -359,17 +371,12 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
           kind: OP_KIND.domainJoin,
           targetNodeId: c.nodeId,
           secondaryNodeId: c.dcId,
-          params: {},
+          // Carried so undoing just this join restores the exact edge it
+          // replaced, without relying on the paired domainLeave op above
+          // also being undone.
+          params: prevDcId && !existingJoinOp ? { prevDcId } : {},
           label: `Join ${c.domainName}`,
           edgeId: newEdge.id,
-        })
-      } else if (!existingJoinOp) {
-        // Leaving a membership that was actually deployed.
-        useStagingStore.getState().stageOp({
-          kind: OP_KIND.domainLeave,
-          targetNodeId: c.nodeId,
-          params: prevDcId ? { prevDcId } : {},
-          label: "Leave domain",
         })
       }
     }
@@ -397,14 +404,11 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       return
     }
 
-    // Already staged — update the pending op in place instead of staging a
-    // duplicate createVm.
+    // Already staged — node.config is the sole source of truth for a
+    // pending createVm's params (read fresh at deploy time by
+    // `buildOpParams`), so reconfiguring just updates it in place.
     if (lifecycle === LIFECYCLE.staged) {
-      if (config) {
-        patch({ config })
-        const op = findStagedOp(useStagingStore.getState().ops, OP_KIND.createVm, id)
-        if (op) useStagingStore.getState().updateOpParams(op.id, config)
-      }
+      if (config) patch({ config })
       return
     }
 
@@ -414,7 +418,7 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     useStagingStore.getState().stageOp({
       kind: OP_KIND.createVm,
       targetNodeId: id,
-      params: config ?? {},
+      params: {},
       label: "Create VM",
     })
   },
@@ -455,6 +459,7 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
   },
 
   renameNode(id, name) {
+    if (useStagingStore.getState().deploying) return
     set((s) => ({
       nodes: s.nodes.map((n) =>
         n.id === id ? { ...n, data: { ...n.data, name } } : n,
@@ -494,7 +499,10 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
   },
 
   restoreEdge(edge) {
-    set((s) => ({ edges: [...s.edges, edge] }))
+    // Idempotent: a retarget stages both a domainLeave and a domainJoin that
+    // each carry the same `prevDcId`-derived edge, so undoing both in
+    // sequence would otherwise restore it twice.
+    set((s) => (s.edges.some((e) => e.id === edge.id) ? s : { edges: [...s.edges, edge] }))
   },
 
   commitEdge(edgeId) {

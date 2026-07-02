@@ -41,7 +41,7 @@ function StatusGlyph({ op }: { op: StagedOp }) {
         <span className="flex shrink-0 items-center gap-1">
           <Loader2 className="h-3 w-3 animate-spin text-sky-500" />
           {op.progress != null && (
-            <span className="text-[10px] text-muted-foreground">{op.progress}%</span>
+            <span className="text-[10px] text-muted-foreground">{Math.round(op.progress)}%</span>
           )}
         </span>
       )

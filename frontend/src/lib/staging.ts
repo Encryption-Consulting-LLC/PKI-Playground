@@ -67,6 +67,25 @@ export function transitiveDependents(opId: string, ops: StagedOp[]): StagedOp[] 
   return result
 }
 
+/**
+ * Validates the append-only-topological-order invariant `stageOp` guarantees
+ * at runtime — a persisted list (localStorage) might predate a schema change
+ * or otherwise have drifted. Drops any op whose `dependsOn` references an id
+ * that isn't among the ops already kept (earlier in the list), which also
+ * transitively drops anything that in turn depended on a dropped op.
+ */
+export function sanitizeOps(ops: StagedOp[]): StagedOp[] {
+  const kept: StagedOp[] = []
+  const keptIds = new Set<string>()
+  for (const op of ops) {
+    if (op.dependsOn.every((dep) => keptIds.has(dep))) {
+      kept.push(op)
+      keptIds.add(op.id)
+    }
+  }
+  return kept
+}
+
 /** The staged op of `kind` targeting `nodeId`, if one is still in the list. */
 export function findStagedOp(
   ops: StagedOp[],

@@ -25,6 +25,7 @@ import {
   OP_STATUS,
   guestVmName,
   inferDependsOn,
+  sanitizeOps,
   transitiveDependents,
   type OpKind,
   type StagedOp,
@@ -43,6 +44,13 @@ function revertOp(op: StagedOp) {
       topology.patchNodeData(op.targetNodeId, { lifecycle: LIFECYCLE.draft })
       return
     case OP_KIND.domainJoin:
+      if (op.edgeId) topology.removeEdge(op.edgeId)
+      // Retargeting away from a *deployed* membership carries the old DC id
+      // so undoing the join restores exactly the edge it replaced.
+      if (op.params.prevDcId) {
+        topology.restoreEdge(domainJoinEdge(op.targetNodeId, op.params.prevDcId))
+      }
+      return
     case OP_KIND.caConnect:
     case OP_KIND.webServerCert:
       if (op.edgeId) topology.removeEdge(op.edgeId)
@@ -70,7 +78,6 @@ interface StagingState {
   deploying: boolean
 
   stageOp: (input: StageOpInput) => StagedOp
-  updateOpParams: (opId: string, params: Record<string, string>) => void
   /** Pops the last op and reverts it. No-op while deploying or when empty — the last op never has dependents, so this is always safe. */
   undo: () => void
   /** Reverts and removes `opId` plus everything that transitively depends on it. */
@@ -84,12 +91,17 @@ interface StagingState {
   resumePlanJob: () => void
 }
 
-/** Builds one op's wire params. Only `createVm` needs anything beyond what's already staged — the deploy-time VM name and whether it's a real (`standalone`) or simulated clone. */
+/**
+ * Builds one op's wire params. `createVm` params are never persisted on the
+ * op itself — `node.data.config` (the drift baseline) is the single source
+ * of truth, so this reads it fresh at deploy time alongside the deploy-time
+ * VM name and whether it's a real (`standalone`) or simulated clone.
+ */
 function buildOpParams(op: StagedOp, token: string | null | undefined): Record<string, string> {
   if (op.kind !== OP_KIND.createVm) return op.params
   const node = useTopologyStore.getState().nodes.find((n) => n.id === op.targetNodeId)
   return {
-    ...op.params,
+    ...(node?.data.config ?? {}),
     vmName: guestVmName(node?.data.name ?? op.targetNodeId, token),
     simulate: node?.data.typeId === "standalone" ? "false" : "true",
   }
@@ -144,28 +156,33 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
   }
 }
 
-/** Reverts every non-`done` op back to `staged` (and any `createVm`-target node still `deploying` back to `staged`) — the shared unwind for a plan that ended before every op resolved (socket drop, plan-level crash). */
+/**
+ * Reverts every non-`done` op back to `staged` (and any `createVm`-target
+ * node still `deploying` back to `staged`) — the shared unwind for a plan
+ * that ended before every op resolved (socket drop, plan-level crash).
+ * `done` ops are dropped from the list entirely, same as `finishDeploy` —
+ * their canvas effect was already committed by `applyPlanState` when the
+ * `done` transition arrived, and keeping them around would re-send them
+ * (double-executing a real clone) on the next `deploy()`.
+ */
 function revertNonTerminalToStaged(): void {
   const { ops } = useStagingStore.getState()
   const topology = useTopologyStore.getState()
 
-  const reverted = ops.map((op) =>
-    op.status === OP_STATUS.done
-      ? op
-      : { ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined },
-  )
-
-  for (const op of reverted) {
-    if (op.kind === OP_KIND.createVm && op.status === OP_STATUS.staged) {
+  const remaining: StagedOp[] = []
+  for (const op of ops) {
+    if (op.status === OP_STATUS.done) continue
+    if (op.kind === OP_KIND.createVm) {
       topology.patchNodeData(op.targetNodeId, {
         lifecycle: LIFECYCLE.staged,
         progress: undefined,
         phase: undefined,
       })
     }
+    remaining.push({ ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined })
   }
 
-  useStagingStore.setState({ ops: reverted, deployJobId: null, deploying: false })
+  useStagingStore.setState({ ops: remaining, deployJobId: null, deploying: false })
 }
 
 /** Final reconcile once the plan job reaches `done`: apply the last snapshot, drop fully-`done` ops off the list, and reopen `cancelled` ops (skipped only because a dependency failed) as `staged` so "Retry deploy" resends them alongside the op that actually failed. */
@@ -198,9 +215,21 @@ function finishDeploy(result: Record<string, unknown>): void {
 
 // Single in-flight plan socket — a project only ever has one active deploy.
 let planSocketClose: (() => void) | null = null
+let planRetryTimer: ReturnType<typeof setTimeout> | null = null
 
-function attachPlanSocket(jobId: string, token: string | null | undefined) {
+// A dropped socket (status 0) doesn't mean the plan died — the worker may
+// still be running. Retry with backoff before treating it as gone; only
+// unwind (reverting completed-looking state to staged) once retries are
+// exhausted, so a blip doesn't race a still-running job into a duplicate
+// plan on the next Deploy click.
+const PLAN_SOCKET_RETRY_DELAYS_MS = [500, 1500, 3000]
+
+function attachPlanSocket(jobId: string, token: string | null | undefined, attempt = 0) {
   planSocketClose?.()
+  if (planRetryTimer) {
+    clearTimeout(planRetryTimer)
+    planRetryTimer = null
+  }
   planSocketClose = openJobSocket(jobId, token, {
     onPlanState: (e) => applyPlanState(e.ops),
     onDone: (e) => {
@@ -209,6 +238,13 @@ function attachPlanSocket(jobId: string, token: string | null | undefined) {
     },
     onError: (e) => {
       planSocketClose = null
+      if (e.status === 0 && attempt < PLAN_SOCKET_RETRY_DELAYS_MS.length) {
+        planRetryTimer = setTimeout(
+          () => attachPlanSocket(jobId, token, attempt + 1),
+          PLAN_SOCKET_RETRY_DELAYS_MS[attempt],
+        )
+        return
+      }
       revertNonTerminalToStaged()
       if (e.status === 0) {
         toast.warning("Lost connection to the deploy job — operations reverted to staged, you can retry.")
@@ -225,7 +261,7 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
   deploying: false,
 
   stageOp(input) {
-    const { ops } = get()
+    const { ops, deploying } = get()
     const dependsOn = inferDependsOn(input.kind, input.targetNodeId, input.secondaryNodeId, ops)
     const op: StagedOp = {
       ...input,
@@ -233,16 +269,10 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
       status: OP_STATUS.staged,
       dependsOn,
     }
-    set({ ops: [...ops, op] })
+    // Defense in depth: every caller already checks `deploying` itself, but
+    // this is the sole insertion point, so guard it here too.
+    if (!deploying) set({ ops: [...ops, op] })
     return op
-  },
-
-  updateOpParams(opId, params) {
-    set((s) => ({
-      ops: s.ops.map((op) =>
-        op.id === opId ? { ...op, params: { ...op.params, ...params } } : op,
-      ),
-    }))
   },
 
   undo() {
@@ -273,7 +303,11 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
   loadOps(ops, deployJobId) {
     planSocketClose?.()
     planSocketClose = null
-    set({ ops, deployJobId, deploying: false })
+    if (planRetryTimer) {
+      clearTimeout(planRetryTimer)
+      planRetryTimer = null
+    }
+    set({ ops: sanitizeOps(ops), deployJobId, deploying: false })
     get().resumePlanJob()
   },
 
@@ -281,17 +315,33 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
     const { ops, deploying } = get()
     if (deploying || ops.length === 0) return
 
+    // Set synchronously, before the POST even goes out — closes the window
+    // between click and the 202 response where a second click could enqueue
+    // a duplicate plan (double real clone → VmExists) and undo/stage/canvas
+    // edits were still allowed on an in-flight plan.
+    set({ deploying: true })
+
     const token = useAuthStore.getState().token
 
-    // Retry: reset previously failed/cancelled ops back to staged so a retry
-    // resends them alongside whatever hadn't run yet.
-    const resettable = ops.map((op) =>
-      op.status === OP_STATUS.error || op.status === OP_STATUS.cancelled
-        ? { ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined }
-        : op,
-    )
+    // `done` ops already succeeded — drop them entirely so a retry never
+    // re-sends (and double-executes) them. Reset previously failed/cancelled
+    // ops back to staged so a retry resends them alongside whatever hadn't
+    // run yet. `dependsOn` is then pruned to only ids still present, so a
+    // dropped `done` op's id never reaches the backend as an unknown dep.
+    const resettable = ops
+      .filter((op) => op.status !== OP_STATUS.done)
+      .map((op) =>
+        op.status === OP_STATUS.error || op.status === OP_STATUS.cancelled
+          ? { ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined }
+          : op,
+      )
+    const keptIds = new Set(resettable.map((op) => op.id))
+    const pruned = resettable.map((op) => ({
+      ...op,
+      dependsOn: op.dependsOn.filter((dep) => keptIds.has(dep)),
+    }))
 
-    const payload: PlanOpPayload[] = resettable.map((op) => ({
+    const payload: PlanOpPayload[] = pruned.map((op) => ({
       id: op.id,
       kind: op.kind,
       target: op.targetNodeId,
@@ -299,15 +349,18 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
       dependsOn: op.dependsOn,
     }))
 
-    set({ ops: resettable.map((op) => ({ ...op, status: OP_STATUS.pending })) })
+    set({ ops: pruned.map((op) => ({ ...op, status: OP_STATUS.pending })) })
 
     deployPlan(payload)
       .then(({ job_id }) => {
-        set({ deployJobId: job_id, deploying: true })
+        set({ deployJobId: job_id })
         attachPlanSocket(job_id, token)
       })
       .catch((err) => {
-        set((s) => ({ ops: s.ops.map((op) => ({ ...op, status: OP_STATUS.staged })) }))
+        set((s) => ({
+          ops: s.ops.map((op) => ({ ...op, status: OP_STATUS.staged })),
+          deploying: false,
+        }))
         toast.error(err instanceof Error ? err.message : "Failed to start deploy.")
       })
   },
