@@ -21,6 +21,7 @@ isokit = { git = "https://github.com/Arnesh-EC/isokit.git", tag = "v0.1.0" }
 
 [project.scripts]
 start = "app.cli:main"
+worker = "app.cli:worker"
 
 [build-system]
 requires = ["hatchling"]
