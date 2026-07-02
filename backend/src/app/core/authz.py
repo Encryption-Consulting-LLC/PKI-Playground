@@ -34,6 +34,7 @@ class Capability(str, Enum):
     VM_POWER = "vm:power"
     CONFIG_GENERATE = "config:generate"
     VM_EXEC_ARBITRARY = "vm:exec-arbitrary"  # reserved — wired in by the orchestrator phase
+    DEPLOY = "deploy"
 
 
 # Tune the allowlist here.
@@ -42,9 +43,16 @@ class Capability(str, Enum):
 #   CONFIG_GENERATE is operator-only: config is produced server-side on the
 #     guest's behalf (not via a guest-invoked endpoint).
 #   VM_EXEC_ARBITRARY is reserved for the firstboot orchestrator (future phase).
+#   DEPLOY is guest-eligible: the plan runner only does what a guest can already
+#     trigger directly (clones) plus simulated stub ops.
 ROLE_CAPABILITIES: dict[Role, set[Capability]] = {
     Role.OPERATOR: set(Capability),
-    Role.GUEST: {Capability.VM_LIST, Capability.VM_READ, Capability.VM_CLONE},
+    Role.GUEST: {
+        Capability.VM_LIST,
+        Capability.VM_READ,
+        Capability.VM_CLONE,
+        Capability.DEPLOY,
+    },
 }
 
 

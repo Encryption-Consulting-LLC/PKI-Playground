@@ -23,6 +23,7 @@ export const CAPABILITIES = {
   vmPower: "vm:power",
   configGenerate: "config:generate",
   vmExecArbitrary: "vm:exec-arbitrary", // reserved — future orchestrator phase
+  deploy: "deploy",
 } as const
 
 export type Capability = (typeof CAPABILITIES)[keyof typeof CAPABILITIES]
