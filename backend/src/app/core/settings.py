@@ -1,13 +1,22 @@
 """Application settings — read from environment variables and an optional .env file.
 
 The single most important field is ``auth_mode``:
-  ``login``  — internal deploy; operators provide ESXi credentials at login time.
-  ``guest``  — public playground; credentials are hardcoded in the environment and
-               a session is opened automatically for each visitor.
+  ``login``  — internal deploy; users sign in with an admin-provisioned account
+               (username/password) or employee SSO (OIDC).
+  ``guest``  — public playground; an anonymous guest session is minted
+               automatically for each visitor.
 
-In guest mode the four ``esxi_*`` values are required; the startup guard below
-raises a ``ValueError`` immediately if any are absent so misconfigured deploys
-fail fast rather than at the first incoming request.
+Identity and the ESXi target are decoupled (Phase B): who you are comes from
+the users collection / the IdP, while *which* ESXi host gets used is the one
+shared org-wide target stored in the Mongo settings document (seeded from the
+``esxi_*`` env vars on first boot, admin-editable afterwards without a
+restart — see ``core/esxi.py``).
+
+Two secrets are required in every process (API and Celery worker) and are
+fail-fast validated below; generate each with ``openssl rand -base64 32``:
+  ``SESSION_SECRET``    — HMAC key for the backend-minted session JWTs.
+  ``SETTINGS_ENC_KEY``  — base64 32-byte AES-256-GCM key encrypting the stored
+                          ESXi password (``core/secrets.py``).
 """
 
 from typing import Literal
@@ -21,7 +30,25 @@ class Settings(BaseSettings):
 
     auth_mode: Literal["login", "guest"] = "login"
 
-    # Guest-mode ESXi connection — required only when auth_mode == "guest".
+    # Identity layer (Phase B).
+    session_secret: str | None = None
+    session_ttl_hours: int = 12
+    settings_enc_key: str | None = None
+
+    # Employee SSO — generic OIDC (Keycloak and Azure AD both fit). Enabled iff
+    # issuer, client id/secret, and redirect URI are all set. Group values are
+    # compared as exact strings against the ``oidc_group_claim`` claim, so
+    # Keycloak group names and Azure AD group object-ids both work.
+    oidc_issuer: str | None = None
+    oidc_client_id: str | None = None
+    oidc_client_secret: str | None = None
+    oidc_redirect_uri: str | None = None
+    oidc_group_claim: str = "groups"
+    oidc_operator_groups: str = ""  # comma-separated
+    oidc_guest_groups: str = ""  # comma-separated
+
+    # First-boot seed for the shared ESXi target (written into the Mongo
+    # settings document if absent there; NOT read at request time).
     esxi_host: str | None = None
     esxi_user: str | None = None
     esxi_password: str | None = None
@@ -29,9 +56,8 @@ class Settings(BaseSettings):
 
     # Clone job queue: Valkey is the Celery broker, a per-job pub/sub bus, and the
     # snapshot store the job WebSocket reads from. The clone worker process opens
-    # its own ESXi connection from the esxi_* settings above (it can't share the
-    # API process's in-process session dict), so the queue only protects clones in
-    # guest mode today — see backend CLAUDE.md / the clone route docstring.
+    # its own ESXi connection against the shared target from the settings document
+    # (it can't share the API process's connection object).
     valkey_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str | None = "redis://localhost:6379/2"
@@ -40,23 +66,32 @@ class Settings(BaseSettings):
     clone_concurrency: int = 2
 
     # MongoDB — system of record for projects, the VM registry, the settings
-    # document, and (Phase B) users. Reachability is checked at startup in the
-    # app lifespan (fail-fast ping), not here — a URL default always parses.
+    # document, and users. Reachability is checked at startup in the app
+    # lifespan (fail-fast ping), not here — a URL default always parses.
     mongo_url: str = "mongodb://localhost:27017"
     mongo_db: str = "pki_playground"
 
+    @property
+    def oidc_enabled(self) -> bool:
+        return bool(
+            self.oidc_issuer
+            and self.oidc_client_id
+            and self.oidc_client_secret
+            and self.oidc_redirect_uri
+        )
+
     @model_validator(mode="after")
-    def _require_esxi_for_guest(self) -> "Settings":
-        if self.auth_mode == "guest":
-            missing = [
-                name.upper()
-                for name in ("esxi_host", "esxi_user", "esxi_password")
-                if not getattr(self, name)
-            ]
-            if missing:
-                raise ValueError(
-                    f"AUTH_MODE=guest requires the following env vars: {', '.join(missing)}"
-                )
+    def _require_secrets(self) -> "Settings":
+        missing = [
+            name.upper()
+            for name in ("session_secret", "settings_enc_key")
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise ValueError(
+                f"Missing required env vars: {', '.join(missing)}. "
+                "Generate each with: openssl rand -base64 32"
+            )
         return self
 
 

@@ -18,5 +18,8 @@ export const STORAGE_KEYS = {
 export const QUERY_KEYS = {
   health: ["health"] as const,
   mode: ["auth-mode"] as const,
+  // Per-user identity + capabilities (GET /auth/me) — keyed separately from
+  // `mode` because it changes with the signed-in user, not the deploy.
+  me: ["auth-me"] as const,
   orchestratorAgents: ["orchestrator-agents"] as const,
 } as const

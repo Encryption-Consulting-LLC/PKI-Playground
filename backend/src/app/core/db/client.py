@@ -84,10 +84,21 @@ async def _ensure_indexes() -> None:
             IndexModel([("moid", ASCENDING)], unique=True, sparse=True),
         ]
     )
+    # Phase A used a sparse unique email index, but documents store an explicit
+    # ``email: null`` (pydantic dumps the field), which sparse indexes DO index —
+    # two email-less users would collide. Replace it with a partial index that
+    # only indexes real string values.
+    existing = await users_col().index_information()
+    if "email_1" in existing and "partialFilterExpression" not in existing["email_1"]:
+        await users_col().drop_index("email_1")
     await users_col().create_indexes(
         [
             IndexModel([("username", ASCENDING)], unique=True),
-            IndexModel([("email", ASCENDING)], unique=True, sparse=True),
+            IndexModel(
+                [("email", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"email": {"$type": "string"}},
+            ),
         ]
     )
     # settings: singleton via fixed _id — no extra indexes.
@@ -95,10 +106,20 @@ async def _ensure_indexes() -> None:
 
 async def _seed_settings_doc() -> None:
     """Insert the settings singleton from env if absent; operator edits made
-    through the settings routes survive restarts ($setOnInsert only)."""
+    through the settings routes survive restarts ($setOnInsert only).
+
+    The env ESXi password (if provided) is encrypted at seed time — it exists
+    in Mongo only as ciphertext. Deferred import: ``core.secrets`` needs
+    ``SETTINGS_ENC_KEY``, and keeping it out of module scope keeps this module
+    importable in tooling contexts without the full secret env."""
+    from app.core.secrets import encrypt_secret
+
     seed = SettingsDoc(
         esxi_host=settings.esxi_host,
         esxi_user=settings.esxi_user,
+        esxi_password_enc=(
+            encrypt_secret(settings.esxi_password) if settings.esxi_password else None
+        ),
         esxi_port=settings.esxi_port,
         updated_at=now_ms(),
     )
@@ -107,3 +128,11 @@ async def _seed_settings_doc() -> None:
         {"$setOnInsert": to_mongo(seed)},
         upsert=True,
     )
+    # Backfill for documents created before the password field existed (or
+    # wiped by an operator): the env seed fills an *absent* password but never
+    # overwrites an operator-set one.
+    if settings.esxi_password:
+        await settings_col().update_one(
+            {"_id": SETTINGS_DOC_ID, "esxiPasswordEnc": None},
+            {"$set": {"esxiPasswordEnc": encrypt_secret(settings.esxi_password)}},
+        )

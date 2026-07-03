@@ -69,38 +69,58 @@ async function request<T>(
 
 // --- /auth -----------------------------------------------------------------
 
-export interface ConnectRequest {
-  host: string
-  user: string
+export interface LoginRequest {
+  username: string
   password: string
-  port?: number
 }
 
-export interface ConnectResponse {
+/** Every token-minting route (login, SSO callback, guest) returns this shape. */
+export interface SessionResponse {
   token: string
-  host: string
-  api_version: string
+  username: string
+  role: string
+  capabilities: Capability[]
+  host: string | null
 }
 
-export const connect = (req: ConnectRequest) =>
-  request<ConnectResponse>(URLS.auth.connect, {
+export const login = (req: LoginRequest) =>
+  request<SessionResponse>(URLS.auth.login, {
     method: "POST",
     body: JSON.stringify(req),
   })
 
-export const disconnect = () =>
-  request<{ status: string }>(URLS.auth.disconnect, { method: "POST" })
+export const logout = () =>
+  request<{ status: string }>(URLS.auth.logout, { method: "POST" })
 
 export interface AuthMeta {
   mode: AuthMode
-  role: string
-  capabilities: Capability[]
+  oidcEnabled: boolean
 }
 
 export const getMode = () => request<AuthMeta>(URLS.auth.mode)
 
+export interface Me {
+  username: string
+  role: string
+  auth: "local" | "oidc" | "guest"
+  capabilities: Capability[]
+}
+
+/** The signed-in identity + capability allowlist (what `useCan` reads). */
+export const getMe = () => request<Me>(URLS.auth.me)
+
 export const guestConnect = () =>
-  request<ConnectResponse>(URLS.auth.guest, { method: "POST" })
+  request<SessionResponse>(URLS.auth.guest, { method: "POST" })
+
+/** Start the SSO code flow: redirect the browser to the returned IdP URL. */
+export const oidcLoginUrl = () => request<{ url: string }>(URLS.auth.oidcLogin)
+
+/** Finish the SSO code flow with the `?code&state` the IdP sent back. */
+export const oidcCallback = (code: string, state: string) =>
+  request<SessionResponse>(URLS.auth.oidcCallback, {
+    method: "POST",
+    body: JSON.stringify({ code, state }),
+  })
 
 // --- /health ---------------------------------------------------------------
 

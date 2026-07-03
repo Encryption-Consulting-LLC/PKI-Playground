@@ -1,13 +1,10 @@
 """VM management routes — thin HTTP layer over vmkit.
 
-Every endpoint requires an authenticated ESXi session; the ``X-Session-Token``
-header is resolved to a live ``Connection`` by the ``get_session`` dependency
-(defined in ``app.core.sessions``).
-
-Every endpoint also requires a role capability checked by ``require_capability``
-(defined in ``app.core.authz``). The allowlist is deployment-level (set by
-AUTH_MODE) so operator deploys are unaffected; guest deploys are restricted to
-the read/guided subset.
+Every endpoint requires an authenticated user (backend-minted JWT in the
+``X-Session-Token`` header) via a role capability checked by
+``require_capability`` (``app.core.authz``); the allowlist is per-user role.
+Operations run against the one shared org-wide ESXi target — the ``get_esxi``
+dependency (``app.core.esxi``) supplies the managed ``Connection``.
 
 Note on ``iso_path``: clone/update accept a server-local ``.iso`` filesystem
 path. The file must already exist on the host running this API. Building or
@@ -18,17 +15,23 @@ import uuid
 from dataclasses import asdict
 from typing import Callable
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from vmkit import Connection, Phase, ProgressEvent, update_workflow
 from vmkit.errors import VmNotFoundError
 from vmkit.esxi import get_vm_by_name, list_vm_names, power_off_vm, power_on_vm
 from vmkit.workflows import get_vm_config, validate_disk_usage
 
-from app.core.authz import Capability, enforce_guest_vm_name, require_capability
+from app.core.authz import (
+    AuthedUser,
+    Capability,
+    enforce_guest_vm_name,
+    get_current_user,
+    require_capability,
+)
+from app.core.esxi import get_esxi, load_target
 from app.core.jobs import transport
 from app.core.jobs.models import JobStatus, Message, ProgressMsg, QueuedMsg
-from app.core.sessions import get_session
 
 router = APIRouter(prefix="/vm", tags=["vm"])
 
@@ -123,18 +126,16 @@ class DiskCheckRequest(BaseModel):
 )
 async def clone(
     req: CloneRequest,
-    x_session_token: str = Header(...),
-    _conn: Connection = Depends(get_session),
+    user: AuthedUser = Depends(get_current_user),
 ) -> dict:
     """Enqueue a clone as a Celery job; stream progress over ws /api/ws/jobs/{job_id}.
 
     Returns ``202 {"job_id": ...}`` immediately. The actual clone runs in a separate
     Celery worker process (bounded by ``celery worker --concurrency``, the global
-    cap protecting the shared ESXi host) rather than on this request's connection —
-    the worker opens its own ``Connection`` from the guest-mode ESXi settings, since
-    a worker process can't reach this process's in-process session store. ``get_session``
-    is still required here purely as the auth/session gate (a valid token to clone at
-    all); the resolved ``Connection`` itself goes unused.
+    cap protecting the shared ESXi host) — the worker opens its own ``Connection``
+    against the shared target from the settings document (it can't share this
+    process's connection object), so this route only checks the target *exists*
+    (503 otherwise) rather than opening a connection it wouldn't use.
 
     The job starts life as ``queued`` (this message is published before the task is
     even handed to Celery) so a client watching the WebSocket sees it wait if the
@@ -142,7 +143,12 @@ async def clone(
     """
     from app.tasks import clone_vm_task  # local import: avoids loading Celery for every route
 
-    req.name = enforce_guest_vm_name(req.name, x_session_token)
+    if await load_target() is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No shared ESXi target configured — an operator must set it via PUT /api/settings.",
+        )
+    req.name = enforce_guest_vm_name(req.name, user)
 
     job_id = uuid.uuid4().hex
     transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)
@@ -154,7 +160,7 @@ async def clone(
     "/disk-check",
     dependencies=[Depends(require_capability(Capability.VM_READ))],
 )
-def disk_check(req: DiskCheckRequest, conn: Connection = Depends(get_session)) -> dict:
+def disk_check(req: DiskCheckRequest, conn: Connection = Depends(get_esxi)) -> dict:
     """Report datastore space usage; 409 if cloning the base would exceed the limit."""
     usage = validate_disk_usage(conn.content, req.datastore, req.base, req.max_usage_pct)
     return asdict(usage)
@@ -164,7 +170,7 @@ def disk_check(req: DiskCheckRequest, conn: Connection = Depends(get_session)) -
     "",
     dependencies=[Depends(require_capability(Capability.VM_LIST))],
 )
-def list_vms(conn: Connection = Depends(get_session)) -> dict:
+def list_vms(conn: Connection = Depends(get_esxi)) -> dict:
     """List all VM names in inventory."""
     names = sorted(list_vm_names(conn.content))
     return {"vms": names, "count": len(names)}
@@ -174,7 +180,7 @@ def list_vms(conn: Connection = Depends(get_session)) -> dict:
     "/{name}",
     dependencies=[Depends(require_capability(Capability.VM_READ))],
 )
-def get_vm(name: str, conn: Connection = Depends(get_session)) -> dict:
+def get_vm(name: str, conn: Connection = Depends(get_esxi)) -> dict:
     """Return the current CPU/RAM/MAC and power state of a registered VM."""
     vm = get_vm_by_name(conn.content, name)
     if vm is None:
@@ -188,7 +194,7 @@ def get_vm(name: str, conn: Connection = Depends(get_session)) -> dict:
     dependencies=[Depends(require_capability(Capability.VM_UPDATE))],
 )
 def update_vm(
-    name: str, req: UpdateRequest, conn: Connection = Depends(get_session)
+    name: str, req: UpdateRequest, conn: Connection = Depends(get_esxi)
 ) -> dict:
     """Reconfigure an existing VM's CPU/RAM/MAC/ISO; unspecified values are preserved."""
     result = update_workflow(conn, name=name, **req.model_dump())
@@ -199,7 +205,7 @@ def update_vm(
     "/{name}/power-on",
     dependencies=[Depends(require_capability(Capability.VM_POWER))],
 )
-def power_on(name: str, conn: Connection = Depends(get_session)) -> dict:
+def power_on(name: str, conn: Connection = Depends(get_esxi)) -> dict:
     """Power on the named VM."""
     power_on_vm(conn.content, name)
     return {"status": "powered_on", "name": name}
@@ -209,7 +215,7 @@ def power_on(name: str, conn: Connection = Depends(get_session)) -> dict:
     "/{name}/power-off",
     dependencies=[Depends(require_capability(Capability.VM_POWER))],
 )
-def power_off(name: str, conn: Connection = Depends(get_session)) -> dict:
+def power_off(name: str, conn: Connection = Depends(get_esxi)) -> dict:
     """Power off (hard) the named VM."""
     power_off_vm(conn.content, name)
     return {"status": "powered_off", "name": name}

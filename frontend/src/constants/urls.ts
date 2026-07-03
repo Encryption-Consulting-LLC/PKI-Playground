@@ -15,10 +15,13 @@ export const URLS = {
     network: "/generate/network",
   },
   auth: {
-    connect: "/auth/connect",
-    disconnect: "/auth/disconnect",
+    login: "/auth/login",
+    logout: "/auth/logout",
+    me: "/auth/me",
     mode: "/auth/mode",
     guest: "/auth/guest",
+    oidcLogin: "/auth/oidc/login",
+    oidcCallback: "/auth/oidc/callback",
   },
   vm: {
     list: "/vm",

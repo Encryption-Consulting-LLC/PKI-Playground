@@ -10,6 +10,10 @@ dependencies = [
     "celery>=5.6",
     "redis>=5.0",
     "pymongo>=4.13",
+    "pyjwt>=2.10",
+    "pwdlib[argon2]>=0.2",
+    "cryptography>=44",
+    "httpx>=0.28",
     "vmkit",
     "configgen",
     "isokit",
@@ -23,6 +27,7 @@ isokit = { git = "https://github.com/Arnesh-EC/isokit.git", tag = "v0.1.0" }
 [project.scripts]
 start = "app.cli:main"
 worker = "app.cli:worker"
+create-admin = "app.cli:create_admin"
 
 [build-system]
 requires = ["hatchling"]

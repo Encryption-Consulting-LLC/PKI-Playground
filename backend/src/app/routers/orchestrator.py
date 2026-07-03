@@ -18,7 +18,7 @@ frontend side.
 Dispatching a command (``POST /orchestrator/{vm_id}/command``) mints a
 ``job_id`` the same way ``clone``/``deploy`` do, then sends it down the
 agent's live connection. The backend is the authoritative capability gate:
-``current_role()`` is checked here (via a small command->capability table,
+the authenticated user's role is checked here (via a small command->capability table,
 since the required capability is chosen dynamically per dispatched command
 name rather than statically per route) before a command is even sent to the
 agent. That role is included in the frame sent to the agent, which
@@ -32,7 +32,13 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from pydantic import BaseModel
 
 from app.core import agents
-from app.core.authz import Capability, ROLE_CAPABILITIES, current_role, require_capability
+from app.core.authz import (
+    AuthedUser,
+    Capability,
+    ROLE_CAPABILITIES,
+    get_current_user,
+    require_capability,
+)
 from app.core.jobs import transport
 from app.core.jobs.models import DoneMsg, ErrorMsg, JobStatus, ProgressMsg, QueuedMsg
 
@@ -77,13 +83,15 @@ class CommandRequest(BaseModel):
 
 
 @router.post("/{vm_id}/command", status_code=202)
-async def dispatch_command(vm_id: str, req: CommandRequest) -> dict:
+async def dispatch_command(
+    vm_id: str, req: CommandRequest, user: AuthedUser = Depends(get_current_user)
+) -> dict:
     """Dispatch one command to a connected agent; stream progress over ws /api/ws/jobs/{job_id}."""
     required = _COMMAND_CAPABILITIES.get(req.command)
     if required is None:
         raise HTTPException(422, detail=f"Unknown orchestrator command '{req.command}'.")
 
-    role = current_role()
+    role = user.role
     if required not in ROLE_CAPABILITIES[role]:
         raise HTTPException(
             403,

@@ -15,6 +15,7 @@ import { ThemeToggle } from "@/components/ThemeToggle"
 import { Workspace } from "@/components/canvas/Workspace"
 import { useApplyTheme } from "@/hooks/useTheme"
 import { useBeforeUnloadWarning } from "@/hooks/useBeforeUnloadWarning"
+import { useMe } from "@/hooks/useMe"
 import { initProjectAutosave } from "@/lib/projectAutosave"
 import {
   initServerProjects,
@@ -39,8 +40,8 @@ function App() {
 
   const autoConnect = useMutation({
     mutationFn: guestConnect,
-    onSuccess: ({ token, host, api_version }) => {
-      useAuthStore.getState().setSession({ token, host, apiVersion: api_version })
+    onSuccess: ({ token, username, role, host }) => {
+      useAuthStore.getState().setSession({ token, username, role, host })
     },
     onError: (err) =>
       toast.error(
@@ -49,9 +50,9 @@ function App() {
   })
 
   // In guest mode, always establish a fresh session on load. A persisted token
-  // may be stale: the backend's session store is in-process, so any restart
-  // wipes it while localStorage keeps the dead token. Trusting it would send a
-  // dead token with the first request (e.g. the standalone clone) and 401.
+  // may be stale (guest JWTs expire after SESSION_TTL_HOURS), and a fresh one
+  // is free — no credentials involved. Trusting a dead token would 401 the
+  // first request (e.g. the standalone clone).
   // Clear any persisted token first so the splash shows until reconnect lands.
   const didInit = useRef(false)
   useEffect(() => {
@@ -79,19 +80,22 @@ function App() {
       : meta?.mode === AUTH_MODES.login
         ? !!token
         : false
-  // Operator deploys carry the project:* capabilities → projects live on the
+  // Operator roles carry the project:* capabilities → projects live on the
   // server (lib/projectSync.ts). Guests keep localStorage persistence.
-  const canProjects = !!meta?.capabilities.includes(CAPABILITIES.projectRead)
+  // Capabilities are per-user now (GET /auth/me), so wait for that query
+  // before choosing a persistence mode — `me` is undefined until it lands.
+  const me = useMe()
+  const canProjects = !!me?.capabilities.includes(CAPABILITIES.projectRead)
   const syncStatus = useProjectSyncStore((s) => s.status)
   const syncError = useProjectSyncStore((s) => s.loadError)
   const didInitProjects = useRef(false)
   useEffect(() => {
-    if (!sessionReady || didInitProjects.current) return
+    if (!sessionReady || !me || didInitProjects.current) return
     didInitProjects.current = true
     initProjectAutosave()
     if (canProjects) void initServerProjects()
     else useProjectsStore.getState().ensureDefaultProject()
-  }, [sessionReady, canProjects])
+  }, [sessionReady, me, canProjects])
 
   if (modeLoading) return <Splash />
 
@@ -99,6 +103,10 @@ function App() {
     if (meta?.mode === AUTH_MODES.login) return <LoginForm />
     return <Splash label="Connecting to playground…" />
   }
+
+  // Capabilities (GET /auth/me) decide the persistence mode below; rendering
+  // the workspace before they land would flash the wrong mode for operators.
+  if (!me) return <Splash label="Loading session…" />
 
   // Server-persistence gate (operator only): the canvas can't render until the
   // project list is hydrated from the backend. No silent localStorage fallback

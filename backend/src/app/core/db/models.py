@@ -102,10 +102,11 @@ class VmRegistryEntry(MongoModel):
 class SettingsDoc(BaseModel):
     """The settings singleton (fixed ``_id`` — not a ``MongoModel``).
 
-    STUB in Phase A: seeded from env at startup and editable via the settings
-    routes, but env vars (``core/settings.py``) remain authoritative at
-    runtime — nothing reads this document yet. It deliberately carries no
-    ESXi password; secret handling is a Phase B decision.
+    Authoritative (Phase B) for the one shared org-wide ESXi target — seeded
+    from env on first boot, then admin-editable via the settings routes with
+    no restart (``core/esxi.py`` reloads it per request). The password is
+    stored only as the ``core/secrets.py`` ``{keyId, nonce, ciphertext}``
+    shape and is never returned by the API.
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -113,22 +114,34 @@ class SettingsDoc(BaseModel):
     id: Literal["global"] = Field(default="global", alias="_id")
     esxi_host: str | None = Field(default=None, alias="esxiHost")
     esxi_user: str | None = Field(default=None, alias="esxiUser")
+    esxi_password_enc: dict[str, str] | None = Field(
+        default=None, alias="esxiPasswordEnc"
+    )
     esxi_port: int = Field(default=443, alias="esxiPort")
     feature_flags: dict[str, bool] = Field(default_factory=dict, alias="featureFlags")
-    schema_version: int = Field(default=1, alias="schemaVersion")
+    schema_version: int = Field(default=2, alias="schemaVersion")
     updated_at: int = Field(alias="updatedAt")
 
 
 class UserDoc(MongoModel):
-    """Users collection stub — schema and indexes only, no routes or auth
-    logic until Phase B. Role strings mirror ``authz.Role`` values without
-    importing them, to keep this stub decoupled from auth internals.
+    """One account — admin-provisioned only (no self-serve signup).
+
+    ``auth`` records provenance: ``local`` accounts hold an Argon2id
+    ``passwordHash``; ``oidc`` accounts are upserted at first SSO login and
+    hold none (their credential lives at the IdP). Either kind is switched
+    off via ``disabled``, which takes effect on the next request because
+    ``authz.resolve_user_token`` re-reads this document per request.
+
+    Role strings mirror ``authz.Role`` values without importing them, keeping
+    the schema decoupled from auth internals.
     """
 
     username: str = Field(min_length=1, max_length=64)
     email: str | None = None
     password_hash: str | None = Field(default=None, alias="passwordHash")
     role: Literal["operator", "guest"] = "operator"
+    auth: Literal["local", "oidc"] = "local"
     disabled: bool = False
     schema_version: int = Field(default=1, alias="schemaVersion")
     created_at: int = Field(alias="createdAt")
+    updated_at: int = Field(alias="updatedAt")

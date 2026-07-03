@@ -13,11 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
-from vmkit import Connection
 
 from app.core.authz import Capability, require_capability
 from app.core.db import from_mongo, now_ms, vm_registry_col
-from app.core.sessions import get_session
 
 router = APIRouter(prefix="/vm-registry", tags=["vm-registry"])
 
@@ -37,9 +35,7 @@ class VmRegistryUpsert(BaseModel):
 
 
 @router.get("", dependencies=[Depends(require_capability(Capability.REGISTRY_READ))])
-async def list_entries(
-    project_id: str | None = None, _conn: Connection = Depends(get_session)
-) -> dict:
+async def list_entries(project_id: str | None = None) -> dict:
     """Full entries (they're tiny), optionally filtered to one project."""
     query = {"projectId": project_id} if project_id is not None else {}
     cursor = vm_registry_col().find(query).sort("updatedAt", -1)
@@ -51,9 +47,7 @@ async def list_entries(
     "/{vm_name}",
     dependencies=[Depends(require_capability(Capability.REGISTRY_WRITE))],
 )
-async def upsert_entry(
-    vm_name: str, body: VmRegistryUpsert, _conn: Connection = Depends(get_session)
-) -> dict:
+async def upsert_entry(vm_name: str, body: VmRegistryUpsert) -> dict:
     """Upsert keyed on the unique ``vmName`` index; document identity survives
     repeated upserts ($setOnInsert pins _id/createdAt on first write)."""
     fields = body.model_dump(by_alias=True)
@@ -76,7 +70,7 @@ async def upsert_entry(
     status_code=204,
     dependencies=[Depends(require_capability(Capability.REGISTRY_WRITE))],
 )
-async def delete_entry(vm_name: str, _conn: Connection = Depends(get_session)) -> None:
+async def delete_entry(vm_name: str) -> None:
     result = await vm_registry_col().delete_one({"vmName": vm_name})
     if result.deleted_count == 0:
         raise HTTPException(404, detail=f"VM registry entry '{vm_name}' not found.")

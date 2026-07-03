@@ -4,9 +4,8 @@ Generic: any job published via ``app.core.jobs.transport`` can be watched here, 
 just clones. Mounted under ``/api`` → ``ws /api/ws/jobs/{job_id}``.
 
 Auth: browsers can't set custom headers on the WS upgrade, so the session token
-comes as a ``?token=`` query param and is resolved against the same in-process
-session store the HTTP routes use (the WS endpoint itself still runs in the FastAPI
-process — only the clone work runs in a separate Celery worker). Close codes: 4401
+(a backend-minted JWT) comes as a ``?token=`` query param and is resolved by the
+same ``resolve_user_token`` the HTTP dependency uses. Close codes: 4401
 (bad/absent token), 4404 (unknown/expired job — no snapshot in Valkey).
 
 Job state and live messages live in Valkey (see ``transport``), not in this
@@ -19,16 +18,16 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.core.authz import resolve_user_token
 from app.core.jobs import transport
 from app.core.jobs.models import TERMINAL_TYPES
-from app.core.sessions import resolve_token
 
 router = APIRouter(prefix="/ws", tags=["ws"])
 
 
 @router.websocket("/jobs/{job_id}")
 async def job_progress(websocket: WebSocket, job_id: str, token: str | None = None) -> None:
-    if resolve_token(token) is None:
+    if await resolve_user_token(token) is None:
         await websocket.close(code=4401)
         return
 

@@ -18,11 +18,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from vmkit import Connection
 
 from app.core.authz import Capability, require_capability
 from app.core.db import ProjectDoc, Viewport, from_mongo, now_ms, projects_col, to_mongo
-from app.core.sessions import get_session
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -53,7 +51,7 @@ class ProjectIn(BaseModel):
 
 
 @router.get("", dependencies=[Depends(require_capability(Capability.PROJECT_READ))])
-async def list_projects(_conn: Connection = Depends(get_session)) -> dict:
+async def list_projects() -> dict:
     """Summaries only, newest first — the full graphs stay out of the tab bar."""
     cursor = (
         projects_col()
@@ -69,7 +67,7 @@ async def list_projects(_conn: Connection = Depends(get_session)) -> dict:
     status_code=201,
     dependencies=[Depends(require_capability(Capability.PROJECT_WRITE))],
 )
-async def create_project(body: ProjectIn, _conn: Connection = Depends(get_session)) -> dict:
+async def create_project(body: ProjectIn) -> dict:
     """Create a project. A duplicate id raises DuplicateKeyError → 409."""
     now = now_ms()
     doc = ProjectDoc(
@@ -93,7 +91,7 @@ async def create_project(body: ProjectIn, _conn: Connection = Depends(get_sessio
     "/{project_id}",
     dependencies=[Depends(require_capability(Capability.PROJECT_READ))],
 )
-async def get_project(project_id: str, _conn: Connection = Depends(get_session)) -> dict:
+async def get_project(project_id: str) -> dict:
     doc = await projects_col().find_one({"_id": project_id})
     if doc is None:
         raise HTTPException(404, detail=f"Project '{project_id}' not found.")
@@ -104,9 +102,7 @@ async def get_project(project_id: str, _conn: Connection = Depends(get_session))
     "/{project_id}",
     dependencies=[Depends(require_capability(Capability.PROJECT_WRITE))],
 )
-async def update_project(
-    project_id: str, body: ProjectIn, _conn: Connection = Depends(get_session)
-) -> dict:
+async def update_project(project_id: str, body: ProjectIn) -> dict:
     """Full-snapshot replace (matches the frontend's checkpoint semantics).
 
     No upsert — creation stays explicit via POST; 404 if the project is gone.
@@ -143,7 +139,7 @@ async def update_project(
     status_code=204,
     dependencies=[Depends(require_capability(Capability.PROJECT_WRITE))],
 )
-async def delete_project(project_id: str, _conn: Connection = Depends(get_session)) -> None:
+async def delete_project(project_id: str) -> None:
     result = await projects_col().delete_one({"_id": project_id})
     if result.deleted_count == 0:
         raise HTTPException(404, detail=f"Project '{project_id}' not found.")

@@ -93,3 +93,19 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _mongo_error(request: Request, exc: PyMongoError) -> JSONResponse:
         status, detail = map_mongo_error(exc)
         return JSONResponse(status_code=status, content={"detail": detail})
+
+    # Deferred import — core.secrets needs SETTINGS_ENC_KEY at call time and
+    # this module is imported by tooling that may lack the full env.
+    from app.core.secrets import SecretDecryptionError
+
+    @app.exception_handler(SecretDecryptionError)
+    async def _secret_error(request: Request, exc: SecretDecryptionError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "Stored ESXi password cannot be decrypted (SETTINGS_ENC_KEY "
+                    "changed?) — an operator must re-set it via PUT /api/settings."
+                )
+            },
+        )

@@ -7,9 +7,10 @@ same error → status mapping the synchronous routes use.
 
 The plan runner (``run_plan_task``) walks a validated deploy-plan DAG the same way:
 one real vmkit call for a non-simulated ``createVm`` op, a timed stub for
-everything else. Like the clone task, it opens its own ESXi connection from
-guest-mode env vars — a real ``createVm`` therefore only works when the worker
-process has ``ESXI_*`` set (guest mode, or login mode with those also set).
+everything else. Like the clone task, it opens its own ESXi connection against
+the shared org-wide target from the Mongo settings document
+(``core.esxi.load_target_sync`` — the async client is API-process-bound), so
+the worker needs Mongo + ``SETTINGS_ENC_KEY``, not ``ESXI_*`` env vars.
 """
 
 import time
@@ -22,6 +23,7 @@ from vmkit.errors import VmkitError
 
 from app.celery_app import celery_app
 from app.core.errors import map_vmkit_error
+from app.core.esxi import load_target_sync
 from app.core.jobs import transport
 from app.core.jobs.models import (
     DoneMsg,
@@ -32,7 +34,16 @@ from app.core.jobs.models import (
     ProgressMsg,
     RunningMsg,
 )
-from app.core.settings import settings
+
+
+def _open_worker_connection():
+    """Shared-target connection for one task; raises if no target is configured
+    (the API routes pre-check this, so hitting it here means the target was
+    unset between enqueue and execution)."""
+    target = load_target_sync()
+    if target is None:
+        raise RuntimeError("No shared ESXi target configured (settings document).")
+    return open_connection(target.host, target.user, target.password, target.port)
 
 if TYPE_CHECKING:
     from vmkit import Connection
@@ -71,12 +82,7 @@ def clone_vm_task(job_id: str, params: dict) -> None:
 
     try:
         req = CloneRequest(**params)
-        conn = open_connection(
-            settings.esxi_host,  # type: ignore[arg-type]
-            settings.esxi_user,  # type: ignore[arg-type]
-            settings.esxi_password,  # type: ignore[arg-type]
-            settings.esxi_port,
-        )
+        conn = _open_worker_connection()
         reducer = CloneProgressReducer(transport.make_publisher(job_id), _clone_total_ops(req))
         result = clone_workflow(conn, progress=reducer, **params)
         transport.publish(
@@ -215,12 +221,7 @@ def run_plan_task(job_id: str, plan: dict) -> None:
                 if op.kind is PlanOpKind.create_vm and op.params.get("simulate") != "true":
                     if conn is None:
                         try:
-                            conn = open_connection(
-                                settings.esxi_host,  # type: ignore[arg-type]
-                                settings.esxi_user,  # type: ignore[arg-type]
-                                settings.esxi_password,  # type: ignore[arg-type]
-                                settings.esxi_port,
-                            )
+                            conn = _open_worker_connection()
                         except Exception as exc:  # noqa: BLE001 — a connection failure blocks this op only, not the whole plan
                             state[op.id] = OpRunState(status="error", detail=str(exc))
                             push()

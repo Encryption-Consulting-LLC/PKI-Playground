@@ -14,15 +14,19 @@ everything else is a simulated stub for now (see ``app.tasks._simulate_op``).
 import uuid
 from enum import Enum
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from vmkit import Connection
 
-from app.core.authz import Capability, enforce_guest_vm_name, require_capability
+from app.core.authz import (
+    AuthedUser,
+    Capability,
+    enforce_guest_vm_name,
+    get_current_user,
+    require_capability,
+)
+from app.core.esxi import load_target
 from app.core.jobs import transport
 from app.core.jobs.models import JobStatus, QueuedMsg
-from app.core.sessions import get_session
-from app.core.settings import settings
 
 router = APIRouter(prefix="/deploy", tags=["deploy"])
 
@@ -49,13 +53,13 @@ class DeployRequest(BaseModel):
     ops: list[PlanOp] = Field(min_length=1, max_length=50)
 
 
-def validate_plan(ops: list[PlanOp], token: str) -> None:
+def validate_plan(ops: list[PlanOp], user: AuthedUser, target_configured: bool) -> None:
     """Raise 422 on a malformed plan: duplicate ids, unknown/self deps, cycles,
     or a non-simulated ``createVm`` missing the ``vmName`` param.
 
     Also rewrites each non-simulated ``createVm``'s ``vmName`` in place via
     ``enforce_guest_vm_name`` — a guest must not be able to name a real VM
-    outside its own session's namespace.
+    outside its own identity's namespace.
 
     Called explicitly from the route (not a pydantic validator) so the checks
     stay easy to read and the errors are unambiguous 422s.
@@ -78,20 +82,19 @@ def validate_plan(ops: list[PlanOp], token: str) -> None:
                 raise HTTPException(
                     422, detail=f"Op '{op.id}' (createVm) is missing the 'vmName' param."
                 )
-            # The worker opens its own ESXi connection from these same
-            # settings (see app.tasks.run_plan_task) — without them a real
-            # clone can't run at all, so reject it here rather than letting
-            # the worker crash on `open_connection(None, ...)` (notably every
-            # login-mode deploy, where these are never set).
-            if not (settings.esxi_host and settings.esxi_user and settings.esxi_password):
+            # The worker opens its own ESXi connection against the shared
+            # target from the settings document (see app.tasks) — without a
+            # configured target a real clone can't run at all, so reject it
+            # here rather than letting the worker fail the op later.
+            if not target_configured:
                 raise HTTPException(
                     422,
                     detail=(
-                        f"Op '{op.id}' (createVm) requests a real clone, but no ESXi "
-                        "connection is configured for this deploy — simulate it instead."
+                        f"Op '{op.id}' (createVm) requests a real clone, but no shared "
+                        "ESXi target is configured for this deploy — simulate it instead."
                     ),
                 )
-            op.params["vmName"] = enforce_guest_vm_name(op.params["vmName"], token)
+            op.params["vmName"] = enforce_guest_vm_name(op.params["vmName"], user)
 
     # Kahn's algorithm: a plan with a dependency cycle can never fully drain.
     indegree = {op.id: 0 for op in ops}
@@ -122,20 +125,18 @@ def validate_plan(ops: list[PlanOp], token: str) -> None:
 )
 async def deploy(
     req: DeployRequest,
-    x_session_token: str = Header(...),
-    _conn: Connection = Depends(get_session),
+    user: AuthedUser = Depends(get_current_user),
 ) -> dict:
     """Enqueue a deploy plan as a Celery job; stream progress over ws /api/ws/jobs/{job_id}.
 
-    ``get_session`` gates on a valid token exactly like the clone route — the
-    resolved ``Connection`` goes unused here since the actual work runs in a
-    separate worker process which opens its own ESXi connection (see
-    ``app.tasks.run_plan_task``, which therefore only does real clones when the
-    worker process also has guest-mode ``ESXI_*`` env vars set).
+    The actual work runs in a separate worker process which opens its own ESXi
+    connection against the shared target from the settings document (see
+    ``app.tasks.run_plan_task``) — this route validates the plan and, for
+    plans containing real clones, that a target is configured at all.
     """
     from app.tasks import run_plan_task  # local import: avoids loading Celery for every route
 
-    validate_plan(req.ops, x_session_token)
+    validate_plan(req.ops, user, target_configured=await load_target() is not None)
 
     job_id = uuid.uuid4().hex
     transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)

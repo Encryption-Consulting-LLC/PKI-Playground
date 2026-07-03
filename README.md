@@ -24,6 +24,13 @@ uv run uvicorn app.main:app --reload
 
 Then open http://127.0.0.1:8000/docs.
 
+Boot requires MongoDB (`MONGO_URL`) plus two secrets in the env —
+`SESSION_SECRET` and `SETTINGS_ENC_KEY` (`openssl rand -base64 32` each; see
+`backend/.env`). In login mode, provision the first account with
+`uv run create-admin <username>`; sign-in is username/password (or OIDC SSO
+via the `OIDC_*` vars), and the shared ESXi target is stored encrypted in the
+Mongo settings document — see `CLAUDE.md` for the auth model.
+
 ### Endpoints
 
 | Method | Path                 | Backed by | Notes                                              |
