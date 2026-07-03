@@ -3,11 +3,13 @@ import {
   AlertTriangle,
   Clock,
   Loader2,
+  Network,
   Power,
   PowerOff,
   RefreshCw,
   Settings,
   ShieldCheck,
+  Tag,
   Trash2,
   X,
 } from "lucide-react"
@@ -156,30 +158,37 @@ function ConfigForm({
 }
 
 /**
- * Manual agent correlation + one live, real orchestrator action.
+ * Manual agent correlation + the live orchestrator actions.
  *
  * There is no automatic VM<->agent correlation yet (see `MachineData.
  * orchestratorVmId`'s doc comment) — a human pastes in the vm_id a
- * `POST /orchestrator/register` call returned. `cert.verify` is wired end
- * to end (dispatch -> job socket -> result) as the guest-eligible,
- * lowest-risk proof that the whole phone-home path works from this UI; the
- * AD DS/ADCS `PlannedAction` stubs above are untouched since no command
- * backs them yet.
+ * `POST /orchestrator/register` call returned. Every action shares the same
+ * end-to-end path `cert.verify` first proved (dispatch -> job socket ->
+ * result): the guest-eligible reads (`hostname.read`, `ip.read`,
+ * `cert.verify`) plus the operator-only `ip.write` form. The AD DS/ADCS
+ * `PlannedAction` stubs above are untouched since no command backs them yet.
  */
 function OrchestratorPanel({
   nodeId,
   vmId,
-  canVerifyCert,
+  canRead,
+  canWrite,
 }: {
   nodeId: string
   vmId: string | undefined
-  canVerifyCert: boolean
+  canRead: boolean
+  canWrite: boolean
 }) {
   const store = useTopologyStore()
   const [draftVmId, setDraftVmId] = useState(vmId ?? "")
   const [path, setPath] = useState("")
-  const [running, setRunning] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
+  const [ipAddress, setIpAddress] = useState("")
+  const [ipPrefix, setIpPrefix] = useState("24")
+  const [ipGateway, setIpGateway] = useState("")
+  // One command in flight at a time (keyed by command name); results keyed
+  // the same way so each action row keeps its own last outcome.
+  const [busy, setBusy] = useState<string | null>(null)
+  const [results, setResults] = useState<Record<string, string>>({})
   const connected = useAgentConnected(vmId)
 
   function saveVmId() {
@@ -187,31 +196,38 @@ function OrchestratorPanel({
     store.patchNodeData(nodeId, { orchestratorVmId: trimmed || undefined })
   }
 
-  function verifyCert() {
-    if (!vmId) return
-    setRunning(true)
-    setResult(null)
-    dispatchOrchestratorCommand(vmId, "cert.verify", { path })
+  function run(command: string, params: Record<string, string>) {
+    if (!vmId || busy) return
+    setBusy(command)
+    setResults((prev) => {
+      const next = { ...prev }
+      delete next[command]
+      return next
+    })
+    const finish = (text: string) => {
+      setBusy(null)
+      setResults((prev) => ({ ...prev, [command]: text }))
+    }
+    dispatchOrchestratorCommand(vmId, command, params)
       .then(({ job_id }) => {
         const token = useAuthStore.getState().token
         const close = openJobSocket(job_id, token, {
           onDone: (e) => {
-            setRunning(false)
-            setResult(JSON.stringify(e.result))
+            finish(JSON.stringify(e.result))
             close()
           },
           onError: (e) => {
-            setRunning(false)
-            setResult(`Error: ${e.detail}`)
+            finish(`Error: ${e.detail}`)
             close()
           },
         })
       })
       .catch((err) => {
-        setRunning(false)
-        setResult(err instanceof Error ? err.message : "Failed to dispatch command.")
+        finish(err instanceof Error ? err.message : "Failed to dispatch command.")
       })
   }
+
+  const actionDisabled = !connected || busy !== null
 
   return (
     <div className="flex flex-col gap-2">
@@ -237,27 +253,111 @@ function OrchestratorPanel({
           Agent: {connected ? "Connected" : "Not connected"}
         </div>
       )}
-      {canVerifyCert && (
+      {canRead && (
+        <div className="flex flex-col gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start gap-2"
+            disabled={actionDisabled}
+            onClick={() => run("hostname.read", {})}
+          >
+            <Tag className="h-3.5 w-3.5" />
+            {busy === "hostname.read" ? "Reading…" : "Read Hostname"}
+          </Button>
+          {results["hostname.read"] && (
+            <p className="text-[11px] text-muted-foreground break-all">
+              {results["hostname.read"]}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start gap-2"
+            disabled={actionDisabled}
+            onClick={() => run("ip.read", {})}
+          >
+            <Network className="h-3.5 w-3.5" />
+            {busy === "ip.read" ? "Reading…" : "Read IP Addresses"}
+          </Button>
+          {results["ip.read"] && (
+            <p className="text-[11px] text-muted-foreground break-all">
+              {results["ip.read"]}
+            </p>
+          )}
+        </div>
+      )}
+      {canWrite && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex gap-1">
+            <Input
+              value={ipAddress}
+              onChange={(e) => setIpAddress(e.target.value)}
+              placeholder="IPv4, e.g. 192.168.1.10"
+              className="h-7 flex-1 text-xs"
+              disabled={actionDisabled}
+            />
+            <Input
+              value={ipPrefix}
+              onChange={(e) => setIpPrefix(e.target.value)}
+              placeholder="/24"
+              className="h-7 w-12 text-xs"
+              disabled={actionDisabled}
+            />
+          </div>
+          <Input
+            value={ipGateway}
+            onChange={(e) => setIpGateway(e.target.value)}
+            placeholder="gateway (optional)"
+            className="h-7 text-xs"
+            disabled={actionDisabled}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start gap-2"
+            disabled={actionDisabled || !ipAddress}
+            onClick={() =>
+              run("ip.write", {
+                address: ipAddress.trim(),
+                prefixLength: ipPrefix.trim() || "24",
+                ...(ipGateway.trim() ? { gateway: ipGateway.trim() } : {}),
+              })
+            }
+          >
+            <Network className="h-3.5 w-3.5" />
+            {busy === "ip.write" ? "Applying…" : "Set Static IP"}
+          </Button>
+          {results["ip.write"] && (
+            <p className="text-[11px] text-muted-foreground break-all">
+              {results["ip.write"]}
+            </p>
+          )}
+        </div>
+      )}
+      {canRead && (
         <div className="flex flex-col gap-1.5">
           <Input
             value={path}
             onChange={(e) => setPath(e.target.value)}
             placeholder="cert path, e.g. C:\win11.cer"
             className="h-7 text-xs"
-            disabled={!connected || running}
+            disabled={actionDisabled}
           />
           <Button
             variant="outline"
             size="sm"
             className="w-full justify-start gap-2"
-            disabled={!connected || !path || running}
-            onClick={verifyCert}
+            disabled={actionDisabled || !path}
+            onClick={() => run("cert.verify", { path })}
           >
             <ShieldCheck className="h-3.5 w-3.5" />
-            {running ? "Verifying…" : "Verify Certificate"}
+            {busy === "cert.verify" ? "Verifying…" : "Verify Certificate"}
           </Button>
-          {result && (
-            <p className="text-[11px] text-muted-foreground break-all">{result}</p>
+          {results["cert.verify"] && (
+            <p className="text-[11px] text-muted-foreground break-all">
+              {results["cert.verify"]}
+            </p>
           )}
         </div>
       )}
@@ -278,7 +378,7 @@ export function Inspector() {
 
   const canPower = useCan(CAPABILITIES.vmPower)
   const canUpdate = useCan(CAPABILITIES.vmUpdate)
-  const canVerifyCert = useCan(CAPABILITIES.vmRead)
+  const canRead = useCan(CAPABILITIES.vmRead)
   const deploying = useStagingStore((s) => s.deploying)
   const ops = useStagingStore((s) => s.ops)
   const retryDeploy = useStagingStore((s) => s.deploy)
@@ -650,7 +750,7 @@ export function Inspector() {
           </section>
         )}
 
-        {/* Orchestrator phone-home: manual agent correlation + cert.verify */}
+        {/* Orchestrator phone-home: manual agent correlation + live hostname/IP/cert actions */}
         {isConfigured && !reconfiguring && (
           <section className="flex flex-col gap-2 border-t pt-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -659,7 +759,8 @@ export function Inspector() {
             <OrchestratorPanel
               nodeId={nodeId}
               vmId={data.orchestratorVmId}
-              canVerifyCert={canVerifyCert}
+              canRead={canRead}
+              canWrite={canUpdate}
             />
           </section>
         )}
