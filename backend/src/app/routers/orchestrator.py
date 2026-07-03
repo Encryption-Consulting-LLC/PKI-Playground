@@ -50,6 +50,9 @@ router = APIRouter(prefix="/orchestrator", tags=["orchestrator"])
 # manual-parity risk, same caveat `authz.rs` already carries in reverse.
 _COMMAND_CAPABILITIES: dict[str, Capability] = {
     "hostname.rename": Capability.VM_UPDATE,
+    "hostname.read": Capability.VM_READ,
+    "ip.read": Capability.VM_READ,
+    "ip.write": Capability.VM_UPDATE,
     "cert.verify": Capability.VM_READ,
     "powershell.exec_arbitrary": Capability.VM_EXEC_ARBITRARY,
 }
