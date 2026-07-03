@@ -198,3 +198,36 @@ export const deployPlan = (ops: PlanOpPayload[]) =>
     method: "POST",
     body: JSON.stringify({ ops }),
   })
+
+// --- /orchestrator -----------------------------------------------------------
+
+export interface RegisterAgentResponse {
+  vm_id: string
+  token: string
+}
+
+/** Mints a vm_id/token pair for a not-yet-connected orchestrator agent. */
+export const registerAgent = () =>
+  request<RegisterAgentResponse>(URLS.orchestrator.register, { method: "POST" })
+
+export interface DispatchCommandAccepted {
+  job_id: string
+}
+
+/** Dispatch is async, same shape as clone/deploy: progress streams over the job WS. */
+export const dispatchOrchestratorCommand = (
+  vmId: string,
+  command: string,
+  params: Record<string, string> = {},
+) =>
+  request<DispatchCommandAccepted>(URLS.orchestrator.command(vmId), {
+    method: "POST",
+    body: JSON.stringify({ command, params }),
+  })
+
+export interface ConnectedAgents {
+  vm_ids: string[]
+}
+
+export const listConnectedAgents = () =>
+  request<ConnectedAgents>(URLS.orchestrator.agents)

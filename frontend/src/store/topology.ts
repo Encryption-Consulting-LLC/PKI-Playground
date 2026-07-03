@@ -61,6 +61,15 @@ export interface MachineData extends Record<string, unknown> {
    * `attachJobSocket`/`resumeJobs`.
    */
   jobId?: string
+  /**
+   * vm_id of an orchestrator agent this node is manually associated with,
+   * from `POST /orchestrator/register` (see `Inspector.tsx`'s Orchestrator
+   * section). There is no automatic VM<->agent correlation yet — vmkit has
+   * no guest-correlation mechanism and isokit/configgen can't bake this in
+   * at boot time (see `pki-orchestrator/README.md`) — so a human pastes it
+   * in, standing in for what a real deployment will do automatically later.
+   */
+  orchestratorVmId?: string
 }
 
 /**

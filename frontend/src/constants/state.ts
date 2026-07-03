@@ -15,4 +15,5 @@ export const STORAGE_KEYS = {
 export const QUERY_KEYS = {
   health: ["health"] as const,
   mode: ["auth-mode"] as const,
+  orchestratorAgents: ["orchestrator-agents"] as const,
 } as const
