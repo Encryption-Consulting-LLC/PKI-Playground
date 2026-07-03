@@ -12,6 +12,7 @@
  */
 
 import { API_BASE, URLS, type AuthMode, type Capability } from "@/constants"
+import type { ProjectDoc, ProjectPayload } from "@/lib/projectSerialize"
 import { useAuthStore } from "@/store/auth"
 
 export class ApiError extends Error {
@@ -198,6 +199,40 @@ export const deployPlan = (ops: PlanOpPayload[]) =>
     method: "POST",
     body: JSON.stringify({ ops }),
   })
+
+// --- /projects ---------------------------------------------------------------
+
+export interface ProjectSummary {
+  id: string
+  name: string
+  createdAt: number
+  updatedAt: number
+}
+
+export const listProjects = () =>
+  request<{ projects: ProjectSummary[]; count: number }>(URLS.projects.list)
+
+export const getProject = (id: string) =>
+  request<ProjectDoc>(URLS.projects.one(id))
+
+/** `init` passthrough carries `{ keepalive: true }` on beforeunload flushes. */
+export const createProject = (doc: ProjectPayload, init?: RequestInit) =>
+  request<ProjectDoc>(URLS.projects.list, {
+    method: "POST",
+    body: JSON.stringify(doc),
+    ...init,
+  })
+
+export const updateProject = (doc: ProjectPayload, init?: RequestInit) =>
+  request<ProjectDoc>(URLS.projects.one(doc.id), {
+    method: "PUT",
+    body: JSON.stringify(doc),
+    ...init,
+  })
+
+// 204 No Content — read as text so the empty body doesn't trip res.json().
+export const deleteProject = (id: string) =>
+  request<string>(URLS.projects.one(id), { method: "DELETE" }, true)
 
 // --- /orchestrator -----------------------------------------------------------
 

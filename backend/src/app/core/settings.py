@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # the global cap the deploy should run with.
     clone_concurrency: int = 2
 
+    # MongoDB — system of record for projects, the VM registry, the settings
+    # document, and (Phase B) users. Reachability is checked at startup in the
+    # app lifespan (fail-fast ping), not here — a URL default always parses.
+    mongo_url: str = "mongodb://localhost:27017"
+    mongo_db: str = "pki_playground"
+
     @model_validator(mode="after")
     def _require_esxi_for_guest(self) -> "Settings":
         if self.auth_mode == "guest":

@@ -120,6 +120,8 @@ def _run_clone_op(
             _op_progress_publisher(state, op.id, push), _clone_total_ops(req)
         )
         result = clone_workflow(conn, progress=reducer, **req.model_dump())
+        # Phase A+: write a vm_registry entry here (app name ↔ real vmName/moid).
+        # Needs a sync pymongo client — the async one is API-process/loop-bound.
         state[op.id] = OpRunState(
             status="done", percent=100.0, phase="Done", result=asdict(result)
         )

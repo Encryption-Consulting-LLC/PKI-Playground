@@ -36,6 +36,12 @@ class Capability(str, Enum):
     CONFIG_GENERATE = "config:generate"
     VM_EXEC_ARBITRARY = "vm:exec-arbitrary"  # reserved — wired in by the orchestrator phase
     DEPLOY = "deploy"
+    PROJECT_READ = "project:read"
+    PROJECT_WRITE = "project:write"
+    SETTINGS_READ = "settings:read"
+    SETTINGS_WRITE = "settings:write"
+    REGISTRY_READ = "registry:read"
+    REGISTRY_WRITE = "registry:write"
 
 
 # Tune the allowlist here.
@@ -46,6 +52,9 @@ class Capability(str, Enum):
 #   VM_EXEC_ARBITRARY is reserved for the firstboot orchestrator (future phase).
 #   DEPLOY is guest-eligible: the plan runner only does what a guest can already
 #     trigger directly (clones) plus simulated stub ops.
+#   PROJECT_* / SETTINGS_* / REGISTRY_* (Mongo persistence) are operator-only:
+#     guests keep client-side (localStorage) persistence, so the shared guest
+#     deploy never exposes a cross-visitor project list.
 ROLE_CAPABILITIES: dict[Role, set[Capability]] = {
     Role.OPERATOR: set(Capability),
     Role.GUEST: {

@@ -29,6 +29,10 @@ export const URLS = {
     powerOff: (name: string) => `/vm/${encodeURIComponent(name)}/power-off`,
   },
   deploy: "/deploy",
+  projects: {
+    list: "/projects",
+    one: (id: string) => `/projects/${encodeURIComponent(id)}`,
+  },
   orchestrator: {
     register: "/orchestrator/register",
     command: (vmId: string) => `/orchestrator/${encodeURIComponent(vmId)}/command`,

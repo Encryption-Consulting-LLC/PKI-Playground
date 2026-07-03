@@ -1,4 +1,4 @@
-"""vmkit typed errors → HTTP status codes.
+"""vmkit and pymongo typed errors → HTTP status codes.
 
 ``map_vmkit_error`` is the single source of truth for the status/detail a vmkit
 exception maps to. It is reused in two places:
@@ -16,6 +16,14 @@ base-class catch-all (``VmkitError`` → 500) fires only when nothing else match
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pymongo.errors import (
+    ConnectionFailure,
+    DuplicateKeyError,
+    ExecutionTimeout,
+    NetworkTimeout,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
 
 from vmkit.errors import (
     AuthenticationError,
@@ -47,6 +55,28 @@ def map_vmkit_error(exc: VmkitError) -> tuple[int, str]:
     return 500, str(exc)
 
 
+# Most-specific first; PyMongoError (base) is the catch-all and must stay last.
+# ServerSelectionTimeoutError subclasses ConnectionFailure — keep it first.
+# Details are fixed strings, not str(exc): pymongo messages can leak the
+# connection string / host internals.
+_MONGO_ERROR_STATUS: tuple[tuple[type[PyMongoError], int, str], ...] = (
+    (DuplicateKeyError, 409, "Resource already exists."),
+    (ServerSelectionTimeoutError, 503, "Database unavailable."),
+    (ConnectionFailure, 503, "Database unavailable."),
+    (NetworkTimeout, 504, "Database timed out."),
+    (ExecutionTimeout, 504, "Database timed out."),
+    (PyMongoError, 500, "Database error."),
+)
+
+
+def map_mongo_error(exc: PyMongoError) -> tuple[int, str]:
+    """Return the ``(status_code, detail)`` for a pymongo exception."""
+    for exc_type, status, detail in _MONGO_ERROR_STATUS:
+        if isinstance(exc, exc_type):
+            return status, detail
+    return 500, "Database error."
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Attach a single vmkit-error→HTTP handler to *app*.
 
@@ -57,4 +87,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(VmkitError)
     async def _vmkit_error(request: Request, exc: VmkitError) -> JSONResponse:
         status, detail = map_vmkit_error(exc)
+        return JSONResponse(status_code=status, content={"detail": detail})
+
+    @app.exception_handler(PyMongoError)
+    async def _mongo_error(request: Request, exc: PyMongoError) -> JSONResponse:
+        status, detail = map_mongo_error(exc)
         return JSONResponse(status_code=status, content={"detail": detail})

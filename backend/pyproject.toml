@@ -9,6 +9,7 @@ dependencies = [
     "pydantic-settings>=2.7",
     "celery>=5.6",
     "redis>=5.0",
+    "pymongo>=4.13",
     "vmkit",
     "configgen",
     "isokit",

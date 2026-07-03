@@ -1,0 +1,43 @@
+"""MongoDB layer: client lifecycle, collection accessors, document schemas."""
+
+from app.core.db.client import (
+    SETTINGS_DOC_ID,
+    close_db,
+    get_db,
+    init_db,
+    projects_col,
+    settings_col,
+    users_col,
+    vm_registry_col,
+)
+from app.core.db.models import (
+    MongoModel,
+    ProjectDoc,
+    SettingsDoc,
+    UserDoc,
+    Viewport,
+    VmRegistryEntry,
+    from_mongo,
+    now_ms,
+    to_mongo,
+)
+
+__all__ = [
+    "SETTINGS_DOC_ID",
+    "close_db",
+    "get_db",
+    "init_db",
+    "projects_col",
+    "settings_col",
+    "users_col",
+    "vm_registry_col",
+    "MongoModel",
+    "ProjectDoc",
+    "SettingsDoc",
+    "UserDoc",
+    "Viewport",
+    "VmRegistryEntry",
+    "from_mongo",
+    "now_ms",
+    "to_mongo",
+]

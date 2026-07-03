@@ -10,6 +10,9 @@ export const STORAGE_KEYS = {
   auth: "ec-pki-auth",
   theme: "ec-pki-theme",
   projects: "ec-pki-projects",
+  // Server-persistence mode only: device-local UI prefs ({activeProjectId,
+  // nextProjectNumber}) that deliberately stay out of the Mongo project docs.
+  projectsMeta: "ec-pki-projects-meta",
 } as const
 
 export const QUERY_KEYS = {

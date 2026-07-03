@@ -24,6 +24,8 @@ export const CAPABILITIES = {
   configGenerate: "config:generate",
   vmExecArbitrary: "vm:exec-arbitrary", // reserved — future orchestrator phase
   deploy: "deploy",
+  projectRead: "project:read", // operator-only — gates server-side project persistence
+  projectWrite: "project:write",
 } as const
 
 export type Capability = (typeof CAPABILITIES)[keyof typeof CAPABILITIES]

@@ -2,11 +2,13 @@
  * Persisted project store.
  *
  * A "project" is a named, saved snapshot of a topology graph (nodes/edges/
- * counters). Backed by localStorage (via zustand `persist`), same pattern as
- * `auth.ts`/`theme.ts`. This is the seam called out in `topology.ts`: the
- * working graph there stays ephemeral/in-memory, and this store is what
- * actually persists it, one snapshot per project. Swapping localStorage for a
- * backend endpoint later only touches this file.
+ * counters). This is the seam called out in `topology.ts`: the working graph
+ * there stays ephemeral/in-memory, and this store is what actually persists
+ * it, one snapshot per project. Persistence is dual-mode:
+ *   - guest: localStorage via zustand `persist`, same pattern as `auth.ts`.
+ *   - operator: the Mongo-backed /api/projects CRUD — `lib/projectSync.ts`
+ *     hydrates this store on init and write-through-syncs changes; the
+ *     persist storage is gated read-only (`lib/persistenceMode.ts`).
  *
  * Snapshot writes are checkpointed (see `lib/projectAutosave.ts`) rather than
  * happening on every topology mutation, so dragging/dropping nodes around
@@ -15,7 +17,7 @@
  */
 
 import { create } from "zustand"
-import { persist } from "zustand/middleware"
+import { createJSONStorage, persist } from "zustand/middleware"
 import type { Edge, Node } from "@xyflow/react"
 
 import type { Viewport } from "@xyflow/react"
@@ -27,6 +29,7 @@ import type { MachineData } from "@/store/topology"
 import { DEFAULT_VIEWPORT, useTopologyStore } from "@/store/topology"
 import { useStagingStore } from "@/store/staging"
 import { withSuppressedAutosave } from "@/lib/projectAutosave"
+import { gatedLocalStorage } from "@/lib/persistenceMode"
 
 export interface Project {
   id: string
@@ -60,7 +63,7 @@ interface LegacyMachineData {
  * as drifted the moment they load). Idempotent — already-migrated data (has
  * `lifecycle`) passes through unchanged.
  */
-function migrateNodeData(data: LegacyMachineData | MachineData): MachineData {
+export function migrateNodeData(data: LegacyMachineData | MachineData): MachineData {
   if ("lifecycle" in data) return data
   const { status, ...rest } = data
   switch (status) {
@@ -84,7 +87,7 @@ function migrateNodeData(data: LegacyMachineData | MachineData): MachineData {
   }
 }
 
-function emptyProject(name: string): Project {
+export function emptyProject(name: string): Project {
   return {
     id: crypto.randomUUID(),
     name,
@@ -99,12 +102,37 @@ function emptyProject(name: string): Project {
   }
 }
 
+/** Load a project's ops + snapshot into the working stores (autosave-suppressed). */
+function activate(project: Project) {
+  withSuppressedAutosave(() => {
+    // Ops load first so `loadSnapshot`'s resumeJobs can see them — a mid-plan
+    // node reverting to `staged` rather than `draft` depends on the matching
+    // op already being in the staging store.
+    useStagingStore
+      .getState()
+      .loadOps(project.stagedOps ?? [], project.deployJobId ?? null)
+    useTopologyStore
+      .getState()
+      .loadSnapshot(
+        project.nodes,
+        project.edges,
+        project.counters,
+        project.viewport ?? DEFAULT_VIEWPORT,
+      )
+  })
+}
+
 interface ProjectsState {
   projects: Project[]
   activeProjectId: string | null
   nextProjectNumber: number
 
   ensureDefaultProject: () => void
+  hydrateFromServer: (
+    projects: Project[],
+    activeProjectId: string,
+    nextProjectNumber: number,
+  ) => void
   addProject: () => void
   renameProject: (id: string, name: string) => void
   switchProject: (id: string) => void
@@ -126,29 +154,22 @@ export const useProjectsStore = create<ProjectsState>()(
         if (projects.length > 0) {
           const active =
             projects.find((p) => p.id === get().activeProjectId) ?? projects[0]
-          withSuppressedAutosave(() => {
-            // Ops load first so `loadSnapshot`'s resumeJobs can see them —
-            // a mid-plan node reverting to `staged` rather than `draft`
-            // depends on the matching op already being in the staging store.
-            useStagingStore.getState().loadOps(active.stagedOps ?? [], active.deployJobId ?? null)
-            useTopologyStore
-              .getState()
-              .loadSnapshot(
-                active.nodes,
-                active.edges,
-                active.counters,
-                active.viewport ?? DEFAULT_VIEWPORT,
-              )
-          })
+          activate(active)
           if (!get().activeProjectId) set({ activeProjectId: projects[0].id })
           return
         }
         const project = emptyProject("Project 1")
         set({ projects: [project], activeProjectId: project.id, nextProjectNumber: 2 })
-        withSuppressedAutosave(() => {
-          useStagingStore.getState().loadOps([], null)
-          useTopologyStore.getState().loadSnapshot([], [], {}, DEFAULT_VIEWPORT)
-        })
+        activate(project)
+      },
+
+      // Server-mode entry point (lib/projectSync.ts): wholesale-replace the
+      // project list with Mongo-loaded docs and activate the chosen one.
+      hydrateFromServer(projects, activeProjectId, nextProjectNumber) {
+        set({ projects, activeProjectId, nextProjectNumber })
+        const active =
+          projects.find((p) => p.id === activeProjectId) ?? projects[0]
+        if (active) activate(active)
       },
 
       addProject() {
@@ -160,10 +181,7 @@ export const useProjectsStore = create<ProjectsState>()(
           activeProjectId: project.id,
           nextProjectNumber: n + 1,
         }))
-        withSuppressedAutosave(() => {
-          useStagingStore.getState().loadOps([], null)
-          useTopologyStore.getState().loadSnapshot([], [], {}, DEFAULT_VIEWPORT)
-        })
+        activate(project)
       },
 
       renameProject(id, name) {
@@ -182,17 +200,7 @@ export const useProjectsStore = create<ProjectsState>()(
         const target = get().projects.find((p) => p.id === id)
         if (!target) return
         set({ activeProjectId: id })
-        withSuppressedAutosave(() => {
-          useStagingStore.getState().loadOps(target.stagedOps ?? [], target.deployJobId ?? null)
-          useTopologyStore
-            .getState()
-            .loadSnapshot(
-              target.nodes,
-              target.edges,
-              target.counters,
-              target.viewport ?? DEFAULT_VIEWPORT,
-            )
-        })
+        activate(target)
       },
 
       markActiveDirty() {
@@ -249,6 +257,9 @@ export const useProjectsStore = create<ProjectsState>()(
     }),
     {
       name: STORAGE_KEYS.projects,
+      // Same envelope/version/migrate as the default localStorage storage —
+      // guests are unaffected; in server mode the gate makes writes no-ops.
+      storage: createJSONStorage(() => gatedLocalStorage),
       version: 1,
       migrate: (persistedState, version) => {
         if (version >= 1) return persistedState as ProjectsState
