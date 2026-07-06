@@ -54,6 +54,18 @@ class Settings(BaseSettings):
     esxi_password: str | None = None
     esxi_port: int = 443
 
+    # First-boot seed for the guest subnet (Phase G) — same seed-only
+    # semantics as the ESXi target above. The start/end range is inclusive
+    # and must exclude the network, broadcast, and gateway addresses; the
+    # backend pre-seeds one IP-pool document per address in the range.
+    guest_ip_start: str | None = None
+    guest_ip_end: str | None = None
+    guest_prefix: int = 24
+    guest_gateway: str | None = None
+    guest_dns1: str | None = None
+    guest_dns2: str | None = None
+    guest_dns_suffix: str | None = None
+
     # Clone job queue: Valkey is the Celery broker, a per-job pub/sub bus, and the
     # snapshot store the job WebSocket reads from. The clone worker process opens
     # its own ESXi connection against the shared target from the settings document

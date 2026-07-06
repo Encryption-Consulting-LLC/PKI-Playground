@@ -31,6 +31,13 @@ class SettingsUpdate(BaseModel):
     esxi_user: str | None = Field(default=None, alias="esxiUser")
     esxi_password: str | None = Field(default=None, alias="esxiPassword")
     esxi_port: int | None = Field(default=None, alias="esxiPort")
+    guest_ip_start: str | None = Field(default=None, alias="guestIpStart")
+    guest_ip_end: str | None = Field(default=None, alias="guestIpEnd")
+    guest_prefix: int | None = Field(default=None, alias="guestPrefix")
+    guest_gateway: str | None = Field(default=None, alias="guestGateway")
+    guest_dns1: str | None = Field(default=None, alias="guestDns1")
+    guest_dns2: str | None = Field(default=None, alias="guestDns2")
+    guest_dns_suffix: str | None = Field(default=None, alias="guestDnsSuffix")
     feature_flags: dict[str, bool] | None = Field(default=None, alias="featureFlags")
 
 

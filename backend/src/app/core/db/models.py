@@ -118,8 +118,20 @@ class SettingsDoc(BaseModel):
         default=None, alias="esxiPasswordEnc"
     )
     esxi_port: int = Field(default=443, alias="esxiPort")
+    # Guest subnet (Phase G) — an inclusive start/end range (not a CIDR, so it
+    # can never include the network/broadcast/gateway addresses) that the IP
+    # pool (``core/ippool.py``) is seeded from. All four of start/end/gateway/
+    # dns1 must be set for guest deploys to run (configgen's static network
+    # script requires a primary DNS server).
+    guest_ip_start: str | None = Field(default=None, alias="guestIpStart")
+    guest_ip_end: str | None = Field(default=None, alias="guestIpEnd")
+    guest_prefix: int = Field(default=24, alias="guestPrefix")
+    guest_gateway: str | None = Field(default=None, alias="guestGateway")
+    guest_dns1: str | None = Field(default=None, alias="guestDns1")
+    guest_dns2: str | None = Field(default=None, alias="guestDns2")
+    guest_dns_suffix: str | None = Field(default=None, alias="guestDnsSuffix")
     feature_flags: dict[str, bool] = Field(default_factory=dict, alias="featureFlags")
-    schema_version: int = Field(default=2, alias="schemaVersion")
+    schema_version: int = Field(default=3, alias="schemaVersion")
     updated_at: int = Field(alias="updatedAt")
 
 

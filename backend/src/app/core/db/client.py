@@ -121,6 +121,13 @@ async def _seed_settings_doc() -> None:
             encrypt_secret(settings.esxi_password) if settings.esxi_password else None
         ),
         esxi_port=settings.esxi_port,
+        guest_ip_start=settings.guest_ip_start,
+        guest_ip_end=settings.guest_ip_end,
+        guest_prefix=settings.guest_prefix,
+        guest_gateway=settings.guest_gateway,
+        guest_dns1=settings.guest_dns1,
+        guest_dns2=settings.guest_dns2,
+        guest_dns_suffix=settings.guest_dns_suffix,
         updated_at=now_ms(),
     )
     await settings_col().update_one(
@@ -135,4 +142,21 @@ async def _seed_settings_doc() -> None:
         await settings_col().update_one(
             {"_id": SETTINGS_DOC_ID, "esxiPasswordEnc": None},
             {"$set": {"esxiPasswordEnc": encrypt_secret(settings.esxi_password)}},
+        )
+    # Same backfill idea for the guest subnet (fields new in schema v3): the
+    # env seed fills a doc that has never had a range, never overwrites one.
+    if settings.guest_ip_start:
+        await settings_col().update_one(
+            {"_id": SETTINGS_DOC_ID, "guestIpStart": None},
+            {
+                "$set": {
+                    "guestIpStart": settings.guest_ip_start,
+                    "guestIpEnd": settings.guest_ip_end,
+                    "guestPrefix": settings.guest_prefix,
+                    "guestGateway": settings.guest_gateway,
+                    "guestDns1": settings.guest_dns1,
+                    "guestDns2": settings.guest_dns2,
+                    "guestDnsSuffix": settings.guest_dns_suffix,
+                }
+            },
         )
