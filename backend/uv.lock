@@ -497,7 +497,7 @@ requires-dist = [
     { name = "pymongo", specifier = ">=4.13" },
     { name = "redis", specifier = ">=5.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
-    { name = "vmkit", git = "https://github.com/Arnesh-EC/vmkit.git?tag=v0.2.0" },
+    { name = "vmkit", git = "https://github.com/Arnesh-EC/vmkit.git?tag=v0.3.0" },
 ]
 
 [[package]]
@@ -860,8 +860,8 @@ wheels = [
 
 [[package]]
 name = "vmkit"
-version = "0.2.0"
-source = { git = "https://github.com/Arnesh-EC/vmkit.git?tag=v0.2.0#e44d246f30ae09ab2848fc0e678f0bb6acd5946e" }
+version = "0.3.0"
+source = { git = "https://github.com/Arnesh-EC/vmkit.git?tag=v0.3.0#1dd351ceff20cef05d9c34f29d656e7001eab068" }
 dependencies = [
     { name = "pyvmomi" },
     { name = "requests" },
