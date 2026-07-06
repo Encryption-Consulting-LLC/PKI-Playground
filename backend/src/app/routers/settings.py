@@ -12,11 +12,12 @@ API response/log.
 (Absolute imports mean no clash with ``app.core.settings``.)
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.authz import Capability, require_capability
 from app.core.db import SETTINGS_DOC_ID, from_mongo, now_ms, settings_col
+from app.core.ippool import guest_network_from_doc, sync_pool_async, validate_network
 from app.core.secrets import encrypt_secret
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -60,7 +61,24 @@ async def update_settings(body: SettingsUpdate) -> dict:
     if "esxiPassword" in fields:
         password = fields.pop("esxiPassword")
         fields["esxiPasswordEnc"] = encrypt_secret(password) if password else None
+
+    # Guest-range edits are validated against the *merged* document before
+    # anything is written (a partial update can't be judged field-by-field),
+    # then the IP pool is reseeded so the edit takes effect immediately.
+    guest_edited = any(key.startswith("guest") for key in fields)
+    merged_net = None
+    if guest_edited:
+        current = await settings_col().find_one({"_id": SETTINGS_DOC_ID}) or {}
+        merged_net = guest_network_from_doc({**current, **fields})
+        if merged_net is not None:
+            try:
+                validate_network(merged_net)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     fields["updatedAt"] = now_ms()
     await settings_col().update_one({"_id": SETTINGS_DOC_ID}, {"$set": fields})
+    if guest_edited:
+        await sync_pool_async(merged_net)
     doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
     return _present(doc)

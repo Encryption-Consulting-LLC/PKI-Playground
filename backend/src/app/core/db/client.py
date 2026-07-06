@@ -33,6 +33,7 @@ async def init_db() -> None:
     await _client.admin.command("ping")
     await _ensure_indexes()
     await _seed_settings_doc()
+    await _seed_ip_pool()
 
 
 async def close_db() -> None:
@@ -62,6 +63,10 @@ def settings_col() -> AsyncCollection:
 
 def users_col() -> AsyncCollection:
     return get_db()["users"]
+
+
+def ip_pool_col() -> AsyncCollection:
+    return get_db()["ip_pool"]
 
 
 async def _ensure_indexes() -> None:
@@ -98,6 +103,19 @@ async def _ensure_indexes() -> None:
                 [("email", ASCENDING)],
                 unique=True,
                 partialFilterExpression={"email": {"$type": "string"}},
+            ),
+        ]
+    )
+    await ip_pool_col().create_indexes(
+        [
+            # Allocation query path: lowest free address first.
+            IndexModel([("status", ASCENDING), ("ord", ASCENDING)]),
+            # One address per VM; partial so the many `vmName: null` free
+            # documents don't collide (same pattern as the users email index).
+            IndexModel(
+                [("vmName", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"vmName": {"$type": "string"}},
             ),
         ]
     )
@@ -160,3 +178,12 @@ async def _seed_settings_doc() -> None:
                 }
             },
         )
+
+
+async def _seed_ip_pool() -> None:
+    """Reconcile the IP pool with the stored guest range at startup. Deferred
+    import: ``core.ippool`` imports this module's accessors."""
+    from app.core.ippool import guest_network_from_doc, sync_pool_async
+
+    doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
+    await sync_pool_async(guest_network_from_doc(doc))
