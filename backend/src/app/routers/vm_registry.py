@@ -32,6 +32,7 @@ class VmRegistryUpsert(BaseModel):
     status: Literal["cloning", "ready", "error", "deleted"] = "ready"
     power_state: str | None = Field(default=None, alias="powerState")
     job_id: str | None = Field(default=None, alias="jobId")
+    ip: str | None = None
 
 
 @router.get("", dependencies=[Depends(require_capability(Capability.REGISTRY_READ))])

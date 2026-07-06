@@ -93,6 +93,10 @@ class VmRegistryEntry(MongoModel):
     moid: str | None = None
     status: Literal["cloning", "ready", "error", "deleted"] = "ready"
     power_state: str | None = Field(default=None, alias="powerState")
+    # Guest-pool address baked into the VM's firstboot ISO (Phase G); None for
+    # VMs that predate the pool. The pool collection is authoritative for
+    # allocation state — this is the display/registry copy.
+    ip: str | None = None
     job_id: str | None = Field(default=None, alias="jobId")
     schema_version: int = Field(default=1, alias="schemaVersion")
     created_at: int = Field(alias="createdAt")
