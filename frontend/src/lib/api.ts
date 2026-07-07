@@ -171,6 +171,14 @@ export const generateNetwork = (req: NetworkRequest) =>
     true,
   )
 
+// --- async jobs --------------------------------------------------------------
+
+/** Every 202-and-stream route (clone, deploy, teardown, orchestrator dispatch)
+ * returns this shape; progress streams over the job WS. */
+export interface JobAccepted {
+  job_id: string
+}
+
 // --- /vm/clone -------------------------------------------------------------
 
 export interface CloneRequest {
@@ -187,13 +195,8 @@ export interface CloneRequest {
   power_on?: boolean
 }
 
-/** Clone is async: the POST returns a job id; progress streams over the job WS. */
-export interface CloneAccepted {
-  job_id: string
-}
-
 export const cloneVm = (req: CloneRequest) =>
-  request<CloneAccepted>(URLS.vm.clone, {
+  request<JobAccepted>(URLS.vm.clone, {
     method: "POST",
     body: JSON.stringify(req),
   })
@@ -209,13 +212,8 @@ export interface PlanOpPayload {
   dependsOn: string[]
 }
 
-/** Deploy is async, same shape as clone: the POST returns a job id; progress streams over the job WS. */
-export interface DeployAccepted {
-  job_id: string
-}
-
 export const deployPlan = (ops: PlanOpPayload[]) =>
-  request<DeployAccepted>(URLS.deploy, {
+  request<JobAccepted>(URLS.deploy, {
     method: "POST",
     body: JSON.stringify({ ops }),
   })
@@ -265,17 +263,13 @@ export interface RegisterAgentResponse {
 export const registerAgent = () =>
   request<RegisterAgentResponse>(URLS.orchestrator.register, { method: "POST" })
 
-export interface DispatchCommandAccepted {
-  job_id: string
-}
-
 /** Dispatch is async, same shape as clone/deploy: progress streams over the job WS. */
 export const dispatchOrchestratorCommand = (
   vmId: string,
   command: string,
   params: Record<string, string> = {},
 ) =>
-  request<DispatchCommandAccepted>(URLS.orchestrator.command(vmId), {
+  request<JobAccepted>(URLS.orchestrator.command(vmId), {
     method: "POST",
     body: JSON.stringify({ command, params }),
   })
