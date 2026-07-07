@@ -25,6 +25,7 @@ import { opsReferencingNode, useStagingStore } from "@/store/staging"
 import { useAuthStore } from "@/store/auth"
 import { CAPABILITIES } from "@/constants/auth"
 import { useCan } from "@/hooks/useCan"
+import { useIsOperator } from "@/hooks/useIsOperator"
 import { useAgentConnected } from "@/hooks/useAgentConnected"
 import { dispatchOrchestratorCommand } from "@/lib/api"
 import { openJobSocket } from "@/lib/ws"
@@ -379,6 +380,7 @@ export function Inspector() {
   const canPower = useCan(CAPABILITIES.vmPower)
   const canUpdate = useCan(CAPABILITIES.vmUpdate)
   const canRead = useCan(CAPABILITIES.vmRead)
+  const isOperator = useIsOperator()
   const deploying = useStagingStore((s) => s.deploying)
   const ops = useStagingStore((s) => s.ops)
   const retryDeploy = useStagingStore((s) => s.deploy)
@@ -686,15 +688,18 @@ export function Inspector() {
           </section>
         )}
 
-        {/* Actions */}
-        {isConfigured && !reconfiguring && (
+        {/* Actions — guests only ever see the functional Reconfigure; the
+            disabled planned-action stubs are operator-facing roadmap, not
+            product surface. */}
+        {isConfigured && !reconfiguring && (isOperator || hasConfigFields) && (
           <section className="flex flex-col gap-2">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Actions
             </p>
 
             <div className="flex flex-col gap-1.5">
-              <>
+              {isOperator && (
+                <>
                   <PlannedAction
                     icon={Power}
                     label="Power On"
@@ -707,51 +712,55 @@ export function Inspector() {
                     tip="Power controls coming soon"
                     disabled={!canPower || deploying}
                   />
-                  {hasConfigFields && (
-                    <PlannedAction
-                      icon={RefreshCw}
-                      label="Reconfigure"
-                      tip="Edit configuration and re-apply"
-                      disabled={!canUpdate || deploying}
-                      onClick={() => setReconfiguring(true)}
-                    />
-                  )}
-                  {!hasConfigFields && (
-                    <PlannedAction
-                      icon={RefreshCw}
-                      label="Reconfigure"
-                      tip="Coming soon"
-                      disabled={!canUpdate || deploying}
-                    />
-                  )}
-                  {data.typeId === "domainController" && (
-                    <PlannedAction
-                      icon={Settings}
-                      label="Promote to DC"
-                      tip="Automatic AD DS promotion coming soon"
-                      disabled
-                    />
-                  )}
-                  {data.typeId === "certificateAuthority" && (
-                    <PlannedAction
-                      icon={ShieldCheck}
-                      label={
-                        tier === "root" ? "Install Root CA"
-                        : tier === "intermediate" ? "Install Intermediate CA"
-                        : tier === "issuing" ? "Install Issuing CA"
-                        : "Install CA"
-                      }
-                      tip="Automatic CA installation coming soon"
-                      disabled
-                    />
-                  )}
-              </>
+                </>
+              )}
+              {hasConfigFields ? (
+                <PlannedAction
+                  icon={RefreshCw}
+                  label="Reconfigure"
+                  tip="Edit configuration and re-apply"
+                  disabled={!canUpdate || deploying}
+                  onClick={() => setReconfiguring(true)}
+                />
+              ) : (
+                isOperator && (
+                  <PlannedAction
+                    icon={RefreshCw}
+                    label="Reconfigure"
+                    tip="Coming soon"
+                    disabled={!canUpdate || deploying}
+                  />
+                )
+              )}
+              {isOperator && data.typeId === "domainController" && (
+                <PlannedAction
+                  icon={Settings}
+                  label="Promote to DC"
+                  tip="Automatic AD DS promotion coming soon"
+                  disabled
+                />
+              )}
+              {isOperator && data.typeId === "certificateAuthority" && (
+                <PlannedAction
+                  icon={ShieldCheck}
+                  label={
+                    tier === "root" ? "Install Root CA"
+                    : tier === "intermediate" ? "Install Intermediate CA"
+                    : tier === "issuing" ? "Install Issuing CA"
+                    : "Install CA"
+                  }
+                  tip="Automatic CA installation coming soon"
+                  disabled
+                />
+              )}
             </div>
           </section>
         )}
 
-        {/* Orchestrator phone-home: manual agent correlation + live hostname/IP/cert actions */}
-        {isConfigured && !reconfiguring && (
+        {/* Orchestrator phone-home: manual agent correlation + live hostname/IP/cert
+            actions. Operator-only — raw vm_id/token correlation and agent commands
+            are infra internals the guest product surface must not expose. */}
+        {isOperator && isConfigured && !reconfiguring && (
           <section className="flex flex-col gap-2 border-t pt-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Orchestrator
