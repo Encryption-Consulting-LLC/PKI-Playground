@@ -608,7 +608,7 @@ export function Inspector() {
         {isConfiguring && (
           <section className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Cloning VM…
+            Creating VM…
           </section>
         )}
 
@@ -698,13 +698,13 @@ export function Inspector() {
                   <PlannedAction
                     icon={Power}
                     label="Power On"
-                    tip={`Future: POST /api/vm/${data.name}/power-on`}
+                    tip="Power controls coming soon"
                     disabled={!canPower || deploying}
                   />
                   <PlannedAction
                     icon={PowerOff}
                     label="Power Off"
-                    tip={`Future: POST /api/vm/${data.name}/power-off`}
+                    tip="Power controls coming soon"
                     disabled={!canPower || deploying}
                   />
                   {hasConfigFields && (
@@ -720,7 +720,7 @@ export function Inspector() {
                     <PlannedAction
                       icon={RefreshCw}
                       label="Reconfigure"
-                      tip={`Future: PATCH /api/vm/${data.name}`}
+                      tip="Coming soon"
                       disabled={!canUpdate || deploying}
                     />
                   )}
@@ -728,7 +728,7 @@ export function Inspector() {
                     <PlannedAction
                       icon={Settings}
                       label="Promote to DC"
-                      tip="Future: orchestrator — AD DS promotion via firstboot"
+                      tip="Automatic AD DS promotion coming soon"
                       disabled
                     />
                   )}
@@ -741,7 +741,7 @@ export function Inspector() {
                         : tier === "issuing" ? "Install Issuing CA"
                         : "Install CA"
                       }
-                      tip="Future: orchestrator — ADCS install via firstboot"
+                      tip="Automatic CA installation coming soon"
                       disabled
                     />
                   )}
