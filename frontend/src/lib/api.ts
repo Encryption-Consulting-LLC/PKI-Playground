@@ -201,6 +201,12 @@ export const cloneVm = (req: CloneRequest) =>
     body: JSON.stringify(req),
   })
 
+/** Teardown (destroy + reclaim the guest IP) is async, same 202+job-stream
+ * shape as clone/deploy. `name` is the real ESXi inventory name
+ * (`MachineData.vmName`), not the display label. */
+export const deleteVm = (name: string) =>
+  request<JobAccepted>(URLS.vm.one(name), { method: "DELETE" })
+
 // --- /deploy -----------------------------------------------------------------
 
 /** Mirrors the backend's `PlanOp` (app/routers/deploy.py) — one node in the deploy DAG. */

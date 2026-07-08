@@ -12,6 +12,7 @@ import type { StagedOp } from "@/lib/staging"
 export function StagedRemoveDialog({
   ops,
   hostNote,
+  teardown,
   onConfirm,
   onCancel,
 }: {
@@ -23,12 +24,54 @@ export function StagedRemoveDialog({
   ops: StagedOp[] | null
   /** Shown for a node that's already deployed — deleting it only removes the canvas node, not the VM. */
   hostNote?: boolean
+  /** Teardown variant: confirming destroys the real VM on the host (and any listed staged ops are undone with it). */
+  teardown?: boolean
   onConfirm: () => void
   onCancel: () => void
 }) {
   const open = ops !== null
   const list = ops ?? []
   const count = list.length
+
+  if (teardown) {
+    return (
+      <AlertDialog.Root
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) onCancel()
+        }}
+      >
+        <AlertDialog.Portal>
+          <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
+          <AlertDialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-popover p-5 text-popover-foreground shadow-lg ring-1 ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
+            <AlertDialog.Title className="text-sm font-semibold">
+              Tear down this VM?
+            </AlertDialog.Title>
+            <AlertDialog.Description className="mt-2 text-xs text-muted-foreground">
+              The virtual machine is destroyed and its IP address returned to the
+              pool; the node is removed from the canvas. This cannot be undone.
+              {count > 0 && " Tearing it down also undoes:"}
+            </AlertDialog.Description>
+            {count > 0 && (
+              <ul className="mt-2 max-h-40 list-disc space-y-1 overflow-y-auto pl-4 text-xs text-muted-foreground">
+                {list.map((op) => (
+                  <li key={op.id}>{op.label}</li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={onCancel}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" onClick={onConfirm}>
+                Tear down VM
+              </Button>
+            </div>
+          </AlertDialog.Popup>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
+    )
+  }
 
   return (
     <AlertDialog.Root

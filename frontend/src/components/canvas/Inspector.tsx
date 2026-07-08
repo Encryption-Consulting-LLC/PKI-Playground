@@ -376,6 +376,7 @@ export function Inspector() {
   const [draftName, setDraftName] = useState("")
   const [reconfiguring, setReconfiguring] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<StagedOp[] | null>(null)
+  const [pendingTeardown, setPendingTeardown] = useState<StagedOp[] | null>(null)
 
   const canPower = useCan(CAPABILITIES.vmPower)
   const canUpdate = useCan(CAPABILITIES.vmUpdate)
@@ -447,6 +448,16 @@ export function Inspector() {
     store.removeNode(nodeId)
     toast("Node removed.")
     setPendingDelete(null)
+  }
+
+  function handleTeardown() {
+    setPendingTeardown(opsReferencingNode(useStagingStore.getState().ops, nodeId))
+  }
+
+  function confirmTeardown() {
+    store.teardownNode(nodeId)
+    toast.info(`Tearing down "${data.name}"…`)
+    setPendingTeardown(null)
   }
 
   function handleConfigure(config?: Record<string, string>) {
@@ -798,18 +809,48 @@ export function Inspector() {
           </section>
         )}
 
-        {/* Danger zone */}
+        {/* Danger zone — a node backed by a real VM tears the VM down (one
+            destructive action, one outcome: guests must not silently orphan
+            VMs their localStorage project is the only reference to); the
+            canvas-only delete survives as an operator escape hatch. */}
         <section className="flex flex-col gap-2 border-t pt-3">
-          <Button
-            variant="destructive"
-            size="sm"
-            className="w-full justify-start gap-2"
-            disabled={deploying}
-            onClick={handleDelete}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete node
-          </Button>
+          {data.vmName ? (
+            <>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="w-full justify-start gap-2"
+                disabled={deploying || isDestroying}
+                onClick={handleTeardown}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Tear down VM
+              </Button>
+              {isOperator && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start gap-2 text-muted-foreground"
+                  disabled={deploying || isDestroying}
+                  onClick={handleDelete}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Remove from canvas (keep VM)
+                </Button>
+              )}
+            </>
+          ) : (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="w-full justify-start gap-2"
+              disabled={deploying || isDestroying}
+              onClick={handleDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete node
+            </Button>
+          )}
         </section>
       </div>
 
@@ -818,6 +859,12 @@ export function Inspector() {
         hostNote={isConfigured}
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
+      />
+      <StagedRemoveDialog
+        ops={pendingTeardown}
+        teardown
+        onConfirm={confirmTeardown}
+        onCancel={() => setPendingTeardown(null)}
       />
     </aside>
   )

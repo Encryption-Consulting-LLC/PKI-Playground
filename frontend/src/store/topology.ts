@@ -24,6 +24,9 @@ import { create } from "zustand"
 import { AUTO_NAME_PREFIX } from "@/constants/templates"
 import { EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
 import type { Lifecycle } from "@/constants/topology"
+import { toast } from "sonner"
+
+import { ApiError, deleteVm } from "@/lib/api"
 import { openJobSocket } from "@/lib/ws"
 import {
   canConnect,
@@ -71,6 +74,12 @@ export interface MachineData extends Record<string, unknown> {
    * `attachJobSocket`/`resumeJobs`.
    */
   jobId?: string
+  /**
+   * Backend teardown job id while `lifecycle === destroying`. Persisted for
+   * the same reason as `jobId`: a reload mid-teardown resubscribes to the
+   * job's WebSocket instead of losing it — see `resumeJobs`.
+   */
+  teardownJobId?: string
   /**
    * vm_id of an orchestrator agent this node is manually associated with,
    * from `POST /orchestrator/register` (see `Inspector.tsx`'s Orchestrator
@@ -157,6 +166,76 @@ function attachJobSocket(
   activeSockets.set(nodeId, close)
 }
 
+/**
+ * The actual node removal, shared by `removeNode` (user-initiated, guarded on
+ * `deploying`) and a finished teardown (which must remove the node even if a
+ * plan deploy started meanwhile — the VM is gone either way).
+ */
+function removeNodeCore(id: string) {
+  activeSockets.get(id)?.()
+  activeSockets.delete(id)
+  // Deleting the node makes any staged op referencing it meaningless —
+  // cascade-remove them so the Staged panel never lists a dangling op.
+  const staging = useStagingStore.getState()
+  for (const op of opsReferencingNode(staging.ops, id)) {
+    useStagingStore.getState().removeOpCascade(op.id)
+  }
+  useTopologyStore.setState((s) => ({
+    nodes: s.nodes.filter((n) => n.id !== id),
+    edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+    selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
+  }))
+}
+
+/**
+ * Opens (or, after a reload, resumes) the progress socket for one node's
+ * teardown job. On `done` the node is removed from the canvas; on error the
+ * node reverts to `prevLifecycle` verbatim (a drifted node stays drifted) so
+ * the same Tear down button is the retry.
+ */
+function attachTeardownSocket(
+  nodeId: string,
+  jobId: string,
+  token: string | null | undefined,
+  prevLifecycle: Lifecycle,
+) {
+  if (activeSockets.has(nodeId)) return
+
+  const patch = (data: Partial<MachineData>) =>
+    useTopologyStore.getState().patchNodeData(nodeId, data)
+
+  const close = openJobSocket(jobId, token, {
+    onQueued: () => patch({ phase: "Queued", progress: 0 }),
+    onRunning: () => patch({ phase: "Removing", progress: 0 }),
+    onProgress: (e) => patch({ progress: e.percent, phase: e.phase }),
+    onDone: () => {
+      activeSockets.delete(nodeId)
+      close()
+      removeNodeCore(nodeId)
+      toast("VM torn down.")
+    },
+    onError: (e) => {
+      activeSockets.delete(nodeId)
+      close()
+      patch({
+        lifecycle: prevLifecycle,
+        teardownJobId: undefined,
+        progress: undefined,
+        phase: undefined,
+      })
+      // status 0 = socket dropped without a terminal frame; the backend job
+      // may still finish. A retried teardown converges either way (the
+      // worker treats an already-absent VM as success).
+      if (e.status === 0) {
+        toast.warning("Lost connection to the teardown job — tear down again to retry.")
+      } else {
+        toast.error(e.detail || "Teardown failed.")
+      }
+    },
+  })
+  activeSockets.set(nodeId, close)
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -196,6 +275,13 @@ interface TopologyState {
   /** Merges a partial data patch into one node — the seam the staging store's undo/cascade reverts go through. */
   patchNodeData: (id: string, data: Partial<MachineData>) => void
   removeNode: (id: string) => void
+  /**
+   * Destroys the real VM behind a node (DELETE /api/vm/{vmName}, 202 + job
+   * stream), then removes the node from the canvas on success. No-op unless
+   * the node carries a deploy-confirmed `vmName`. The caller is expected to
+   * have confirmed (the Inspector's teardown dialog).
+   */
+  teardownNode: (id: string) => void
   removeEdge: (id: string) => void
   /** Re-adds a previously-removed edge verbatim — used by `domainLeave` undo to restore the exact membership edge it replaced. */
   restoreEdge: (edge: Edge) => void
@@ -451,6 +537,22 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     // with a null token in the first place).
     if (!token) return
     for (const node of get().nodes) {
+      // In-flight teardown: resubscribe via the persisted teardownJobId, or —
+      // reloaded between click and the 202 — revert to deployed (the safe
+      // assumption; a retried teardown converges even if the job did run).
+      if (node.data.lifecycle === LIFECYCLE.destroying) {
+        if (activeSockets.has(node.id)) continue
+        if (node.data.teardownJobId) {
+          attachTeardownSocket(node.id, node.data.teardownJobId, token, LIFECYCLE.deployed)
+        } else {
+          get().patchNodeData(node.id, {
+            lifecycle: LIFECYCLE.deployed,
+            progress: undefined,
+            phase: undefined,
+          })
+        }
+        continue
+      }
       if (node.data.lifecycle !== LIFECYCLE.deploying) continue
       if (activeSockets.has(node.id)) continue
 
@@ -496,21 +598,53 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
 
   removeNode(id) {
     if (useStagingStore.getState().deploying) return
-    activeSockets.get(id)?.()
-    activeSockets.delete(id)
-    // Deleting the node makes any staged op referencing it meaningless —
-    // cascade-remove them so the Staged panel never lists a dangling op.
-    // (The UI's own confirm dialog is expected to have already asked about
-    // this before calling removeNode; this is the data-integrity backstop.)
-    const staging = useStagingStore.getState()
-    for (const op of opsReferencingNode(staging.ops, id)) {
+    // (The UI's own confirm dialog is expected to have already asked before
+    // calling removeNode; removeNodeCore is the data-integrity backstop.)
+    removeNodeCore(id)
+  },
+
+  teardownNode(id) {
+    if (useStagingStore.getState().deploying) return
+    const node = get().nodes.find((n) => n.id === id)
+    const vmName = node?.data.vmName
+    if (!node || !vmName) return
+    if (node.data.lifecycle === LIFECYCLE.destroying) return
+
+    // Staged ops referencing the node die with it — cascade now (the confirm
+    // dialog already listed them) so the plan can't reference a VM that's
+    // about to disappear.
+    for (const op of opsReferencingNode(useStagingStore.getState().ops, id)) {
       useStagingStore.getState().removeOpCascade(op.id)
     }
-    set((s) => ({
-      nodes: s.nodes.filter((n) => n.id !== id),
-      edges: s.edges.filter((e) => e.source !== id && e.target !== id),
-      selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
-    }))
+
+    const prevLifecycle = node.data.lifecycle
+    get().patchNodeData(id, {
+      lifecycle: LIFECYCLE.destroying,
+      phase: "Removing",
+      progress: 0,
+    })
+
+    const token = useAuthStore.getState().token
+    deleteVm(vmName)
+      .then(({ job_id }) => {
+        get().patchNodeData(id, { teardownJobId: job_id })
+        attachTeardownSocket(id, job_id, token, prevLifecycle)
+      })
+      .catch((err) => {
+        // 404 = the VM is already gone; converge to removed instead of erroring.
+        if (err instanceof ApiError && err.status === 404) {
+          removeNodeCore(id)
+          toast("VM torn down.")
+          return
+        }
+        get().patchNodeData(id, {
+          lifecycle: prevLifecycle,
+          teardownJobId: undefined,
+          progress: undefined,
+          phase: undefined,
+        })
+        toast.error(err instanceof Error ? err.message : "Failed to start teardown.")
+      })
   },
 
   removeEdge(id) {
