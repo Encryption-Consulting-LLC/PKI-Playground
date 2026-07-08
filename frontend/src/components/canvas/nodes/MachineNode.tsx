@@ -60,6 +60,16 @@ function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {
         failed
       </Badge>
     )
+  if (lifecycle === LIFECYCLE.destroying)
+    return (
+      <Badge
+        variant="secondary"
+        className="flex items-center gap-1 text-[10px] text-red-500 border-red-500/30"
+      >
+        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+        removing…
+      </Badge>
+    )
   return null
 }
 
@@ -113,6 +123,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         data.lifecycle === LIFECYCLE.deployed && "border-border",
         data.lifecycle === LIFECYCLE.drifted && "border-orange-500/40",
         data.lifecycle === LIFECYCLE.failed && "border-red-500/50",
+        data.lifecycle === LIFECYCLE.destroying && "border-red-500/40 opacity-70",
         !isOverlapping && memberCount !== null && memberCount > 0 &&
           "border-sky-500/60 shadow-[0_0_18px_4px_rgba(14,165,233,0.35)] " +
           "dark:shadow-[0_0_20px_5px_rgba(56,189,248,0.55)]",
@@ -174,8 +185,9 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         <LifecycleBadge lifecycle={data.lifecycle} />
         {data.lifecycle === LIFECYCLE.drifted && <DriftBadge data={data} def={def} />}
 
-        {/* Live progress while deploying */}
-        {data.lifecycle === LIFECYCLE.deploying && (
+        {/* Live progress while a job (deploy or teardown) runs on this node */}
+        {(data.lifecycle === LIFECYCLE.deploying ||
+          data.lifecycle === LIFECYCLE.destroying) && (
           <>
             {data.phase && (
               <span className="text-[10px] text-muted-foreground truncate">

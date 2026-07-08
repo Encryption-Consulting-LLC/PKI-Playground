@@ -5,6 +5,10 @@ export const LIFECYCLE = {
   deployed: "deployed",
   drifted: "drifted", // deployed, config edited since lastDeployedConfig
   failed: "failed",
+  // Teardown job in flight (DELETE /api/vm/{name}); deliberately not
+  // `deploying` — resumeJobs treats a resumed deploying job's `done` as
+  // "deployed", exactly wrong for a teardown.
+  destroying: "destroying",
 } as const
 
 export type Lifecycle = (typeof LIFECYCLE)[keyof typeof LIFECYCLE]

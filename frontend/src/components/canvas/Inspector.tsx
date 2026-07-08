@@ -401,6 +401,7 @@ export function Inspector() {
   const isConfiguring = data.lifecycle === LIFECYCLE.deploying
   const isStaged = data.lifecycle === LIFECYCLE.staged
   const isFailed = data.lifecycle === LIFECYCLE.failed
+  const isDestroying = data.lifecycle === LIFECYCLE.destroying
   const failedOp = ops.find(
     (op) => op.kind === OP_KIND.createVm && op.targetNodeId === nodeId && op.status === OP_STATUS.error,
   )
@@ -456,7 +457,7 @@ export function Inspector() {
 
   const hasConfigFields = !!(def?.configFields && def.configFields.length > 0)
   const showConfigForm =
-    (!isConfigured && !isConfiguring && !isStaged) ||
+    (!isConfigured && !isConfiguring && !isStaged && !isDestroying) ||
     (isConfigured && reconfiguring)
 
   return (
@@ -511,6 +512,9 @@ export function Inspector() {
                   )}
                   {isFailed && (
                     <><AlertTriangle className="h-3 w-3 text-red-500" /> failed</>
+                  )}
+                  {isDestroying && (
+                    <><Loader2 className="h-3 w-3 animate-spin text-red-500" /> removing…</>
                   )}
                   {isDrifted(data) && (
                     <><RefreshCw className="h-3 w-3 text-orange-500" /> drifted</>
@@ -600,7 +604,7 @@ export function Inspector() {
         )}
 
         {/* Simple configure (no config fields) */}
-        {!isConfigured && !isConfiguring && !isStaged && !hasConfigFields && (
+        {!isConfigured && !isConfiguring && !isStaged && !isDestroying && !hasConfigFields && (
           <section className="flex flex-col gap-2">
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-600">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -623,6 +627,14 @@ export function Inspector() {
           <section className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Creating VM…
+          </section>
+        )}
+
+        {/* Tearing down — the destroy job is running; nothing else is actionable */}
+        {isDestroying && (
+          <section className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Tearing down VM…
           </section>
         )}
 
