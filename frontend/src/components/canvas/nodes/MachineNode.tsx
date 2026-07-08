@@ -217,6 +217,13 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           </Badge>
         )}
 
+        {/* Deploy-confirmed IP — the address you'd RDP to */}
+        {data.ip && (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {data.ip}
+          </span>
+        )}
+
         {/* Role label */}
         <span className="text-[10px] text-muted-foreground">
           {def?.label ?? data.typeId}

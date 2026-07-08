@@ -484,6 +484,18 @@ export function Inspector() {
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
             <span className="text-muted-foreground">Role</span>
             <span>{def?.label ?? data.typeId}</span>
+            {data.ip && (
+              <>
+                <span className="text-muted-foreground">IP address</span>
+                <span className="font-mono">{data.ip}</span>
+              </>
+            )}
+            {isOperator && data.vmName && (
+              <>
+                <span className="text-muted-foreground">VM name</span>
+                <span className="truncate font-mono" title={data.vmName}>{data.vmName}</span>
+              </>
+            )}
             {(!isConfigured || isConfiguring || isDrifted(data)) && (
               <>
                 <span className="text-muted-foreground">Status</span>

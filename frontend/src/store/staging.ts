@@ -133,12 +133,17 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
         })
       } else if (runState.status === "done") {
         const node = topology.nodes.find((n) => n.id === op.targetNodeId)
+        const result = runState.result
         topology.patchNodeData(op.targetNodeId, {
           lifecycle: LIFECYCLE.deployed,
           poweredOn: true,
           lastDeployedConfig: node?.data.config,
           progress: 100,
           phase: undefined,
+          // Conditional spreads so a result-less replay of an older snapshot
+          // can never clobber an already-recorded identity with undefined.
+          ...(typeof result?.ip === "string" ? { ip: result.ip } : {}),
+          ...(typeof result?.vmName === "string" ? { vmName: result.vmName } : {}),
         })
       } else if (runState.status === "error") {
         topology.patchNodeData(op.targetNodeId, {

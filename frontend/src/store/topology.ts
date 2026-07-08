@@ -55,6 +55,16 @@ export interface MachineData extends Record<string, unknown> {
   /** Human label of the current configuration step (from the progress stream). */
   phase?: string
   /**
+   * Deploy-confirmed identity of the real VM behind this node, from the
+   * createVm op's result (`applyPlanState`): the pool-allocated guest IP and
+   * the real (namespaced) ESXi inventory name. Distinct from `name`, the
+   * renameable display label. `vmName` doubles as the "a real VM exists"
+   * signal — teardown is offered iff it is set. Both persist (durable facts,
+   * not run transients).
+   */
+  ip?: string
+  vmName?: string
+  /**
    * Backend clone job id while `lifecycle === deploying` on the `standalone`
    * template. Persisted (rides `MachineData` into localStorage) so a reload
    * can resubscribe to the job's WebSocket instead of losing it — see
