@@ -149,7 +149,7 @@ async def clone(
     if await load_target() is None:
         raise HTTPException(
             status_code=503,
-            detail="No shared ESXi target configured — an operator must set it via PUT /api/settings.",
+            detail="No shared ESXi target configured",
         )
     req.name = enforce_guest_vm_name(req.name, user)
 

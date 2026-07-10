@@ -139,6 +139,6 @@ async def get_esxi(_user: AuthedUser = Depends(get_current_user)) -> Connection:
     if target is None:
         raise HTTPException(
             status_code=503,
-            detail="No shared ESXi target configured — an operator must set it via PUT /api/settings.",
+            detail="No shared ESXi target configured",
         )
     return await run_in_threadpool(manager.get, target)

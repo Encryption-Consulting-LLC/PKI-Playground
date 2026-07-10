@@ -104,8 +104,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=503,
             content={
                 "detail": (
-                    "Stored ESXi password cannot be decrypted (SETTINGS_ENC_KEY "
-                    "changed?) — an operator must re-set it via PUT /api/settings."
+                    "Stored ESXi password cannot be decrypted (SETTINGS_ENC_KEY changed?)"
                 )
             },
         )

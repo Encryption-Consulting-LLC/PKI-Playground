@@ -223,8 +223,7 @@ def validate_plan(
             raise HTTPException(
                 422,
                 detail=(
-                    f"Op '{op.id}' (createVm) needs a shared ESXi target, but none "
-                    "is configured — an operator must set it via PUT /api/settings."
+                    f"Op '{op.id}' (createVm) needs a shared ESXi target, but none is configured"
                 ),
             )
         # Same fail-early logic for the IP the clone's firstboot ISO bakes in —
@@ -233,8 +232,7 @@ def validate_plan(
             raise HTTPException(
                 422,
                 detail=(
-                    f"Op '{op.id}' (createVm) needs a guest IP range, but none is "
-                    "configured — an operator must set it via PUT /api/settings."
+                    f"Op '{op.id}' (createVm) needs a guest IP range, but none is configured"
                 ),
             )
         op.params["vmName"] = enforce_guest_vm_name(op.params["vmName"], user)
