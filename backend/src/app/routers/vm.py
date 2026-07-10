@@ -30,6 +30,8 @@ from app.core.authz import (
     get_current_user,
     require_capability,
 )
+from app.core import agents
+from app.core.db import vm_registry_col
 from app.core.esxi import get_esxi, load_target
 from app.core.jobs import transport
 from app.core.jobs.models import JobStatus, Message, ProgressMsg, QueuedMsg
@@ -227,6 +229,20 @@ async def delete_vm(
             detail="No shared ESXi target configured — an operator must set it via PUT /api/settings.",
         )
     enforce_guest_vm_ownership(name, user)
+
+    # Force-close any live orchestrator agent for this VM before teardown, so it
+    # can't keep receiving commands while being destroyed. Best-effort: the
+    # worker also revokes the identity (agent unset + registry deleted). Runs in
+    # this API process, which is where the agent socket lives.
+    doc = await vm_registry_col().find_one({"vmName": name}, {"agent": 1})
+    agent_vm_id = (doc or {}).get("agent", {}).get("vmId") if doc else None
+    if agent_vm_id:
+        conn = agents.pop_connection(agent_vm_id)
+        if conn is not None:
+            try:
+                await conn.websocket.close(code=4410)
+            except Exception:  # noqa: BLE001 — the socket may already be gone
+                pass
 
     job_id = uuid.uuid4().hex
     transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)

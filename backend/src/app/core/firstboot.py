@@ -20,6 +20,8 @@ byte-identical to Phase G.
 """
 
 import re
+import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 import configgen
@@ -27,6 +29,27 @@ import isokit
 from configgen import NetworkConfig
 
 from app.core.ippool import GuestNetwork
+
+#: On-disc name for the embedded agent binary — what the install script and the
+#: agent's Windows service expect (see ``assets/firstboot/_agent``).
+_AGENT_BINARY_NAME = "pki-orchestrator.exe"
+_AGENT_CONFIG_NAME = "orchestrator.toml"
+#: Static install step appended (Phase F) when an agent is bundled. Lives under
+#: ``_agent`` (leading underscore → not a template dir, never role-globbed).
+_AGENT_INSTALL_SCRIPT = Path(__file__).parent.parent / "assets" / "firstboot" / "_agent" / "40-install-orchestrator.ps1"
+
+
+@dataclass(frozen=True)
+class AgentBundle:
+    """The pki-orchestrator payload to embed in a firstboot ISO (Phase F).
+
+    ``binary_path`` is the worker-host path to the agent exe;
+    ``config_toml`` is the rendered ``orchestrator.toml`` (identity + backend —
+    no per-template config; that's dispatched after phone-home).
+    """
+
+    binary_path: Path
+    config_toml: str
 
 #: Server-side allowlist for the ``template`` param on createVm plan ops —
 #: mirrors ``frontend/src/constants/templates.ts``. A template without role
@@ -66,8 +89,16 @@ def build_firstboot_iso(
     ip: str,
     net: GuestNetwork,
     dest_dir: Path,
+    agent: AgentBundle | None = None,
 ) -> Path:
     """Render + pack the per-VM config ISO into ``dest_dir``; returns its path.
+
+    ``agent=None`` keeps the Phase-G behaviour byte-for-byte (isokit v1
+    ``build_script_iso``: hostname + network + role scripts). When an
+    ``AgentBundle`` is given (Phase F), the ISO switches to isokit's v2
+    ``build_config_iso`` and additionally carries the agent binary + rendered
+    ``orchestrator.toml`` as payload files plus a static install step — so the
+    booted VM installs and starts the phone-home agent.
 
     Raises ``KeyError`` on an unknown template (routes validate against
     ``TEMPLATE_IDS`` first, so hitting it here is a programming error) and
@@ -98,9 +129,26 @@ def build_firstboot_iso(
         encoding="utf-8",
     )
 
+    scripts = [hostname_script, network_script, *role_scripts_for(template)]
     iso_path = dest_dir / f"{vm_name}-config.iso"
-    isokit.build_script_iso(
-        [hostname_script, network_script, *role_scripts_for(template)], iso_path
+
+    if agent is None:
+        isokit.build_script_iso(scripts, iso_path)
+        return iso_path
+
+    # v2 (Phase F): embed the agent binary + config as payload files and append
+    # the install step. build_config_iso names disc entries after each path's
+    # filename, so the binary is copied to the fixed name the runner expects.
+    config_path = dest_dir / _AGENT_CONFIG_NAME
+    config_path.write_text(agent.config_toml, encoding="utf-8")
+    binary_on_disc = dest_dir / _AGENT_BINARY_NAME
+    if agent.binary_path != binary_on_disc:
+        shutil.copy(agent.binary_path, binary_on_disc)
+
+    isokit.build_config_iso(
+        iso_path,
+        scripts=[*scripts, _AGENT_INSTALL_SCRIPT],
+        files=[binary_on_disc, config_path],
     )
     return iso_path
 

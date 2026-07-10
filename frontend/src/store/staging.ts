@@ -187,6 +187,11 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
           // can never clobber an already-recorded identity with undefined.
           ...(typeof result?.ip === "string" ? { ip: result.ip } : {}),
           ...(typeof result?.vmName === "string" ? { vmName: result.vmName } : {}),
+          // Auto-provisioned orchestrator identity (Phase F): the agent baked
+          // into the ISO phones home under this vm_id; surfaces in the Inspector.
+          ...(typeof result?.agentVmId === "string"
+            ? { orchestratorVmId: result.agentVmId }
+            : {}),
         })
       } else if (runState.status === "error") {
         topology.patchNodeData(op.targetNodeId, {

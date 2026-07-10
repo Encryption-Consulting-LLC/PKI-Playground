@@ -42,9 +42,10 @@ class Capability(str, Enum):
     VM_UPDATE = "vm:update"
     VM_POWER = "vm:power"
     VM_DELETE = "vm:delete"
+    VM_PROVISION = "vm:provision"  # run a template's role provisioning on one's own VM
     CONFIG_GENERATE = "config:generate"
     ISO_AUTHOR = "iso:author"
-    VM_EXEC_ARBITRARY = "vm:exec-arbitrary"  # reserved — wired in by the orchestrator phase
+    VM_EXEC_ARBITRARY = "vm:exec-arbitrary"  # reserved — operator-only escape hatch
     DEPLOY = "deploy"
     PROJECT_READ = "project:read"
     PROJECT_WRITE = "project:write"
@@ -70,6 +71,9 @@ class Capability(str, Enum):
 #   VM_DELETE is guest-eligible: self-service teardown is the point (Phase G) —
 #     safety comes from ``enforce_guest_vm_ownership`` (a guest can only delete
 #     inside its own name namespace), not from withholding the capability.
+#   VM_PROVISION is guest-eligible for the same reason (Phase F): a guest
+#     provisioning its *own* throwaway CA/DC is the point; the orchestrator
+#     command route enforces per-VM ownership so it can't target another VM.
 #   PROJECT_* / SETTINGS_* / REGISTRY_* (Mongo persistence) are operator-only:
 #     guests keep client-side (localStorage) persistence, so the shared guest
 #     deploy never exposes a cross-visitor project list.
@@ -81,6 +85,7 @@ ROLE_CAPABILITIES: dict[Role, set[Capability]] = {
         Capability.VM_READ,
         Capability.VM_CLONE,
         Capability.VM_DELETE,
+        Capability.VM_PROVISION,
         Capability.DEPLOY,
     },
 }

@@ -160,15 +160,16 @@ function ConfigForm({
 }
 
 /**
- * Manual agent correlation + the live orchestrator actions.
+ * Agent correlation + the live orchestrator actions.
  *
- * There is no automatic VM<->agent correlation yet (see `MachineData.
- * orchestratorVmId`'s doc comment) — a human pastes in the vm_id a
- * `POST /orchestrator/register` call returned. Every action shares the same
- * end-to-end path `cert.verify` first proved (dispatch -> job socket ->
- * result): the guest-eligible reads (`hostname.read`, `ip.read`,
- * `cert.verify`) plus the operator-only `ip.write` form. The AD DS/ADCS
- * `PlannedAction` stubs above are untouched since no command backs them yet.
+ * Since Phase F a real deploy auto-correlates: the clone worker bakes the agent
+ * into the ISO and its vm_id rides back on the createVm op result
+ * (`orchestratorVmId`, set in `store/staging.ts`), and CA/DC provisioning is
+ * dispatched by the backend the moment the agent phones home. The vm_id field
+ * here stays editable as a manual override for the dev/register flow. Every
+ * action shares the same end-to-end path `cert.verify` first proved
+ * (dispatch -> job socket -> result): the guest-eligible reads (`hostname.read`,
+ * `ip.read`, `cert.verify`) plus the operator-only `ip.write` form.
  */
 function OrchestratorPanel({
   nodeId,

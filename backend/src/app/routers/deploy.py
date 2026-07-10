@@ -34,6 +34,7 @@ from app.core.db import SETTINGS_DOC_ID, get_db, settings_col
 from app.core.esxi import _target_from_doc
 from app.core.firstboot import TEMPLATE_IDS
 from app.core.ippool import guest_network_from_doc
+from app.core.template_config import validate_template_config
 from app.core.jobs import transport
 from app.core.jobs.models import JobStatus, QueuedMsg
 
@@ -139,6 +140,12 @@ def validate_plan(
                 422,
                 detail=f"Op '{op.id}' (createVm) has a missing or unknown 'template' param.",
             )
+        # Per-template config (CA algorithm/key length, …) rides flat in params;
+        # this is the authoritative validator + the unknown-key injection gate.
+        try:
+            validate_template_config(op.params["template"], op.params)
+        except ValueError as exc:
+            raise HTTPException(422, detail=f"Op '{op.id}' (createVm): {exc}") from exc
 
         iso_id = op.params.get("isoId")
         authored = bool(op.files) or bool(iso_id)
@@ -304,5 +311,7 @@ async def deploy(
 
     job_id = uuid.uuid4().hex
     transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)
-    run_plan_task.delay(job_id, req.model_dump(by_alias=True))
+    # Owner role rides along so a minted agent's provisioning command is later
+    # dispatched under the deploying user's role (both roles hold VM_PROVISION).
+    run_plan_task.delay(job_id, req.model_dump(by_alias=True), user.role.value)
     return {"job_id": job_id}

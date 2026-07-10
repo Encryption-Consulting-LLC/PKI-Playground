@@ -30,18 +30,23 @@ from vmkit import clone_workflow, destroy_workflow, open_connection
 from vmkit.errors import VmExistsError, VmkitError, VmNotFoundError
 from vmkit.esxi import get_vm_by_name
 
+from configgen import OrchestratorAgentConfig, render_orchestrator_config
+
 from app.celery_app import celery_app
+from app.core import agents
 from app.core.db.models import now_ms
 from app.core.db.sync import worker_db
 from app.core.errors import map_vmkit_error
 from app.core.esxi import load_target_sync
-from app.core.firstboot import build_authored_iso, build_firstboot_iso
+from app.core.firstboot import AgentBundle, build_authored_iso, build_firstboot_iso
 from app.core.ippool import (
     IpPoolExhaustedError,
     allocate_ip_sync,
     load_guest_network_sync,
     release_ip_sync,
 )
+from app.core.settings import settings
+from app.core.template_config import extract_template_config
 from app.core.jobs import transport
 from app.core.jobs.models import (
     DoneMsg,
@@ -154,6 +159,10 @@ def destroy_vm_task(job_id: str, name: str) -> None:
                         "status": "deleted",
                         "powerState": None,
                         "ip": None,
+                        # Revoke the agent identity: authenticate_persisted also
+                        # excludes deleted VMs, but dropping the hash makes the
+                        # revocation explicit and idempotent.
+                        "agent": None,
                         "updatedAt": now_ms(),
                     }
                 },
@@ -207,8 +216,38 @@ def _registry_upsert_sync(db, vm_name: str, **fields) -> None:
     )
 
 
+#: Agents minted but never connected past this window (on a VM that errored or
+#: was torn down) are swept — a backstop for a bricked firstboot or a wrong
+#: backend URL leaving a dangling identity.
+_STALE_AGENT_MS = 24 * 60 * 60 * 1000
+
+
+def _sweep_stale_agents_sync(db) -> None:
+    """Null out long-pending agent identities on failed/deleted VMs.
+
+    Piggybacks on plan runs (like the ISO orphan sweep) rather than needing a
+    scheduler. Only touches ``error``/``deleted`` registry entries, so a healthy
+    VM whose agent is merely slow to phone home keeps its identity.
+    """
+    cutoff = now_ms() - _STALE_AGENT_MS
+    db["vm_registry"].update_many(
+        {
+            "agent.provisionState": "pending",
+            "agent.mintedAt": {"$lt": cutoff},
+            "status": {"$in": ["error", "deleted"]},
+        },
+        {"$set": {"agent": None, "updatedAt": now_ms()}},
+    )
+
+
 def _run_clone_op(
-    conn: "Connection", db, op: "PlanOp", job_id: str, state: dict[str, OpRunState], push
+    conn: "Connection",
+    db,
+    op: "PlanOp",
+    job_id: str,
+    state: dict[str, OpRunState],
+    push,
+    owner_role: str = "guest",
 ) -> bool:
     """Execute a ``createVm`` op for real, from one of three ISO sources:
 
@@ -226,17 +265,31 @@ def _run_clone_op(
     vm_name = op.params["vmName"]
     iso_id = op.params.get("isoId")
     authored = bool(op.files) or bool(iso_id)
+    bundling = settings.orchestrator_bundling_enabled and not authored
     state[op.id] = OpRunState(status="running", percent=0.0, phase="Starting")
     push()
 
     ip: str | None = None
     net = None
+    vm_id: str | None = None  # set when an agent identity is minted (Phase F)
     if not authored:
         net = load_guest_network_sync(db)
         if net is None:
             # The route rejects plans without a configured range; hitting this
             # means it was cleared between enqueue and execution.
             state[op.id] = OpRunState(status="error", detail="Guest IP range is not configured.")
+            push()
+            return False
+        # Fail cleanly BEFORE claiming an address if the agent binary is missing
+        # on the worker host — an operator config error, not a per-VM one.
+        if bundling and not Path(settings.orchestrator_agent_path).is_file():
+            state[op.id] = OpRunState(
+                status="error",
+                detail=(
+                    "Orchestrator agent binary not found on the worker host "
+                    "(ORCHESTRATOR_AGENT_PATH)."
+                ),
+            )
             push()
             return False
         try:
@@ -262,12 +315,53 @@ def _run_clone_op(
                     dest_dir=Path(tmp),
                 )
             else:
+                agent_bundle = None
+                # Mint + bake an agent only when bundling is on AND the VM does
+                # not already exist. A redelivery over a survivor (VmExists
+                # below) must keep whatever token the running VM booted with —
+                # so we never re-mint for it (we only hold the hash, not the
+                # plaintext, and its throwaway ISO won't boot anyway).
+                if bundling and get_vm_by_name(conn.content, vm_name) is None:
+                    vm_id, token = agents.mint_identity()
+                    # Persist the identity + the config the backend will dispatch
+                    # after phone-home. Written before the ISO is built; the
+                    # config never rides the ISO (backend-driven provisioning).
+                    db["vm_registry"].update_one(
+                        {"vmName": vm_name},
+                        {
+                            "$set": {
+                                "agent": {
+                                    "vmId": vm_id,
+                                    "tokenHash": agents.hash_token(token),
+                                    "role": owner_role,
+                                    "templateId": op.params["template"],
+                                    "templateConfig": extract_template_config(
+                                        op.params["template"], op.params
+                                    ),
+                                    "provisionState": "pending",
+                                    "mintedAt": now_ms(),
+                                }
+                            }
+                        },
+                    )
+                    agent_bundle = AgentBundle(
+                        binary_path=Path(settings.orchestrator_agent_path),
+                        config_toml=render_orchestrator_config(
+                            OrchestratorAgentConfig(
+                                vm_id=vm_id,
+                                agent_token=token,
+                                backend_url=settings.backend_public_url,
+                                role=owner_role,
+                            )
+                        ),
+                    )
                 iso = build_firstboot_iso(
                     template=op.params["template"],
                     vm_name=vm_name,
                     ip=ip,
                     net=net,
                     dest_dir=Path(tmp),
+                    agent=agent_bundle,
                 )
             req = CloneRequest(
                 name=vm_name,
@@ -298,8 +392,14 @@ def _run_clone_op(
             phase="Done",
             # ip/vmName ride the op result so the frontend can label the node
             # and key teardown off the real inventory name. Authored clones
-            # have no pool ip to report.
-            result={**asdict(result), "vmName": vm_name, **({"ip": ip} if ip else {})},
+            # have no pool ip to report. agentVmId (Phase F) lets the Inspector
+            # surface the auto-provisioned orchestrator identity.
+            result={
+                **asdict(result),
+                "vmName": vm_name,
+                **({"ip": ip} if ip else {}),
+                **({"agentVmId": vm_id} if vm_id else {}),
+            },
         )
         push()
         return True
@@ -316,14 +416,17 @@ def _run_clone_op(
         status, detail = map_vmkit_error(exc)
         if ip is not None:
             release_ip_sync(db, vm_name)
-        _registry_upsert_sync(db, vm_name, status="error", ip=None)
+        # Drop the just-minted identity: this clone never produced a booting VM,
+        # so no live agent holds the token. (The VmExists branch above is the
+        # deliberate exception — that VM may be running with it.)
+        _registry_upsert_sync(db, vm_name, status="error", ip=None, agent=None)
         state[op.id] = OpRunState(status="error", detail=f"{status}: {detail}")
         push()
         return False
     except Exception as exc:  # noqa: BLE001 — surface as an op-level failure, not a plan crash
         if ip is not None:
             release_ip_sync(db, vm_name)
-        _registry_upsert_sync(db, vm_name, status="error", ip=None)
+        _registry_upsert_sync(db, vm_name, status="error", ip=None, agent=None)
         state[op.id] = OpRunState(status="error", detail=str(exc))
         push()
         return False
@@ -344,7 +447,7 @@ def _simulate_op(op: "PlanOp", state: dict[str, OpRunState], push) -> bool:
 
 
 @celery_app.task(name="run_plan")
-def run_plan_task(job_id: str, plan: dict) -> None:
+def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
     """Walk a validated deploy-plan DAG, running each op in dependency order.
 
     Sequential ready-set loop (Kahn-style): repeatedly pick the first remaining
@@ -388,6 +491,7 @@ def run_plan_task(job_id: str, plan: dict) -> None:
                     from app.routers.iso import gc_orphan_isos
 
                     gc_orphan_isos(db)
+                    _sweep_stale_agents_sync(db)
                 while remaining:
                     for idx, op in enumerate(remaining):
                         if all(dep in finished for dep in op.depends_on):
@@ -424,7 +528,7 @@ def run_plan_task(job_id: str, plan: dict) -> None:
                                 finished.add(op.id)
                                 blocked.add(op.id)
                                 continue
-                        ok = _run_clone_op(conn, db, op, job_id, state, push)
+                        ok = _run_clone_op(conn, db, op, job_id, state, push, owner_role)
                     else:
                         ok = _simulate_op(op, state, push)
 

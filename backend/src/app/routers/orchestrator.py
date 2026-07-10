@@ -1,44 +1,45 @@
 """Orchestrator phone-home routes.
 
-The Rust orchestrator agent (``pki-orchestrator``, a separate repo) connects
-outbound to ``ws /api/orchestrator/connect`` once running, authenticating
-with a vm_id/token pair minted by ``POST /orchestrator/register``. This
-stands in for what a real deployment will eventually bake into the boot ISO
-automatically — see ``pki-orchestrator/README.md``'s "Future integration
-points": ``isokit`` can't embed a compiled binary yet, and ``vmkit`` has no
-guest-correlation mechanism.
+The Rust ``pki-orchestrator`` agent connects outbound to
+``ws /api/orchestrator/connect`` once running, authenticating with a
+vm_id/token pair. Two ways that pair exists:
 
-The connect route's own coroutine is both the agent's live connection and
-the relay of its progress frames onto the existing job-progress transport
-(``app.core.jobs.transport``) — reusing the single-linear-job message family
-(``ProgressMsg``/``DoneMsg``/``ErrorMsg``) and the existing
-``/ws/jobs/{job_id}`` WebSocket, so no new wire shape is needed on the
-frontend side.
+* **Persisted (Phase F):** the clone worker mints it and stores the hash on the
+  VM's ``vm_registry`` document; the agent binary + its ``orchestrator.toml``
+  are baked onto the firstboot ISO, so a real deployed agent phones home with
+  no human in the loop. Per-template provisioning config is **not** on the ISO
+  — it lives on the same registry doc and is dispatched here the moment the
+  agent connects (see ``_start_provisioning``).
+* **Pending (manual/dev):** ``POST /orchestrator/register`` mints an in-process
+  pair a human pastes into a local config.
 
-Dispatching a command (``POST /orchestrator/{vm_id}/command``) mints a
-``job_id`` the same way ``clone``/``deploy`` do, then sends it down the
-agent's live connection. The backend is the authoritative capability gate:
-the authenticated user's role is checked here (via a small command->capability table,
-since the required capability is chosen dynamically per dispatched command
-name rather than statically per route) before a command is even sent to the
-agent. That role is included in the frame sent to the agent, which
-re-checks it locally as a second, structural gate (see pki-orchestrator's
-``phonehome.rs``) — not the primary one.
+Auth is validated before ``accept()`` (4401 on failure); the agent sends
+vm_id/token as request headers (kept out of access logs), with the browser-style
+``?vm_id=&token=`` query still accepted for the manual path.
+
+Dispatching a command (``POST /orchestrator/{vm_id}/command``) is capability-gated
+*and* ownership-gated: a guest can only command an agent bound to a VM in its own
+namespace. The authenticated caller's role is forwarded in the frame; the agent
+re-checks it locally as a second, structural gate (see ``phonehome.rs``).
 """
 
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+from pymongo import ReturnDocument
 
 from app.core import agents
 from app.core.authz import (
     AuthedUser,
     Capability,
+    Role,
     ROLE_CAPABILITIES,
+    enforce_guest_vm_ownership,
     get_current_user,
     require_capability,
 )
+from app.core.db import now_ms, vm_registry_col
 from app.core.jobs import transport
 from app.core.jobs.models import DoneMsg, ErrorMsg, JobStatus, ProgressMsg, QueuedMsg
 
@@ -54,7 +55,15 @@ _COMMAND_CAPABILITIES: dict[str, Capability] = {
     "ip.read": Capability.VM_READ,
     "ip.write": Capability.VM_UPDATE,
     "cert.verify": Capability.VM_READ,
+    "ca.install": Capability.VM_PROVISION,
+    "ca.configure_cdp_aia": Capability.VM_PROVISION,
     "powershell.exec_arbitrary": Capability.VM_EXEC_ARBITRARY,
+}
+
+#: The single command a template auto-provisions on first connect (Phase F).
+#: Templates absent here have nothing to self-provision this phase.
+_PROVISION_COMMAND: dict[str, str] = {
+    "certificateAuthority": "ca.install",
 }
 
 
@@ -68,13 +77,11 @@ class RegisterResponse(BaseModel):
     dependencies=[Depends(require_capability(Capability.VM_CLONE))],
 )
 def register() -> RegisterResponse:
-    """Mint a vm_id/token pair for a not-yet-connected orchestrator agent.
+    """Mint an in-process vm_id/token pair for the manual/dev flow.
 
-    A human copies both values into that agent's ``orchestrator.toml`` before
-    running it — see the module docstring for why this is manual today.
-    Gated on ``VM_CLONE`` for the same reason ``DEPLOY`` is guest-eligible:
-    a guest registering an agent for a VM it could already clone doesn't
-    grant anything it couldn't already do.
+    A human copies both values into that agent's ``orchestrator.toml``. Real
+    deployed agents are provisioned automatically by the clone worker instead
+    (persisted identity) — see the module docstring.
     """
     vm_id, token = agents.register_agent()
     return RegisterResponse(vm_id=vm_id, token=token)
@@ -101,6 +108,18 @@ async def dispatch_command(
             detail=f"Role '{role.value}' does not have capability '{required.value}'.",
         )
 
+    # Per-VM ownership: resolve vm_id -> the VM it's bound to, and refuse a guest
+    # commanding an agent outside its namespace. A persisted agent always has a
+    # registry doc; the manual/dev path has none — allowed for operators only.
+    doc = await vm_registry_col().find_one({"agent.vmId": vm_id})
+    if doc is not None and doc.get("status") == "deleted":
+        raise HTTPException(404, detail=f"No orchestrator agent for vm_id '{vm_id}'.")
+    vm_name = doc.get("vmName") if doc else None
+    if vm_name is not None:
+        enforce_guest_vm_ownership(vm_name, user)
+    elif role == Role.GUEST:
+        raise HTTPException(404, detail=f"No orchestrator agent for vm_id '{vm_id}'.")
+
     agent = agents.resolve_agent(vm_id)
     if agent is None:
         raise HTTPException(404, detail=f"No connected orchestrator agent for vm_id '{vm_id}'.")
@@ -113,21 +132,92 @@ async def dispatch_command(
     return {"job_id": job_id}
 
 
+async def _authenticate(vm_id: str | None, token: str | None) -> bool:
+    if not vm_id or not token:
+        return False
+    if agents.authenticate_pending(vm_id, token):
+        return True
+    return await agents.authenticate_persisted(vm_id, token)
+
+
+async def _start_provisioning(vm_id: str, agent: agents.AgentConnection) -> str | None:
+    """If this VM has pending template provisioning, dispatch it now.
+
+    Atomically flips ``agent.provisionState`` pending→applying (so a reconnect
+    race dispatches once), then sends the template's provisioning command with
+    the VM's stored config as params under a deterministic ``apply-<vmId>`` job.
+    Returns that job id so the connect loop can finalize it; ``None`` if there
+    is nothing to provision (or another connection already claimed it).
+    """
+    doc = await vm_registry_col().find_one_and_update(
+        {
+            "agent.vmId": vm_id,
+            "agent.provisionState": "pending",
+            "status": {"$ne": "deleted"},
+        },
+        {"$set": {"agent.provisionState": "applying", "agent.connectedAt": now_ms()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if doc is None:
+        return None
+
+    agent_doc = doc.get("agent", {})
+    command = _PROVISION_COMMAND.get(agent_doc.get("templateId"))
+    if command is None:
+        # Nothing to run for this template — provisioning is trivially complete.
+        await _finalize_provisioning(vm_id, "done")
+        return None
+
+    job_id = f"apply-{vm_id}"
+    transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)
+    await agent.send(
+        {
+            "job_id": job_id,
+            "command": command,
+            "params": agent_doc.get("templateConfig") or {},
+            # Forward the VM owner's role (both roles hold VM_PROVISION); the
+            # agent re-checks it as its structural second gate.
+            "role": agent_doc.get("role") or Role.GUEST.value,
+        }
+    )
+    return job_id
+
+
+async def _finalize_provisioning(vm_id: str, status: str) -> None:
+    """Record the terminal outcome of the provisioning job on the registry doc."""
+    state = "applied" if status == "done" else "failed"
+    await vm_registry_col().update_one(
+        {"agent.vmId": vm_id},
+        {"$set": {"agent.provisionState": state, "updatedAt": now_ms()}},
+    )
+
+
 @router.websocket("/connect")
-async def connect(websocket: WebSocket, vm_id: str | None = None, token: str | None = None) -> None:
+async def connect(websocket: WebSocket) -> None:
     """Accept an orchestrator agent's phone-home connection and relay its progress.
 
-    Auth mirrors ``routers.ws``'s convention: validated before ``accept()``,
-    closed with 4401 on failure (here: unknown/already-consumed vm_id, or a
-    token mismatch) rather than a normal HTTP error, since this is a
-    WebSocket upgrade.
+    vm_id/token come from the ``X-Orchestrator-Vm-Id``/``X-Orchestrator-Token``
+    headers (the agent's path) or ``?vm_id=&token=`` (manual/dev). Auth is
+    validated before ``accept()`` (4401 on failure).
     """
-    if not vm_id or not token or not agents.authenticate_pending(vm_id, token):
+    vm_id = websocket.headers.get("x-orchestrator-vm-id") or websocket.query_params.get("vm_id")
+    token = websocket.headers.get("x-orchestrator-token") or websocket.query_params.get("token")
+    if not await _authenticate(vm_id, token):
         await websocket.close(code=4401)
         return
 
     await websocket.accept()
-    agents.connect_agent(vm_id, websocket)
+    # Single live connection per vm_id: close any prior socket (a copied ISO or a
+    # half-dead reconnect) so it can't shadow the fresh one.
+    previous = agents.pop_connection(vm_id)
+    if previous is not None:
+        try:
+            await previous.websocket.close(code=4409)
+        except Exception:  # noqa: BLE001 — the old socket may already be gone
+            pass
+    conn = agents.connect_agent(vm_id, websocket)
+
+    provision_job = await _start_provisioning(vm_id, conn)
     try:
         while True:
             frame = await websocket.receive_json()
@@ -135,10 +225,16 @@ async def connect(websocket: WebSocket, vm_id: str | None = None, token: str | N
             state = frame.get("state")
             if job_id and state:
                 _relay_progress(job_id, state)
+                if provision_job and job_id == provision_job and state.get("status") in (
+                    "done",
+                    "error",
+                ):
+                    await _finalize_provisioning(vm_id, state["status"])
+                    provision_job = None
     except WebSocketDisconnect:
         pass
     finally:
-        agents.disconnect_agent(vm_id)
+        agents.disconnect_if(vm_id, conn)
 
 
 def _relay_progress(job_id: str, state: dict) -> None:
@@ -172,6 +268,20 @@ def _relay_progress(job_id: str, state: dict) -> None:
     "/agents",
     dependencies=[Depends(require_capability(Capability.VM_LIST))],
 )
-def list_agents() -> dict:
-    """List vm_ids with a currently-connected orchestrator agent."""
-    return {"vm_ids": agents.connected_vm_ids()}
+async def list_agents(user: AuthedUser = Depends(get_current_user)) -> dict:
+    """List vm_ids with a currently-connected agent (guests see only their own)."""
+    vm_ids = agents.connected_vm_ids()
+    if user.role != Role.GUEST:
+        return {"vm_ids": vm_ids}
+
+    owned: list[str] = []
+    for vm_id in vm_ids:
+        doc = await vm_registry_col().find_one({"agent.vmId": vm_id}, {"vmName": 1})
+        if doc is None:
+            continue
+        try:
+            enforce_guest_vm_ownership(doc["vmName"], user)
+        except HTTPException:
+            continue
+        owned.append(vm_id)
+    return {"vm_ids": owned}

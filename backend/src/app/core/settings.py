@@ -83,6 +83,24 @@ class Settings(BaseSettings):
     mongo_url: str = "mongodb://localhost:27017"
     mongo_db: str = "pki_playground"
 
+    # Phase F — orchestrator agent bundling. Both must be set to enable it (a
+    # deploy-environment toggle, so env vars like the broker/Mongo config, not
+    # the org-wide settings document):
+    #   ``ORCHESTRATOR_AGENT_PATH`` — filesystem path on the *worker host* to the
+    #     pki-orchestrator agent binary embedded into each firstboot ISO.
+    #   ``BACKEND_PUBLIC_URL`` — the base URL a booted guest VM dials home to
+    #     (``http(s)://host:port``), baked into the agent's orchestrator.toml.
+    # Unset → the default firstboot ISO stays byte-identical to Phase G (no
+    # agent), so it is safe on golden images whose runner predates the v2
+    # manifest. Per-template provisioning config is NOT baked here — it lives on
+    # the VM registry and is dispatched after the agent phones home.
+    orchestrator_agent_path: str | None = None
+    backend_public_url: str | None = None
+
+    @property
+    def orchestrator_bundling_enabled(self) -> bool:
+        return bool(self.orchestrator_agent_path and self.backend_public_url)
+
     @property
     def oidc_enabled(self) -> bool:
         return bool(
