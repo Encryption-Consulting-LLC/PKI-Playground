@@ -75,6 +75,11 @@ class PlanOp(BaseModel):
     id: str
     kind: PlanOpKind
     target: str
+    #: The second node an op involves (Phase L): the DC a member joins, the
+    #: parent CA an issuing CA connects to, the CA issuing a web/client cert.
+    #: The backend resolves both nodes' real guest-namespaced identities from
+    #: the registry when expanding the op into agent commands.
+    secondary: str | None = None
     params: dict[str, str] = Field(default_factory=dict)
     files: list[IsoFile] = Field(default_factory=list, max_length=ISO_MAX_FILES)
     depends_on: list[str] = Field(default_factory=list, alias="dependsOn")
@@ -128,6 +133,27 @@ def validate_plan(
                 raise HTTPException(
                     422,
                     detail=f"Op '{op.id}': ISO content is only valid on createVm ops.",
+                )
+            # Cross-node ops name their second node so the backend can resolve
+            # its real identity (Phase L). ``secondary``/``target`` are canvas
+            # node ids (not op ids), resolved from the registry at run time — a
+            # node created earlier this plan or surviving from a prior deploy —
+            # so they aren't validated against the op-id set here. domainLeave
+            # targets a membership the node already holds, so it needs none.
+            if op.secondary is not None and op.secondary == op.target:
+                raise HTTPException(
+                    422, detail=f"Op '{op.id}' has itself as its secondary node."
+                )
+            if (
+                op.kind in (PlanOpKind.domain_join, PlanOpKind.ca_connect, PlanOpKind.web_server_cert)
+                and not op.secondary
+            ):
+                raise HTTPException(
+                    422,
+                    detail=(
+                        f"Op '{op.id}' ({op.kind.value}) needs a 'secondary' node "
+                        "(the DC / parent CA / issuing CA it wires to)."
+                    ),
                 )
             continue
 

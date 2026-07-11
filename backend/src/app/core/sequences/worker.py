@@ -65,6 +65,7 @@ def run_op_sequence(
     plan_job_id: str,
     op_id: str,
     role: str,
+    on_step_complete=None,
 ) -> dict[str, dict]:
     """Run one op's step sequence to completion (or raise
     :class:`~app.core.sequences.engine.SequenceError`).
@@ -99,6 +100,8 @@ def run_op_sequence(
 
     def on_step_done(step_id, _result):
         _persist_step(db, plan_job_id, op_id, step_id, ctx.artifacts)
+        if on_step_complete is not None:
+            on_step_complete(step_id)
 
     engine = SequenceEngine(
         dispatch=dispatch,

@@ -414,6 +414,10 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
         id: op.id,
         kind: op.kind,
         target: op.targetNodeId,
+        // The DC/parent-CA/issuing-CA the op wires to (Phase L) — the backend
+        // resolves its real guest-namespaced identity to build join/enroll
+        // command params. Dropped previously; now carried through.
+        ...(op.secondaryNodeId ? { secondary: op.secondaryNodeId } : {}),
         params,
         ...(files ? { files } : {}),
         dependsOn: op.dependsOn,

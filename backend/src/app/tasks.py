@@ -522,6 +522,81 @@ def _run_clone_op(
         return False
 
 
+#: Op kinds whose real command sequence (core.sequences.definitions) replaces
+#: the timed stub. domainLeave has no plan sequence and stays simulated.
+_REAL_SEQUENCE_KINDS = frozenset({"domainJoin", "caConnect", "webServerCert"})
+
+
+def _run_sequence_op(
+    db,
+    op: "PlanOp",
+    ops: list["PlanOp"],
+    job_id: str,
+    owner_role: str,
+    state: dict[str, OpRunState],
+    push,
+) -> bool | None:
+    """Run a non-createVm op as a real command sequence (Phase L).
+
+    Returns True/False on success/failure, or ``None`` when this op kind has no
+    real sequence yet (the caller then falls back to the timed simulation) —
+    which is also how an op whose expansion is empty for the current topology
+    degrades. A resolution/sequence failure fails the op (dependents cancel).
+    """
+    from app.core.sequences import SequenceError
+    from app.core.sequences.context import ContextError, build_run_context
+    from app.core.sequences.definitions import op_sequence
+    from app.core.sequences.worker import run_op_sequence
+
+    if op.kind.value not in _REAL_SEQUENCE_KINDS:
+        return None
+
+    state[op.id] = OpRunState(status="running", percent=0.0, phase="Resolving")
+    push()
+    try:
+        ctx = build_run_context(db, op, ops)
+        steps = op_sequence(op.kind.value, ctx)
+    except ContextError as exc:
+        state[op.id] = OpRunState(status="error", detail=str(exc))
+        push()
+        return False
+    if not steps:
+        return None  # nothing to do for this topology — let the caller simulate
+
+    total = len(steps)
+    done_count = {"n": 0}
+
+    def on_step_complete(_step_id: str) -> None:
+        done_count["n"] += 1
+        state[op.id] = OpRunState(
+            status="running",
+            percent=round(100.0 * done_count["n"] / total, 1),
+            phase=f"Step {done_count['n']}/{total}",
+        )
+        push()
+
+    try:
+        run_op_sequence(
+            db, steps, ctx,
+            plan_job_id=job_id, op_id=op.id, role=owner_role,
+            on_step_complete=on_step_complete,
+        )
+    except SequenceError as exc:
+        state[op.id] = OpRunState(status="error", detail=str(exc))
+        push()
+        return False
+    except Exception as exc:  # noqa: BLE001 — surface as an op-level failure
+        state[op.id] = OpRunState(status="error", detail=str(exc))
+        push()
+        return False
+
+    state[op.id] = OpRunState(
+        status="done", percent=100.0, phase="Done", result={"steps": total}
+    )
+    push()
+    return True
+
+
 def _simulate_op(op: "PlanOp", state: dict[str, OpRunState], push) -> bool:
     """Advance a stubbed op through its 3 named phases. Always succeeds in v1."""
     phases = _SIMULATED_PHASES[op.kind.value]
@@ -568,9 +643,14 @@ def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
         finished: set[str] = set()
         blocked: set[str] = set()
         conn: "Connection | None" = None
-        # One sync Mongo client for the whole plan, opened only when there is
-        # a createVm to run (IP allocation + registry writes live there).
-        needs_db = any(op.kind is PlanOpKind.create_vm for op in ops)
+        # One sync Mongo client for the whole plan, opened when there is a
+        # createVm (IP allocation + registry writes) or a real command sequence
+        # (cross-node context resolution + plan_runs cursor) to run.
+        needs_db = any(
+            op.kind is PlanOpKind.create_vm
+            or op.kind.value in _REAL_SEQUENCE_KINDS
+            for op in ops
+        )
         db_ctx = worker_db() if needs_db else nullcontext(None)
 
         try:
@@ -620,7 +700,13 @@ def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
                                 continue
                         ok = _run_clone_op(conn, db, op, job_id, state, push, owner_role)
                     else:
-                        ok = _simulate_op(op, state, push)
+                        # Real command sequence where one exists (domainJoin,
+                        # …); otherwise the timed stub. `None` = no sequence for
+                        # this op/topology, so fall through to the simulation.
+                        result = _run_sequence_op(
+                            db, op, ops, job_id, owner_role, state, push
+                        )
+                        ok = _simulate_op(op, state, push) if result is None else result
 
                     finished.add(op.id)
                     if not ok:

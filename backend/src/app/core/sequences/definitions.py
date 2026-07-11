@@ -14,8 +14,14 @@ step can reference another node's real guest-namespaced hostname
 
 from app.core.sequences.model import RunContext, Step, StepRuntime
 
-#: The context key a single-VM provision sequence targets.
+#: Context alias keys (mirror app.core.sequences.context).
 PRIMARY = "primary"
+SECONDARY = "secondary"
+DC = "dc"
+
+
+def _admin_username(netbios: str | None) -> str:
+    return f"{netbios}\\Administrator" if netbios else "Administrator"
 
 
 def _ca_verify_step() -> Step:
@@ -72,8 +78,74 @@ def provision_steps(template: str, *, ca_type: str | None = None) -> list[Step]:
     return builder() if builder else []
 
 
+def _domain_join_sequence(ctx: RunContext) -> list[Step]:
+    """Join the target node to the forest (slice 10).
+
+    Point DNS at the DC, ``Add-Computer`` under the operator's domain-admin
+    credential (no ``-Restart``), reboot, then verify membership. A web-server
+    target additionally gets the CertEnroll *share/ACL* half here (it needs the
+    domain's Cert Publishers group, and must exist before the root cert is
+    published to it) — the IIS/vdir half runs in the webServerCert op.
+    """
+    dc = ctx.node(DC)
+
+    def join_params(rt: StepRuntime) -> dict[str, str]:
+        return {
+            "domainName": ctx.domain_name or "",
+            "username": _admin_username(ctx.netbios),
+            "password": dc.template_config.get("domainAdminPassword", ""),
+        }
+
+    steps = [
+        Step(
+            id="dns-set",
+            command="dns.set_client",
+            target=PRIMARY,
+            params=lambda rt: {"servers": ctx.node(DC).ip or ""},
+        ),
+        Step(
+            id="domain-join",
+            command="domain.join",
+            target=PRIMARY,
+            params=join_params,
+            secret_keys=("password",),
+        ),
+        # The join reboots (Add-Computer without -Restart, then a reboot step);
+        # domain.verify — retried post-reboot until PartOfDomain — is its gate.
+        Step(
+            id="reboot",
+            command="system.reboot",
+            target=PRIMARY,
+            expects_disconnect=True,
+            timeout_s=1200,
+            verify=Step(id="domain-verify", command="domain.verify", target=PRIMARY),
+            verify_predicate=lambda r: r.get("part_of_domain") is True,
+            verify_window_s=600,
+        ),
+    ]
+
+    if ctx.node(PRIMARY).template_id == "webServer":
+        steps.append(
+            Step(
+                id="iis-share",
+                command="iis.setup_certenroll",
+                target=PRIMARY,
+                params=lambda rt: {
+                    "scope": "share",
+                    "netbiosName": ctx.netbios or "",
+                    "path": rt.node.template_config.get(
+                        "certEnrollPath", "C:\\CertEnroll"
+                    ),
+                },
+            )
+        )
+    return steps
+
+
 def op_sequence(op_kind: str, ctx: RunContext) -> list[Step]:
-    """The step list for a non-createVm plan op. Slices 10–12 fill this in
-    (domainJoin, caConnect, webServerCert); until then these ops keep running
-    the timed simulation stub in ``app.tasks``."""
+    """The step list for a non-createVm plan op. domainJoin is real (slice 10);
+    caConnect / webServerCert / domainLeave are layered in by slices 11–12 and
+    until then keep running the timed simulation stub in ``app.tasks``."""
+    if op_kind == "domainJoin":
+        return _domain_join_sequence(ctx)
     return []
