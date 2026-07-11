@@ -168,6 +168,15 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
         default: "20",
         placeholder: "20",
       },
+      {
+        // CPS statement URL — issuing CAs only (a root has no CPS pointer).
+        key: "cpsUrl",
+        label: "CPS URL",
+        type: "text",
+        default: "http://pki.EncryptionConsulting.com/cps.txt",
+        placeholder: "http://pki.…/cps.txt",
+        hideWhen: { key: "caType", equals: "Root" },
+      },
     ],
   },
   {
@@ -191,6 +200,14 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
         type: "select",
         options: ["Enabled", "Disabled"],
         default: "Enabled",
+      },
+      {
+        key: "ocspRefreshMinutes",
+        label: "OCSP Refresh (min)",
+        type: "text",
+        default: "15",
+        placeholder: "15",
+        hideWhen: { key: "enableOcsp", equals: "Disabled" },
       },
     ],
   },

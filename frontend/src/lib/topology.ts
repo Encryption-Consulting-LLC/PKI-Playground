@@ -588,10 +588,17 @@ export function edgeStyle(type: EdgeType, opts?: EdgeStyleOptions): EdgeStylePro
         labelStyle: { fill: "#3b82f6", fontSize: 11 },
       }
     case EDGE_TYPE.caHierarchy:
+      // A root issuer signs its subordinate offline: the CSR/cert cross the
+      // air gap by hand (the backend relay), never a live link — dash the
+      // edge and say so, matching the offline-root presentation.
       return {
-        style: { stroke: "#f59e0b", strokeWidth: 2 },
+        style: {
+          stroke: "#f59e0b",
+          strokeWidth: 2,
+          ...(opts?.rootIssuer ? { strokeDasharray: "6 4" } : {}),
+        },
         animated: false,
-        label: "issues",
+        label: opts?.rootIssuer ? "signs (manual transfer)" : "issues",
         labelStyle: { fill: "#f59e0b", fontSize: 11 },
       }
     case EDGE_TYPE.webServerCert:

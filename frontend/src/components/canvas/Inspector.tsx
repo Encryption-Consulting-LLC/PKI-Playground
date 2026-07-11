@@ -212,11 +212,13 @@ function ConfigForm({
 function OrchestratorPanel({
   nodeId,
   vmId,
+  templateId,
   canRead,
   canWrite,
 }: {
   nodeId: string
   vmId: string | undefined
+  templateId: string
   canRead: boolean
   canWrite: boolean
 }) {
@@ -402,6 +404,31 @@ function OrchestratorPanel({
           )}
         </div>
       )}
+      {templateId === "client" && (
+        <div className="flex flex-col gap-1.5 border-t pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start gap-2"
+            disabled={actionDisabled}
+            onClick={() =>
+              run("cert.enroll", {
+                template: "Workstation",
+                exportPath: "C:\\win11.cer",
+                refreshPolicy: "true",
+              })
+            }
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {busy === "cert.enroll" ? "Enrolling…" : "Enroll workstation cert"}
+          </Button>
+          {results["cert.enroll"] && (
+            <p className="text-[11px] text-muted-foreground break-all">
+              {results["cert.enroll"]}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -536,11 +563,32 @@ export function Inspector() {
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
             <span className="text-muted-foreground">Role</span>
             <span>{def?.label ?? data.typeId}</span>
-            {data.ip && (
+            {/* Offline root: present as air-gapped — the management IP is real
+                (it phones home) but hidden here; operators see it in the
+                Orchestrator panel. Everyone else just sees the sneakernet
+                fiction. */}
+            {tier === "root" ? (
               <>
-                <span className="text-muted-foreground">IP address</span>
-                <span className="font-mono">{data.ip}</span>
+                <span className="text-muted-foreground">Network</span>
+                <span className="flex items-center gap-1 text-amber-500">
+                  <Network className="h-3 w-3" /> Air-gapped (offline root)
+                </span>
+                {isOperator && data.ip && (
+                  <>
+                    <span className="text-muted-foreground">Mgmt IP</span>
+                    <span className="font-mono text-muted-foreground" title="operator-only: real management address">
+                      {data.ip}
+                    </span>
+                  </>
+                )}
               </>
+            ) : (
+              data.ip && (
+                <>
+                  <span className="text-muted-foreground">IP address</span>
+                  <span className="font-mono">{data.ip}</span>
+                </>
+              )
             )}
             {isOperator && data.vmName && (
               <>
@@ -829,27 +877,6 @@ export function Inspector() {
                   />
                 )
               )}
-              {isOperator && data.typeId === "domainController" && (
-                <PlannedAction
-                  icon={Settings}
-                  label="Promote to DC"
-                  tip="Automatic AD DS promotion coming soon"
-                  disabled
-                />
-              )}
-              {isOperator && data.typeId === "certificateAuthority" && (
-                <PlannedAction
-                  icon={ShieldCheck}
-                  label={
-                    tier === "root" ? "Install Root CA"
-                    : tier === "intermediate" ? "Install Intermediate CA"
-                    : tier === "issuing" ? "Install Issuing CA"
-                    : "Install CA"
-                  }
-                  tip="Automatic CA installation coming soon"
-                  disabled
-                />
-              )}
             </div>
           </section>
         )}
@@ -865,6 +892,7 @@ export function Inspector() {
             <OrchestratorPanel
               nodeId={nodeId}
               vmId={data.orchestratorVmId}
+              templateId={data.typeId}
               canRead={canRead}
               canWrite={canUpdate}
             />

@@ -229,11 +229,16 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           </Badge>
         )}
 
-        {/* Deploy-confirmed IP — the address you'd RDP to */}
-        {data.ip && (
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {data.ip}
-          </span>
+        {/* Deploy-confirmed IP — the address you'd RDP to. An offline root is
+            presented air-gapped: its real management IP is hidden on the node. */}
+        {tier === "root" ? (
+          <span className="text-[10px] text-amber-500">air-gapped</span>
+        ) : (
+          data.ip && (
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {data.ip}
+            </span>
+          )
         )}
 
         {/* Role label */}

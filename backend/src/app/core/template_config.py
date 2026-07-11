@@ -65,6 +65,7 @@ _DNS = re.compile(
 _NETBIOS = re.compile(r"^[A-Za-z0-9-]{1,15}$")
 _COMMON_NAME = re.compile(r"^[A-Za-z0-9 ._-]{1,64}$")
 _CERT_PATH = re.compile(r"^[A-Za-z]:\\[A-Za-z0-9 ._\\-]{1,120}$")
+_HTTP_URL = re.compile(r"^https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{1,200}$")
 
 
 def _one_of(*options: str) -> Callable[[str], bool]:
@@ -132,10 +133,14 @@ TEMPLATE_CONFIG_FIELDS: dict[str, dict[str, FieldSpec]] = {
         "keyLengthFixed": FieldSpec(lambda v: len(v) <= 32, "2,592 bytes", provision=False),
         "hashAlgorithm": FieldSpec(_one_of("SHA256", "SHA384", "SHA512"), "SHA256"),
         "validityYears": FieldSpec(_int_between(1, 50), "20"),
+        # Issuing-CA CPS statement URL (hidden for Root in the UI); the Rust
+        # ca.install drops it when caType=Root.
+        "cpsUrl": FieldSpec(_matches(_HTTP_URL), "http://pki.EncryptionConsulting.com/cps.txt"),
     },
     "webServer": {
         "certEnrollPath": FieldSpec(_matches(_CERT_PATH), "C:\\CertEnroll"),
         "enableOcsp": FieldSpec(_one_of("Enabled", "Disabled"), "Enabled"),
+        "ocspRefreshMinutes": FieldSpec(_int_between(1, 1440), "15"),
     },
     "client": {},
     "standalone": {},
