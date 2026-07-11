@@ -1,6 +1,8 @@
 import { Fragment, useState } from "react"
 import {
   AlertTriangle,
+  Check,
+  Circle,
   Clock,
   Loader2,
   Network,
@@ -18,6 +20,7 @@ import { TEMPLATE_BY_ID } from "@/constants/templates"
 import type { ConfigField } from "@/constants/templates"
 import { LIFECYCLE } from "@/constants/topology"
 import { ISO_DRIFT_FIELD, caTier, caDepth, domainMembership, driftedFields, isDeployed, isDrifted } from "@/lib/topology"
+import { PASSWORD_MASK, isPasswordValid, passwordRules } from "@/lib/passwordPolicy"
 import { OP_KIND, OP_STATUS } from "@/lib/staging"
 import type { StagedOp } from "@/lib/staging"
 import { useTopologyStore } from "@/store/topology"
@@ -79,10 +82,12 @@ function PlannedAction({
  */
 function ConfigForm({
   fields,
+  vmName,
   onSubmit,
   disabled = false,
 }: {
   fields: ConfigField[]
+  vmName?: string
   onSubmit: (values: Record<string, string>) => void
   disabled?: boolean
 }) {
@@ -104,6 +109,11 @@ function ConfigForm({
   }
 
   const visibleFields = fields.filter((f) => !isHidden(f))
+  // Every visible password field must satisfy the AD-complexity policy before
+  // the node can be configured — the backend re-checks as the real gate.
+  const passwordsOk = visibleFields.every(
+    (f) => f.type !== "password" || isPasswordValid(values[f.key], vmName),
+  )
 
   function submit() {
     onSubmit(
@@ -119,6 +129,34 @@ function ConfigForm({
           {field.type === "fixed" ? (
             <div className="flex h-7 items-center rounded-md border bg-muted/40 px-3 text-xs text-muted-foreground">
               {values[field.key]}
+            </div>
+          ) : field.type === "password" ? (
+            <div className="grid gap-1.5">
+              <Input
+                type="password"
+                value={values[field.key]}
+                onChange={(e) => set(field.key, e.target.value)}
+                placeholder={field.placeholder}
+                className="h-7 text-xs"
+                autoComplete="new-password"
+              />
+              <ul className="grid gap-0.5">
+                {passwordRules(values[field.key], vmName).map((rule) => (
+                  <li
+                    key={rule.key}
+                    className={`flex items-center gap-1.5 text-[10px] ${
+                      rule.ok ? "text-emerald-600" : "text-muted-foreground"
+                    }`}
+                  >
+                    {rule.ok ? (
+                      <Check className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <Circle className="h-3 w-3 shrink-0" />
+                    )}
+                    {rule.label}
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : field.type === "text" ? (
             <Input
@@ -149,7 +187,7 @@ function ConfigForm({
       <Button
         size="sm"
         className="mt-1 w-full"
-        disabled={disabled}
+        disabled={disabled || !passwordsOk}
         onClick={submit}
       >
         <Settings className="mr-2 h-3.5 w-3.5" />
@@ -608,6 +646,7 @@ export function Inspector() {
                 <ConfigForm
                   key={nodeId}
                   fields={def!.configFields!}
+                  vmName={data.name}
                   onSubmit={handleConfigure}
                   disabled={deploying}
                 />
@@ -706,10 +745,14 @@ export function Inspector() {
                       </span>
                     )
                   }
-                  const fieldLabel = def?.configFields?.find((f) => f.key === key)?.label ?? key
+                  const field = def?.configFields?.find((f) => f.key === key)
+                  const fieldLabel = field?.label ?? key
+                  // A password's value is never shown — only that it changed.
+                  const mask = (v: string | undefined) =>
+                    field?.type === "password" ? (v ? PASSWORD_MASK : "—") : (v ?? "—")
                   return (
                     <span key={key} className="text-[11px] text-muted-foreground">
-                      {fieldLabel}: {data.lastDeployedConfig?.[key] ?? "—"} → {data.config?.[key] ?? "—"}
+                      {fieldLabel}: {mask(data.lastDeployedConfig?.[key])} → {mask(data.config?.[key])}
                     </span>
                   )
                 })}
@@ -726,12 +769,15 @@ export function Inspector() {
             </p>
             <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
               {Object.entries(data.config).map(([key, value]) => {
-                const fieldLabel =
-                  def?.configFields?.find((f) => f.key === key)?.label ?? key
+                const field = def?.configFields?.find((f) => f.key === key)
+                const fieldLabel = field?.label ?? key
+                // Secrets show only as a mask — the value never reaches the DOM.
+                const shown =
+                  field?.type === "password" ? (value ? PASSWORD_MASK : "—") : value
                 return (
                   <Fragment key={key}>
                     <span className="text-muted-foreground">{fieldLabel}</span>
-                    <span className="truncate">{value}</span>
+                    <span className="truncate">{shown}</span>
                   </Fragment>
                 )
               })}

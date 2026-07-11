@@ -46,7 +46,7 @@ from app.core.ippool import (
     release_ip_sync,
 )
 from app.core.settings import settings
-from app.core.template_config import extract_template_config
+from app.core.template_config import encrypt_config_secrets, extract_template_config
 from app.core.jobs import transport
 from app.core.jobs.models import (
     DoneMsg,
@@ -335,8 +335,15 @@ def _run_clone_op(
                                     "tokenHash": agents.hash_token(token),
                                     "role": owner_role,
                                     "templateId": op.params["template"],
-                                    "templateConfig": extract_template_config(
-                                        op.params["template"], op.params
+                                    # Secrets (the DC's domainAdminPassword) are
+                                    # AES-GCM encrypted before they touch Mongo;
+                                    # the dispatch path decrypts them just in
+                                    # time (core.template_config).
+                                    "templateConfig": encrypt_config_secrets(
+                                        op.params["template"],
+                                        extract_template_config(
+                                            op.params["template"], op.params
+                                        ),
                                     ),
                                     "provisionState": "pending",
                                     "mintedAt": now_ms(),

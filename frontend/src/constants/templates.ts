@@ -42,6 +42,16 @@ export type ConfigField =
       default: string
       hideWhen?: HideWhen
     }
+  | {
+      // Masked secret with an inline AD-complexity checklist
+      // (see lib/passwordPolicy.ts). Stored/diffed masked, never in op labels.
+      key: string
+      label: string
+      type: "password"
+      default: string
+      placeholder?: string
+      hideWhen?: HideWhen
+    }
 
 export interface TemplateDef {
   id: string
@@ -87,6 +97,13 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
           "Windows Server 2025",
         ],
         default: "Windows Server 2016",
+      },
+      {
+        key: "domainAdminPassword",
+        label: "Domain Admin Password",
+        type: "password",
+        default: "",
+        placeholder: "used to join members + install the issuing CA",
       },
     ],
   },

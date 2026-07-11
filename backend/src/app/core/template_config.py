@@ -23,6 +23,37 @@ from dataclasses import dataclass
 #: Keys that always ride in a createVm op's params but are not template config.
 RESERVED_PARAM_KEYS = frozenset({"vmName", "template", "isoId"})
 
+#: AD-complexity policy for operator-set passwords (the DC's
+#: ``domainAdminPassword``). Mirrors ``frontend/src/lib/passwordPolicy.ts`` —
+#: this is the authoritative gate; the frontend checklist is a convenience.
+PASSWORD_MIN_LENGTH = 12
+PASSWORD_MIN_CLASSES = 3
+
+
+def password_policy_errors(value: str, vm_name: str = "") -> list[str]:
+    """Every AD-complexity rule *value* fails, empty when it passes.
+
+    ≥12 chars; ≥3 of {lower, upper, digit, symbol}; must not contain
+    "administrator" or the machine name (the first two an attacker guesses).
+    """
+    errors: list[str] = []
+    if len(value) < PASSWORD_MIN_LENGTH:
+        errors.append(f"must be at least {PASSWORD_MIN_LENGTH} characters")
+    classes = sum(
+        bool(re.search(pattern, value))
+        for pattern in (r"[a-z]", r"[A-Z]", r"[0-9]", r"[^A-Za-z0-9]")
+    )
+    if classes < PASSWORD_MIN_CLASSES:
+        errors.append(
+            f"must include at least {PASSWORD_MIN_CLASSES} of: lowercase, "
+            "uppercase, digit, symbol"
+        )
+    lowered = value.lower()
+    name = vm_name.strip().lower()
+    if "administrator" in lowered or (len(name) >= 3 and name in lowered):
+        errors.append("must not contain 'Administrator' or the machine name")
+    return errors
+
 # Free-text value shapes. Deliberately strict: these values are later
 # interpolated by orchestrator PowerShell (via param() blocks), so quotes,
 # semicolons, backticks and `$` are excluded even though the param-block layer
@@ -62,6 +93,10 @@ class FieldSpec:
     #: Whether this field is dispatched to the orchestrator. Display-only fields
     #: (e.g. the CA ``keyLengthFixed`` label) are accepted but never provisioned.
     provision: bool = True
+    #: A secret (password): validated against the AD-complexity policy rather
+    #: than ``validate``, encrypted at rest (``encrypt_config_secrets``), and
+    #: never logged, returned by an API, or echoed into an op label.
+    secret: bool = False
 
 
 # Mirror of the CA/DC/webServer ``configFields`` in templates.ts. Templates with
@@ -79,6 +114,12 @@ TEMPLATE_CONFIG_FIELDS: dict[str, dict[str, FieldSpec]] = {
                 "Windows Server 2025",
             ),
             "Windows Server 2016",
+        ),
+        # Operator-set; injected as a secret command param into domain joins and
+        # the issuing-CA install. ``validate`` is a placeholder — secrets go
+        # through ``password_policy_errors`` in ``validate_template_config``.
+        "domainAdminPassword": FieldSpec(
+            lambda _v: True, "", secret=True
         ),
     },
     "certificateAuthority": {
@@ -106,17 +147,32 @@ def validate_template_config(template: str, params: Mapping[str, str]) -> None:
 
     ``params`` is the whole createVm param map; reserved keys (vmName/template/
     isoId) are skipped. An unknown template is treated as having no config
-    fields, so any config key on it is rejected.
+    fields, so any config key on it is rejected. Secret fields are validated
+    against the AD-complexity policy (with the VM name in scope), not their
+    placeholder ``validate``.
     """
     schema = TEMPLATE_CONFIG_FIELDS.get(template, {})
+    vm_name = params.get("vmName", "")
     for key, value in params.items():
         if key in RESERVED_PARAM_KEYS:
             continue
         spec = schema.get(key)
         if spec is None:
             raise ValueError(f"unknown config field '{key}' for template '{template}'")
-        if not spec.validate(value):
+        if spec.secret:
+            errors = password_policy_errors(value, vm_name)
+            if errors:
+                raise ValueError(f"invalid value for config field '{key}': {errors[0]}")
+        elif not spec.validate(value):
             raise ValueError(f"invalid value for config field '{key}'")
+
+
+def secret_config_keys(template: str) -> frozenset[str]:
+    """The provisionable secret keys for ``template`` (e.g. the DC's password)."""
+    schema = TEMPLATE_CONFIG_FIELDS.get(template, {})
+    return frozenset(
+        key for key, spec in schema.items() if spec.secret and spec.provision
+    )
 
 
 def extract_template_config(
@@ -125,8 +181,9 @@ def extract_template_config(
     """The provisioning-relevant config for ``template``, defaults filled.
 
     Returns only provisionable fields (drops display-only ones and reserved
-    keys), so it is exactly what gets persisted and later dispatched to the
-    orchestrator. Assumes ``validate_template_config`` has already passed.
+    keys), **plaintext** — secrets included. This is the pre-persist /
+    pre-dispatch form; encrypt secrets with ``encrypt_config_secrets`` before
+    writing to Mongo. Assumes ``validate_template_config`` has already passed.
     """
     schema = TEMPLATE_CONFIG_FIELDS.get(template, {})
     return {
@@ -134,3 +191,40 @@ def extract_template_config(
         for key, spec in schema.items()
         if spec.provision
     }
+
+
+def encrypt_config_secrets(template: str, config: Mapping[str, str]) -> dict:
+    """Return ``config`` with every secret field's value replaced by an
+    AES-GCM blob (``{keyId, nonce, ciphertext}``) — the at-rest form written to
+    the VM registry. Non-secret fields are copied through unchanged. An empty
+    secret (operator left it blank) is dropped, not encrypted.
+
+    Its inverse is ``decrypt_config_secrets``, used at dispatch time.
+    """
+    from app.core.secrets import encrypt_secret
+
+    secrets = secret_config_keys(template)
+    out: dict = {}
+    for key, value in config.items():
+        if key in secrets:
+            if value:
+                out[key] = encrypt_secret(value)
+        else:
+            out[key] = value
+    return out
+
+
+def decrypt_config_secrets(template: str, config: Mapping) -> dict[str, str]:
+    """Inverse of ``encrypt_config_secrets``: decrypt every secret blob back to
+    plaintext, ready to inject as a command param. A missing secret stays
+    absent (the operator left it blank)."""
+    from app.core.secrets import decrypt_secret
+
+    secrets = secret_config_keys(template)
+    out: dict[str, str] = {}
+    for key, value in config.items():
+        if key in secrets and isinstance(value, Mapping):
+            out[key] = decrypt_secret(dict(value))
+        else:
+            out[key] = value
+    return out
