@@ -5,14 +5,17 @@
   "cert.addstore": "vm:provision",
   "cert.dspublish": "vm:provision",
   "cert.verify": "vm:read",
+  "dc.install_forest": "vm:provision",
   "dc.verify": "vm:read",
   "dns.create_record": "vm:provision",
   "dns.set_client": "vm:provision",
+  "domain.join": "vm:provision",
   "domain.verify": "vm:read",
   "hostname.read": "vm:read",
   "hostname.rename": "vm:update",
   "ip.read": "vm:read",
   "ip.write": "vm:update",
   "powershell.exec_arbitrary": "vm:exec-arbitrary",
+  "system.reboot": "vm:provision",
   "template.grant_access": "vm:provision"
 }
