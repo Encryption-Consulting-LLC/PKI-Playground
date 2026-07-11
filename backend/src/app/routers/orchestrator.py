@@ -63,6 +63,10 @@ _COMMAND_CAPABILITIES: dict[str, Capability] = {
     "dc.verify": Capability.VM_READ,
     "domain.verify": Capability.VM_READ,
     "dns.set_client": Capability.VM_PROVISION,
+    "dns.create_record": Capability.VM_PROVISION,
+    "cert.addstore": Capability.VM_PROVISION,
+    "cert.dspublish": Capability.VM_PROVISION,
+    "template.grant_access": Capability.VM_PROVISION,
     "powershell.exec_arbitrary": Capability.VM_EXEC_ARBITRARY,
 }
 
