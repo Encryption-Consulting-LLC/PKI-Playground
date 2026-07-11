@@ -9,6 +9,7 @@
   "ca.verify": "vm:read",
   "cert.addstore": "vm:provision",
   "cert.dspublish": "vm:provision",
+  "cert.enroll": "vm:provision",
   "cert.verify": "vm:read",
   "dc.install_forest": "vm:provision",
   "dc.verify": "vm:read",
@@ -20,8 +21,10 @@
   "file.write": "vm:provision",
   "hostname.read": "vm:read",
   "hostname.rename": "vm:update",
+  "iis.setup_certenroll": "vm:provision",
   "ip.read": "vm:read",
   "ip.write": "vm:update",
+  "ocsp.install": "vm:provision",
   "powershell.exec_arbitrary": "vm:exec-arbitrary",
   "system.reboot": "vm:provision",
   "template.grant_access": "vm:provision"
