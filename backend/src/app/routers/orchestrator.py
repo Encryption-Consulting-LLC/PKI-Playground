@@ -46,9 +46,11 @@ from app.core.jobs.models import DoneMsg, ErrorMsg, JobStatus, ProgressMsg, Queu
 router = APIRouter(prefix="/orchestrator", tags=["orchestrator"])
 
 # Mirrors pki-orchestrator's `authz::Role::capabilities()` / command handlers
-# (`commands/*.rs`) — there is no automated sync between the two languages;
-# adding a command here without a matching Rust handler (or vice versa) is a
-# manual-parity risk, same caveat `authz.rs` already carries in reverse.
+# (`commands/*.rs`) — there is no automated sync between the two languages,
+# but both sides assert against byte-identical catalog fixtures
+# (``tests/fixtures/command_catalog.json`` here and in pki-orchestrator), so
+# adding a command on one side without the other fails a test instead of
+# surfacing as a 422 on dispatch.
 _COMMAND_CAPABILITIES: dict[str, Capability] = {
     "hostname.rename": Capability.VM_UPDATE,
     "hostname.read": Capability.VM_READ,
@@ -57,6 +59,10 @@ _COMMAND_CAPABILITIES: dict[str, Capability] = {
     "cert.verify": Capability.VM_READ,
     "ca.install": Capability.VM_PROVISION,
     "ca.configure_cdp_aia": Capability.VM_PROVISION,
+    "ca.verify": Capability.VM_READ,
+    "dc.verify": Capability.VM_READ,
+    "domain.verify": Capability.VM_READ,
+    "dns.set_client": Capability.VM_PROVISION,
     "powershell.exec_arbitrary": Capability.VM_EXEC_ARBITRARY,
 }
 
