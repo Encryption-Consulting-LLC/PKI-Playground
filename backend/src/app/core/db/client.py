@@ -69,6 +69,10 @@ def ip_pool_col() -> AsyncCollection:
     return get_db()["ip_pool"]
 
 
+def plan_runs_col() -> AsyncCollection:
+    return get_db()["plan_runs"]
+
+
 async def _ensure_indexes() -> None:
     """Idempotent — create_indexes no-ops on identical existing indexes."""
     await projects_col().create_indexes(
@@ -117,6 +121,17 @@ async def _ensure_indexes() -> None:
                 unique=True,
                 partialFilterExpression={"vmName": {"$type": "string"}},
             ),
+        ]
+    )
+    # plan_runs (Phase L): per-plan cross-VM context + per-step resume cursor +
+    # artifact relay. TTL-expired ~7d after the last write so finished runs
+    # self-evict. `expireAfterSeconds` is on a Date field, so `updatedAt` here
+    # is a real datetime, distinct from the `now_ms()` epoch-millis used
+    # elsewhere on the doc.
+    await plan_runs_col().create_indexes(
+        [
+            IndexModel([("jobId", ASCENDING)], unique=True),
+            IndexModel([("ttlAt", ASCENDING)], expireAfterSeconds=0),
         ]
     )
     # settings: singleton via fixed _id — no extra indexes.

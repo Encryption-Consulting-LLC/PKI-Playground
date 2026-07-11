@@ -7,11 +7,18 @@ vm_id/token pair. Two ways that pair exists:
 * **Persisted (Phase F):** the clone worker mints it and stores the hash on the
   VM's ``vm_registry`` document; the agent binary + its ``orchestrator.toml``
   are baked onto the firstboot ISO, so a real deployed agent phones home with
-  no human in the loop. Per-template provisioning config is **not** on the ISO
-  — it lives on the same registry doc and is dispatched here the moment the
-  agent connects (see ``_start_provisioning``).
+  no human in the loop.
 * **Pending (manual/dev):** ``POST /orchestrator/register`` mints an in-process
   pair a human pastes into a local config.
+
+Provisioning is **plan-driven** (Phase L): the connect handler no longer
+dispatches a per-template command on connect. It only marks the agent live
+(``agentbus.mark_agent_live`` — the liveness key + ``lastConnectedAt`` the
+worker's sequence engine waits on) and relays the agent's progress frames onto
+the job transport. All command dispatch now flows from the Celery plan runner
+through the ``agent-dispatch`` bridge (:mod:`app.core.agentbus`), which this
+process forwards to whichever socket it holds (a lifespan subscriber in
+``main.py``).
 
 Auth is validated before ``accept()`` (4401 on failure); the agent sends
 vm_id/token as request headers (kept out of access logs), with the browser-style
@@ -23,13 +30,14 @@ namespace. The authenticated caller's role is forwarded in the frame; the agent
 re-checks it locally as a second, structural gate (see ``phonehome.rs``).
 """
 
+import asyncio
+import contextlib
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from pymongo import ReturnDocument
 
-from app.core import agents
+from app.core import agentbus, agents
 from app.core.authz import (
     AuthedUser,
     Capability,
@@ -39,7 +47,7 @@ from app.core.authz import (
     get_current_user,
     require_capability,
 )
-from app.core.db import now_ms, vm_registry_col
+from app.core.db import vm_registry_col
 from app.core.jobs import transport
 from app.core.jobs.models import DoneMsg, ErrorMsg, JobStatus, ProgressMsg, QueuedMsg
 
@@ -83,12 +91,6 @@ _COMMAND_CAPABILITIES: dict[str, Capability] = {
     "cert.dspublish": Capability.VM_PROVISION,
     "template.grant_access": Capability.VM_PROVISION,
     "powershell.exec_arbitrary": Capability.VM_EXEC_ARBITRARY,
-}
-
-#: The single command a template auto-provisions on first connect (Phase F).
-#: Templates absent here have nothing to self-provision this phase.
-_PROVISION_COMMAND: dict[str, str] = {
-    "certificateAuthority": "ca.install",
 }
 
 
@@ -165,65 +167,30 @@ async def _authenticate(vm_id: str | None, token: str | None) -> bool:
     return await agents.authenticate_persisted(vm_id, token)
 
 
-async def _start_provisioning(vm_id: str, agent: agents.AgentConnection) -> str | None:
-    """If this VM has pending template provisioning, dispatch it now.
-
-    Atomically flips ``agent.provisionState`` pending→applying (so a reconnect
-    race dispatches once), then sends the template's provisioning command with
-    the VM's stored config as params under a deterministic ``apply-<vmId>`` job.
-    Returns that job id so the connect loop can finalize it; ``None`` if there
-    is nothing to provision (or another connection already claimed it).
-    """
-    doc = await vm_registry_col().find_one_and_update(
-        {
-            "agent.vmId": vm_id,
-            "agent.provisionState": "pending",
-            "status": {"$ne": "deleted"},
-        },
-        {"$set": {"agent.provisionState": "applying", "agent.connectedAt": now_ms()}},
-        return_document=ReturnDocument.AFTER,
-    )
-    if doc is None:
-        return None
-
-    agent_doc = doc.get("agent", {})
-    command = _PROVISION_COMMAND.get(agent_doc.get("templateId"))
-    if command is None:
-        # Nothing to run for this template — provisioning is trivially complete.
-        await _finalize_provisioning(vm_id, "done")
-        return None
-
-    job_id = f"apply-{vm_id}"
-    transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)
-    await agent.send(
-        {
-            "job_id": job_id,
-            "command": command,
-            "params": agent_doc.get("templateConfig") or {},
-            # Forward the VM owner's role (both roles hold VM_PROVISION); the
-            # agent re-checks it as its structural second gate.
-            "role": agent_doc.get("role") or Role.GUEST.value,
-        }
-    )
-    return job_id
+#: Liveness-key refresh cadence — comfortably inside ``AGENT_CONN_TTL_SECONDS``
+#: so an idle-but-live agent's key never lapses between frames.
+_KEEPALIVE_INTERVAL_S = 30
 
 
-async def _finalize_provisioning(vm_id: str, status: str) -> None:
-    """Record the terminal outcome of the provisioning job on the registry doc."""
-    state = "applied" if status == "done" else "failed"
-    await vm_registry_col().update_one(
-        {"agent.vmId": vm_id},
-        {"$set": {"agent.provisionState": state, "updatedAt": now_ms()}},
-    )
+async def _keepalive(vm_id: str) -> None:
+    """Re-arm the agent's liveness TTL on a fixed cadence for as long as the
+    socket lives (frames are sporadic, so the receive loop can't be relied on
+    to refresh it). Cancelled in the connect handler's ``finally``."""
+    while True:
+        await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
+        await agentbus.refresh_agent_live(vm_id)
 
 
 @router.websocket("/connect")
 async def connect(websocket: WebSocket) -> None:
-    """Accept an orchestrator agent's phone-home connection and relay its progress.
+    """Accept an orchestrator agent's phone-home connection, mark it live, and
+    relay its progress frames onto the job transport.
 
     vm_id/token come from the ``X-Orchestrator-Vm-Id``/``X-Orchestrator-Token``
     headers (the agent's path) or ``?vm_id=&token=`` (manual/dev). Auth is
-    validated before ``accept()`` (4401 on failure).
+    validated before ``accept()`` (4401 on failure). Provisioning is no longer
+    kicked off here — the Celery plan runner drives every command through the
+    ``agent-dispatch`` bridge (Phase L).
     """
     vm_id = websocket.headers.get("x-orchestrator-vm-id") or websocket.query_params.get("vm_id")
     token = websocket.headers.get("x-orchestrator-token") or websocket.query_params.get("token")
@@ -242,7 +209,11 @@ async def connect(websocket: WebSocket) -> None:
             pass
     conn = agents.connect_agent(vm_id, websocket)
 
-    provision_job = await _start_provisioning(vm_id, conn)
+    # Mark live (liveness key + lastConnectedAt) — the reboot-resume signal the
+    # worker's sequence engine polls. A registry-less manual/dev agent still
+    # gets its liveness key; the lastConnectedAt update simply matches nothing.
+    await agentbus.mark_agent_live(vm_id)
+    keepalive = asyncio.create_task(_keepalive(vm_id))
     try:
         while True:
             frame = await websocket.receive_json()
@@ -250,15 +221,13 @@ async def connect(websocket: WebSocket) -> None:
             state = frame.get("state")
             if job_id and state:
                 _relay_progress(job_id, state)
-                if provision_job and job_id == provision_job and state.get("status") in (
-                    "done",
-                    "error",
-                ):
-                    await _finalize_provisioning(vm_id, state["status"])
-                    provision_job = None
     except WebSocketDisconnect:
         pass
     finally:
+        keepalive.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await keepalive
+        await agentbus.clear_agent_live(vm_id)
         agents.disconnect_if(vm_id, conn)
 
 

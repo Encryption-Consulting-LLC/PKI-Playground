@@ -15,12 +15,15 @@ mode to fix it at runtime. (Login-mode deploys boot without one — an
 operator sets it via PUT /api/settings.)
 """
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
 
+from app.core.agentbus import run_dispatch_subscriber
 from app.core.db import close_db, init_db
 from app.core.errors import register_exception_handlers
 from app.core.esxi import load_target
@@ -54,8 +57,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "No shared ESXi target configured yet — VM routes will 503 until an "
             "operator sets one via PUT /api/settings."
         )
-    yield
-    await close_db()
+    # Phase L: forward worker→agent dispatch requests to whichever socket this
+    # process holds (the plan runner's command bridge). Runs for the app's life.
+    dispatch_task = asyncio.create_task(run_dispatch_subscriber())
+    try:
+        yield
+    finally:
+        dispatch_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await dispatch_task
+        await close_db()
 
 
 def create_app() -> FastAPI:

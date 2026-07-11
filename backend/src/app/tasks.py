@@ -240,6 +240,75 @@ def _sweep_stale_agents_sync(db) -> None:
     )
 
 
+def _set_provision_state(db, vm_name: str, provision_state: str) -> None:
+    db["vm_registry"].update_one(
+        {"vmName": vm_name},
+        {"$set": {"agent.provisionState": provision_state, "updatedAt": now_ms()}},
+    )
+
+
+def _provision_cloned_vm(
+    conn_db,
+    op: "PlanOp",
+    vm_id: str,
+    ip: str | None,
+    job_id: str,
+    owner_role: str,
+    state: dict[str, OpRunState],
+    push,
+) -> bool:
+    """Run a freshly-cloned VM's per-template provision sequence (Phase L).
+
+    Waits for the baked-in agent to phone home, then walks the template's
+    provision steps through the agentbus dispatch bridge (reboots + verify
+    handled by the engine). Flips ``provisionState`` applied/failed and returns
+    whether it succeeded. An empty sequence (nothing to self-provision on first
+    boot — e.g. a member server or an issuing CA) is a trivial success."""
+    from app.core import agentbus
+    from app.core.firstboot import hostname_for
+    from app.core.sequences import NodeContext, RunContext, SequenceError
+    from app.core.sequences.definitions import provision_steps
+    from app.core.sequences.worker import run_op_sequence
+    from app.core.template_config import extract_template_config
+
+    template = op.params["template"]
+    steps = provision_steps(template, ca_type=op.params.get("caType"))
+    if not steps:
+        _set_provision_state(conn_db, op.params["vmName"], "applied")
+        return True
+
+    vm_name = op.params["vmName"]
+    _set_provision_state(conn_db, vm_name, "applying")
+    state[op.id] = OpRunState(status="running", percent=100.0, phase="Waiting for agent")
+    push()
+    try:
+        agentbus.wait_for_agent(vm_id, timeout_s=1200)
+        state[op.id] = OpRunState(status="running", percent=100.0, phase="Provisioning")
+        push()
+        node = NodeContext(
+            node_id=op.target,
+            vm_name=vm_name,
+            hostname=hostname_for(vm_name),
+            agent_vm_id=vm_id,
+            ip=ip,
+            template_id=template,
+            template_config=extract_template_config(template, op.params),
+        )
+        ctx = RunContext(nodes={"primary": node})
+        run_op_sequence(
+            conn_db, steps, ctx, plan_job_id=job_id, op_id=op.id, role=owner_role
+        )
+    except (SequenceError, agentbus.AgentUnreachableError, agentbus.DispatchError,
+            agentbus.ReconnectTimeoutError) as exc:
+        _set_provision_state(conn_db, vm_name, "failed")
+        state[op.id] = OpRunState(status="error", detail=f"provisioning failed: {exc}")
+        push()
+        return False
+
+    _set_provision_state(conn_db, vm_name, "applied")
+    return True
+
+
 def _run_clone_op(
     conn: "Connection",
     db,
@@ -393,6 +462,20 @@ def _run_clone_op(
             # Consumed — vmkit uploaded it to the datastore; the GridFS copy
             # has served its purpose (orphan sweep is the backstop).
             delete_uploaded_iso_sync(db, iso_id)
+
+        # Phase L: the clone is only half the createVm op. If an agent was
+        # baked in, wait for it to phone home and run the template's provision
+        # sequence through the dispatch bridge — the op isn't `done` until the
+        # VM reaches provisionState=applied, so a dependent domainJoin genuinely
+        # runs after (e.g.) the DC is promoted. A provisioning failure fails the
+        # op (dependents cancel) but leaves the booted VM in place for teardown.
+        if vm_id is not None:
+            provisioned = _provision_cloned_vm(
+                db, op, vm_id, ip, job_id, owner_role, state, push
+            )
+            if not provisioned:
+                return False
+
         state[op.id] = OpRunState(
             status="done",
             percent=100.0,
