@@ -31,6 +31,7 @@ import {
 } from "@/lib/staging"
 import { domainJoinEdge } from "@/lib/topology"
 import { openJobSocket, type OpRunState } from "@/lib/ws"
+import { useAgentsStore } from "@/store/agents"
 import { useAuthStore } from "@/store/auth"
 import { useTopologyStore } from "@/store/topology"
 
@@ -173,8 +174,21 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
       } else if (runState.status === "done") {
         const node = topology.nodes.find((n) => n.id === op.targetNodeId)
         const result = runState.result
+        const agentVmId =
+          typeof result?.agentVmId === "string" ? result.agentVmId : undefined
+        // The clone is done, but a VM with a baked orchestrator agent isn't
+        // *confirmed* deployed until that agent phones home — until then hold
+        // the node in `provisioning` (dashed circle, IP hidden). Nodes with no
+        // agent (authored-ISO clones) have nothing to wait for, so they go
+        // straight to `deployed`. If the agent already phoned home before this
+        // frame arrived, its vm_id is already in the presence snapshot — skip
+        // the wait. `useAgentPromotion` handles the reverse race (agent comes
+        // online after this transition).
+        const awaitingAgent =
+          agentVmId !== undefined &&
+          !useAgentsStore.getState().onlineVmIds.includes(agentVmId)
         topology.patchNodeData(op.targetNodeId, {
-          lifecycle: LIFECYCLE.deployed,
+          lifecycle: awaitingAgent ? LIFECYCLE.provisioning : LIFECYCLE.deployed,
           poweredOn: true,
           lastDeployedConfig: node?.data.config,
           // ISO drift baseline, mirroring lastDeployedConfig. Safe to hold by
@@ -188,9 +202,7 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
           ...(typeof result?.vmName === "string" ? { vmName: result.vmName } : {}),
           // Auto-provisioned orchestrator identity (Phase F): the agent baked
           // into the ISO phones home under this vm_id; surfaces in the Inspector.
-          ...(typeof result?.agentVmId === "string"
-            ? { orchestratorVmId: result.agentVmId }
-            : {}),
+          ...(agentVmId !== undefined ? { orchestratorVmId: agentVmId } : {}),
         })
       } else if (runState.status === "error") {
         topology.patchNodeData(op.targetNodeId, {

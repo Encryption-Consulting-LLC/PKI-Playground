@@ -108,7 +108,10 @@ export function Canvas() {
       const target = nodes.find((n) => n.id === nodeId)
       if (!target) return
       const affected = opsReferencingNode(useStagingStore.getState().ops, nodeId)
-      const deployed = isDeployed(target.data)
+      // A real VM may exist even before the node is a confirmed deployment —
+      // a `provisioning` node (or any node carrying a deploy-confirmed vmName)
+      // needs the same "this leaves a VM behind" warning as a deployed one.
+      const deployed = isDeployed(target.data) || !!target.data.vmName
       if (affected.length === 0 && !deployed) {
         removeNode(nodeId)
         toast("Node removed.")

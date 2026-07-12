@@ -76,13 +76,22 @@ export function isRealized(data: MachineData): boolean {
   return (
     data.lifecycle === LIFECYCLE.staged ||
     data.lifecycle === LIFECYCLE.deploying ||
+    data.lifecycle === LIFECYCLE.provisioning ||
     isDeployed(data)
   )
 }
 
-/** Valid endpoint for a new edge or domain join — staged nodes can be wired up ahead of deploy. */
+/**
+ * Valid endpoint for a new edge or domain join — staged nodes can be wired up
+ * ahead of deploy, and a `provisioning` node (clone done, agent not yet home)
+ * is a real VM that can carry edges while its domain circle stays dashed.
+ */
 export function isConnectable(data: MachineData): boolean {
-  return data.lifecycle === LIFECYCLE.staged || isDeployed(data)
+  return (
+    data.lifecycle === LIFECYCLE.staged ||
+    data.lifecycle === LIFECYCLE.provisioning ||
+    isDeployed(data)
+  )
 }
 
 // ---------------------------------------------------------------------------

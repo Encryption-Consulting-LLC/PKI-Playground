@@ -12,6 +12,7 @@ import {
   domainMembership,
   driftedFields,
   isConnectable,
+  isDeployed,
   truncateLabel,
 } from "@/lib/topology"
 import { useAgentConnected } from "@/hooks/useAgentConnected"
@@ -49,6 +50,16 @@ function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {
       >
         <Loader2 className="h-2.5 w-2.5 animate-spin" />
         deploying…
+      </Badge>
+    )
+  if (lifecycle === LIFECYCLE.provisioning)
+    return (
+      <Badge
+        variant="secondary"
+        className="flex items-center gap-1 text-[10px] text-emerald-500 border-emerald-500/30"
+      >
+        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+        awaiting orchestrator…
       </Badge>
     )
   if (lifecycle === LIFECYCLE.failed)
@@ -142,6 +153,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         data.lifecycle === LIFECYCLE.draft && "border-amber-500/40",
         data.lifecycle === LIFECYCLE.staged && "border-sky-500/40 border-dashed opacity-80",
         data.lifecycle === LIFECYCLE.deploying && "border-muted",
+        data.lifecycle === LIFECYCLE.provisioning && "border-emerald-500/30 border-dashed",
         data.lifecycle === LIFECYCLE.deployed && "border-border",
         data.lifecycle === LIFECYCLE.drifted && "border-orange-500/40",
         data.lifecycle === LIFECYCLE.failed && "border-red-500/50",
@@ -252,11 +264,16 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           </Badge>
         )}
 
-        {/* Deploy-confirmed IP — the address you'd RDP to. An offline root is
-            presented air-gapped: its real management IP is hidden on the node. */}
+        {/* Deploy-confirmed IP — the address you'd RDP to. Held back until the
+            node is a confirmed deployment (agent online): a `provisioning`
+            node already knows its pool IP, but showing it would imply the box
+            is reachable before the orchestrator has actually phoned home. An
+            offline root is presented air-gapped: its real management IP is
+            hidden on the node. */}
         {tier === "root" ? (
           <span className="text-[10px] text-amber-500">air-gapped</span>
         ) : (
+          isDeployed(data) &&
           data.ip && (
             <span className="font-mono text-[10px] text-muted-foreground">
               {data.ip}

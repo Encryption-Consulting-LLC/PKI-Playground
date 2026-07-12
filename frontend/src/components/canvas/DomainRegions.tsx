@@ -8,9 +8,10 @@ import { useTopologyStore } from "@/store/topology"
  * Sky-blue translucent circle drawn around each domain controller that can
  * carry real membership edges — the visual "domain". Rendered inside a
  * ViewportPortal so the circles live in flow coordinates (panning/zooming
- * with the canvas) and sit behind the nodes. Staged DCs (not yet deployed)
- * get a dashed outline so the circle itself communicates that the domain is
- * still pending a deploy.
+ * with the canvas) and sit behind the nodes. A DC that isn't a confirmed,
+ * agent-online deployment yet — still `staged`, or `provisioning` (cloned but
+ * the orchestrator hasn't phoned home) — gets a dashed outline, so the circle
+ * only goes solid once the domain is real.
  *
  * This is purely presentational; the membership logic that reacts to nodes
  * being dragged into a circle lives in the store's `computeDomainChanges` /
@@ -39,7 +40,9 @@ export function DomainRegions() {
         {domains.map((dc) => {
           const c = nodeCenter(dc)
           const r = domainRadius(dc, nodes, edges)
-          const staged = dc.data.lifecycle === LIFECYCLE.staged
+          const pending =
+            dc.data.lifecycle === LIFECYCLE.staged ||
+            dc.data.lifecycle === LIFECYCLE.provisioning
           return (
             <div
               key={dc.id}
@@ -51,7 +54,7 @@ export function DomainRegions() {
                 height: r * 2,
                 transform: "translate(-50%, -50%)",
                 borderRadius: "9999px",
-                border: `2px ${staged ? "dashed" : "solid"} rgba(56, 189, 248, 0.45)`,
+                border: `2px ${pending ? "dashed" : "solid"} rgba(56, 189, 248, 0.45)`,
                 background: "rgba(56, 189, 248, 0.08)",
                 boxShadow: "inset 0 0 80px rgba(56, 189, 248, 0.12)",
                 transition: "width 600ms cubic-bezier(0.34, 1.56, 0.64, 1), height 600ms cubic-bezier(0.34, 1.56, 0.64, 1)",

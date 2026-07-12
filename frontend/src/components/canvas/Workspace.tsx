@@ -5,6 +5,7 @@ import { Inspector } from "./Inspector"
 import { ProjectLanding } from "./ProjectLanding"
 import { ProjectTabBar } from "./ProjectTabBar"
 import { Toolbox } from "./Toolbox"
+import { useAgentPromotion } from "@/hooks/useAgentPromotion"
 import { attachAgentsSocket } from "@/store/agents"
 import { useAuthStore } from "@/store/auth"
 import { useProjectsStore } from "@/store/projects"
@@ -25,6 +26,11 @@ export function Workspace() {
     if (!token) return
     return attachAgentsSocket(token)
   }, [token])
+
+  // Promote nodes from `provisioning` to `deployed` as their agents phone home
+  // — the presence-driven confirmation that reveals IPs and solidifies domain
+  // circles.
+  useAgentPromotion()
 
   // Ctrl/Cmd+Z pops the last staged op — mirrors the Staged panel's Undo
   // button. Ignored while typing (rename field, config form, ...) so it

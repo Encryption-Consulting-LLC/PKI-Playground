@@ -465,6 +465,9 @@ export function Inspector() {
   const Icon = def?.icon ?? Settings
   const isConfigured = isDeployed(data)
   const isConfiguring = data.lifecycle === LIFECYCLE.deploying
+  // Clone finished, but the orchestrator agent hasn't phoned home — a real VM
+  // exists, so it's past configuring/staging, but not yet a confirmed deploy.
+  const isProvisioning = data.lifecycle === LIFECYCLE.provisioning
   const isStaged = data.lifecycle === LIFECYCLE.staged
   const isFailed = data.lifecycle === LIFECYCLE.failed
   const isDestroying = data.lifecycle === LIFECYCLE.destroying
@@ -524,7 +527,7 @@ export function Inspector() {
 
   const hasConfigFields = !!(def?.configFields && def.configFields.length > 0)
   const showConfigForm =
-    !isConfigured && !isConfiguring && !isStaged && !isDestroying
+    !isConfigured && !isConfiguring && !isProvisioning && !isStaged && !isDestroying
 
   return (
     <aside className="flex w-64 shrink-0 flex-col gap-0 overflow-x-hidden overflow-y-auto border-l bg-sidebar transition-[width] duration-200 ease-in-out">
@@ -571,6 +574,10 @@ export function Inspector() {
                 )}
               </>
             ) : (
+              // Held until confirmed deployed (agent online), mirroring the
+              // node — a `provisioning` node knows its IP but it isn't
+              // reachable-confirmed yet.
+              isConfigured &&
               data.ip && (
                 <>
                   <span className="text-muted-foreground">IP address</span>
@@ -596,6 +603,9 @@ export function Inspector() {
                   )}
                   {isConfiguring && (
                     <><Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> deploying…</>
+                  )}
+                  {isProvisioning && (
+                    <><Loader2 className="h-3 w-3 animate-spin text-emerald-500" /> awaiting orchestrator…</>
                   )}
                   {isFailed && (
                     <><AlertTriangle className="h-3 w-3 text-red-500" /> failed</>
@@ -692,7 +702,7 @@ export function Inspector() {
         )}
 
         {/* Simple configure (no config fields) */}
-        {!isConfigured && !isConfiguring && !isStaged && !isDestroying && !hasConfigFields && (
+        {!isConfigured && !isConfiguring && !isProvisioning && !isStaged && !isDestroying && !hasConfigFields && (
           <section className="flex flex-col gap-2">
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-600">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -730,6 +740,16 @@ export function Inspector() {
           <section className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Tearing down VM…
+          </section>
+        )}
+
+        {/* Provisioning — the clone finished but the orchestrator agent hasn't
+            phoned home; the deploy isn't confirmed (IP/domain circle held back)
+            until it does. */}
+        {isProvisioning && (
+          <section className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2 text-xs text-emerald-600">
+            <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin" />
+            VM created — waiting for the orchestrator to phone home.
           </section>
         )}
 
@@ -849,7 +869,7 @@ export function Inspector() {
         {/* Orchestrator phone-home: manual agent correlation + live hostname/IP/cert
             actions. Operator-only — raw vm_id/token correlation and agent commands
             are infra internals the guest product surface must not expose. */}
-        {isOperator && isConfigured && (
+        {isOperator && (isConfigured || isProvisioning) && (
           <section className="flex flex-col gap-2 border-t pt-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Orchestrator

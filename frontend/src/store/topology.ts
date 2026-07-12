@@ -317,6 +317,13 @@ interface TopologyState {
   setIsoAuthoring: (id: string, patch: Partial<IsoAuthoring>) => void
   /** Merges a partial data patch into one node — the seam the staging store's undo/cascade reverts go through. */
   patchNodeData: (id: string, data: Partial<MachineData>) => void
+  /**
+   * Promotes a `provisioning` node to `deployed` — called when its orchestrator
+   * agent first phones home (`useAgentPromotion`). This is the confirmation
+   * that turns a dashed domain circle solid and reveals the node's IP. One-way:
+   * a later agent drop doesn't demote (the live status dot tracks that).
+   */
+  promoteProvisioned: (id: string) => void
   removeNode: (id: string) => void
   /**
    * Destroys the real VM behind a node (DELETE /api/vm/{vmName}, 202 + job
@@ -665,6 +672,12 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
         n.id === id ? { ...n, data: { ...n.data, ...data } } : n,
       ),
     }))
+  },
+
+  promoteProvisioned(id) {
+    const node = get().nodes.find((n) => n.id === id)
+    if (!node || node.data.lifecycle !== LIFECYCLE.provisioning) return
+    get().patchNodeData(id, { lifecycle: LIFECYCLE.deployed })
   },
 
   removeNode(id) {
