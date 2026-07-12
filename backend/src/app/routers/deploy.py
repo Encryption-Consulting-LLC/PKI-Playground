@@ -26,11 +26,12 @@ from app.core.authz import (
     ROLE_CAPABILITIES,
     AuthedUser,
     Capability,
+    Role,
     enforce_guest_vm_name,
     get_current_user,
     require_capability,
 )
-from app.core.db import SETTINGS_DOC_ID, get_db, settings_col
+from app.core.db import SETTINGS_DOC_ID, get_db, settings_col, vm_registry_col
 from app.core.esxi import _target_from_doc
 from app.core.firstboot import TEMPLATE_IDS
 from app.core.ippool import guest_network_from_doc
@@ -86,7 +87,16 @@ class PlanOp(BaseModel):
 
 
 class DeployRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     ops: list[PlanOp] = Field(min_length=1, max_length=50)
+    #: The project the canvas belongs to. For guests it supplies the ``<project>``
+    #: segment of every derived VM name (``guest-<user>-<project>-<machine>``) and
+    #: is required when the plan clones. Operators keep free-form names and ignore
+    #: it. It's a naming/organisation segment only — the name stays inside the
+    #: caller's ``guest-<user>-`` namespace regardless, so it needs no membership
+    #: check (guests have no server-side project records today).
+    project_id: str | None = Field(default=None, alias="projectId")
 
 
 def validate_plan(
@@ -95,6 +105,7 @@ def validate_plan(
     *,
     target_configured: bool,
     guest_network_configured: bool,
+    project_id: str | None = None,
 ) -> None:
     """Raise 422 on a malformed plan: duplicate ids, unknown/self deps, cycles,
     a ``createVm`` missing its ``vmName``/``template`` params, or invalid
@@ -108,7 +119,9 @@ def validate_plan(
     ``isoId``) is the complete disc — the server injects nothing and claims no
     pool address. Also rewrites each ``createVm``'s ``vmName`` in place via
     ``enforce_guest_vm_name`` — a guest must not be able to name a real VM
-    outside its own identity's namespace.
+    outside its own identity's namespace; the derived guest name is
+    ``guest-<user>-<project>-<machine>``, so a guest clone needs ``project_id``.
+    Finally rejects two ``createVm`` ops that resolve to the same derived name.
 
     Called explicitly from the route (not a pydantic validator) so the checks
     stay easy to read and the errors are unambiguous 422s.
@@ -116,6 +129,19 @@ def validate_plan(
     ids = [op.id for op in ops]
     if len(ids) != len(set(ids)):
         raise HTTPException(422, detail="Plan contains duplicate op ids.")
+
+    # A guest's real clone names are derived as guest-<user>-<project>-<machine>;
+    # the project segment comes from this plan's project context, so a clone
+    # without one can't be named. Operators keep free-form names and don't need it.
+    if (
+        user.role is Role.GUEST
+        and not (project_id and project_id.strip())
+        and any(op.kind is PlanOpKind.create_vm for op in ops)
+    ):
+        raise HTTPException(
+            422,
+            detail="A guest deploy that clones a VM needs a project context (projectId).",
+        )
 
     id_set = set(ids)
     plan_files_bytes = 0
@@ -261,7 +287,25 @@ def validate_plan(
                     f"Op '{op.id}' (createVm) needs a guest IP range, but none is configured"
                 ),
             )
-        op.params["vmName"] = enforce_guest_vm_name(op.params["vmName"], user)
+        op.params["vmName"] = enforce_guest_vm_name(op.params["vmName"], user, project_id)
+
+    # Reject two createVm ops that resolve to the same real VM name (e.g. two
+    # nodes both labelled "dc01" in one project) before enqueuing — the user
+    # renames a node rather than the worker failing the second clone on VmExists.
+    derived: dict[str, str] = {}
+    for op in ops:
+        if op.kind is not PlanOpKind.create_vm:
+            continue
+        vm_name = op.params["vmName"]
+        if vm_name in derived:
+            raise HTTPException(
+                422,
+                detail=(
+                    f"Ops '{derived[vm_name]}' and '{op.id}' resolve to the same VM "
+                    f"name '{vm_name}' — rename a node."
+                ),
+            )
+        derived[vm_name] = op.id
 
     # Kahn's algorithm: a plan with a dependency cycle can never fully drain.
     indegree = {op.id: 0 for op in ops}
@@ -309,7 +353,30 @@ async def deploy(
         user,
         target_configured=_target_from_doc(doc) is not None,
         guest_network_configured=guest_network_from_doc(doc) is not None,
+        project_id=req.project_id,
     )
+
+    # Reject a derived name that already belongs to a *different* live VM before
+    # enqueuing (a clean 409 rather than a late per-op VmExists). An existing
+    # entry whose ``appName`` is one of this plan's own createVm nodes is that
+    # node's prior/failed attempt being retried, not a collision — exclude it.
+    create_ops = [op for op in req.ops if op.kind is PlanOpKind.create_vm]
+    if create_ops:
+        plan_node_ids = {op.target for op in create_ops}
+        names = [op.params["vmName"] for op in create_ops]
+        cursor = vm_registry_col().find(
+            {"vmName": {"$in": names}, "status": {"$ne": "deleted"}},
+            projection={"vmName": 1, "appName": 1},
+        )
+        async for entry in cursor:
+            if entry.get("appName") not in plan_node_ids:
+                raise HTTPException(
+                    409,
+                    detail=(
+                        f"A VM named '{entry['vmName']}' already exists — "
+                        "rename the node before deploying."
+                    ),
+                )
 
     # Uploaded ISOs must exist before the plan is enqueued — the worker can
     # only turn a missing GridFS file into a late op error, so fail the whole

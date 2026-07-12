@@ -161,37 +161,80 @@ def require_capability(cap: Capability):
     return _dep
 
 
-_GUEST_VM_SUFFIX = re.compile(r"^[A-Za-z0-9-]{1,32}$")
-_UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9-]")
+# Per-segment caps for the guest VM-name scheme
+# ``guest-<user>-<project>-<machine>`` (see ``enforce_guest_vm_name``). The
+# worst case (12 + 6 + 20 + separators + the ``guest-`` literal ≈ 46 chars)
+# sits well under ESXi's ~80-char VM-name ceiling. The guest OS *hostname* is
+# derived separately (``core/firstboot.hostname_for``, 15-char NetBIOS), so
+# these caps never have to satisfy the NetBIOS limit.
+_GUEST_USER_MAX = 12
+_GUEST_MACHINE_MAX = 20
+_PROJECT_CODE_LEN = 6
+
+_UNSAFE_NAME_CHARS = re.compile(r"[^a-z0-9-]")
+
+
+def _name_slug(value: str, maxlen: int) -> str:
+    """Lowercase, coerce to a safe ``[a-z0-9-]`` slug, collapse runs of and
+    strip leading/trailing separators, then cap to ``maxlen`` (re-stripping a
+    trailing ``-`` the cut may expose)."""
+    slug = re.sub(r"-{2,}", "-", _UNSAFE_NAME_CHARS.sub("-", value.lower())).strip("-")
+    return slug[:maxlen].strip("-")
+
+
+def _user_slug(user: AuthedUser) -> str:
+    """Readable per-identity slug: the local part of an email-style username
+    (so ``a@corp.com`` → ``a``, not ``a-corp-com``), slugified and capped."""
+    local = user.username.split("@", 1)[0]
+    return _name_slug(local, _GUEST_USER_MAX) or "anon"
 
 
 def _guest_namespace(user: AuthedUser) -> str:
     """Stable per-identity VM-name prefix, derived server-side from the
-    authenticated username (never trusted from the client)."""
-    slug = _UNSAFE_NAME_CHARS.sub("-", user.username)[:12].strip("-") or "anon"
-    return f"guest-{slug}-"
+    authenticated username (never trusted from the client). Every guest VM
+    name starts with this, so it doubles as the ownership boundary enforced by
+    ``enforce_guest_vm_ownership``."""
+    return f"guest-{_user_slug(user)}-"
 
 
-def enforce_guest_vm_name(name: str, user: AuthedUser) -> str:
-    """Force a guest-role VM name into the caller's own namespace before it
-    reaches a real clone.
+def _project_code(project_id: str) -> str:
+    """Short opaque project segment: the leading alphanumerics of the project
+    id (a client-generated UUID hex / slug), lowercased and capped."""
+    return re.sub(r"[^a-z0-9]", "", project_id.lower())[:_PROJECT_CODE_LEN]
 
-    The prefix is derived from the caller's *own* authenticated identity —
-    otherwise a guest could spoof another user's namespace or pick an
-    arbitrary, non-guest-looking name that collides with / shadows unrelated
-    inventory. If the client already sent a correctly-prefixed name it's
-    passed through unchanged (mod stripping and re-adding the prefix);
-    anything else is treated as the whole requested suffix and validated
-    against a safe charset. Operators are trusted and pass through unchanged.
-    Raises 422 on an invalid suffix.
+
+def enforce_guest_vm_name(
+    name: str, user: AuthedUser, project_id: str | None = None
+) -> str:
+    """Derive the authoritative VM name for a clone, server-side.
+
+    Operators are trusted and keep free-form names (returned unchanged).
+
+    For guests the whole name is rebuilt from the caller's *own* authenticated
+    identity, so a guest can never name a real VM outside its namespace nor
+    spoof another user's::
+
+        guest-<user>-<project>-<machine>   # project context known (deploy plan)
+        guest-<user>-<machine>             # no project context (direct clone)
+
+    ``name`` is treated purely as the requested machine segment — the frontend
+    sends the plain canvas label, and a defensively-included namespace prefix
+    is stripped first. Raises 422 if the machine segment (or, when a project is
+    supplied, the project segment) slugs to nothing.
     """
     if user.role != Role.GUEST:
         return name
     prefix = _guest_namespace(user)
-    suffix = name[len(prefix):] if name.startswith(prefix) else name
-    if not _GUEST_VM_SUFFIX.match(suffix):
+    raw = name[len(prefix):] if name.startswith(prefix) else name
+    machine = _name_slug(raw, _GUEST_MACHINE_MAX)
+    if not machine:
         raise HTTPException(422, detail="Invalid VM name.")
-    return f"{prefix}{suffix}"
+    if project_id is None:
+        return f"{prefix}{machine}"
+    code = _project_code(project_id)
+    if not code:
+        raise HTTPException(422, detail="Invalid project id for VM naming.")
+    return f"{prefix}{code}-{machine}"
 
 
 def enforce_guest_vm_ownership(name: str, user: AuthedUser) -> None:

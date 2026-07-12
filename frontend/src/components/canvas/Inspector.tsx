@@ -662,12 +662,18 @@ export function Inspector() {
           )}
         </section>
 
-        {/* Rename */}
+        {/* Rename — locked once a real VM exists: the name is baked into the
+            deployed VM's inventory name (guest-<user>-<project>-<machine>), so
+            it can't change after deployment. */}
         <section className="flex flex-col gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Name
           </p>
-          {editingName ? (
+          {data.vmName ? (
+            <p className="text-xs text-muted-foreground">
+              {data.name} — locked after deploy
+            </p>
+          ) : editingName ? (
             <div className="flex gap-1">
               <Input
                 value={draftName}

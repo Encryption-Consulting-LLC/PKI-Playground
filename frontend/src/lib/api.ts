@@ -240,10 +240,13 @@ export interface PlanOpPayload {
   dependsOn: string[]
 }
 
-export const deployPlan = (ops: PlanOpPayload[]) =>
+export const deployPlan = (ops: PlanOpPayload[], projectId?: string | null) =>
   request<JobAccepted>(URLS.deploy, {
     method: "POST",
-    body: JSON.stringify({ ops }),
+    // The backend derives guest VM names as guest-<user>-<project>-<machine>,
+    // so the active project rides along as the <project> segment (required for
+    // guest clones; ignored for operators, who keep free-form names).
+    body: JSON.stringify({ ops, ...(projectId ? { projectId } : {}) }),
   })
 
 // --- /iso --------------------------------------------------------------------

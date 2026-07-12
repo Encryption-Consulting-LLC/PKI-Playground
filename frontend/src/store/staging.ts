@@ -33,6 +33,7 @@ import { domainJoinEdge } from "@/lib/topology"
 import { openJobSocket, type OpRunState } from "@/lib/ws"
 import { useAgentsStore } from "@/store/agents"
 import { useAuthStore } from "@/store/auth"
+import { useProjectsStore } from "@/store/projects"
 import { useTopologyStore } from "@/store/topology"
 
 /** Reverts one op's optimistic canvas effect — the inverse of whatever `store/topology.ts` applied when it was staged. */
@@ -437,7 +438,8 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
 
     set({ ops: pruned.map((op) => ({ ...op, status: OP_STATUS.pending })) })
 
-    deployPlan(payload)
+    const projectId = useProjectsStore.getState().activeProjectId
+    deployPlan(payload, projectId)
       .then(({ job_id }) => {
         set({ deployJobId: job_id })
         attachPlanSocket(job_id, token)
