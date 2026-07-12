@@ -294,7 +294,7 @@ def _provision_cloned_vm(
     state[op.id] = OpRunState(status="running", percent=100.0, phase="Waiting for agent")
     push()
     try:
-        agentbus.wait_for_agent(vm_id, timeout_s=1200)
+        agentbus.wait_for_agent(vm_id, timeout_s=settings.agent_phone_home_timeout_s)
         if steps:
             state[op.id] = OpRunState(status="running", percent=100.0, phase="Provisioning")
             push()

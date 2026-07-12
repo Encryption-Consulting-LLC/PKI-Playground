@@ -2,15 +2,23 @@
 
 Every real ``createVm`` boots from a config ISO built here on the Celery
 worker: configgen renders the per-VM hostname and static-network scripts
-(baking in the pool-allocated IP), the template's fixed role scripts are
-picked up from ``assets/firstboot/<templateId>/``, and isokit packs the lot
-(with its ``firstboot.manifest``) into ``<vm>-config.iso``. vmkit then uploads
-that file to ``[datastore] <vm>/<vm>-config.iso`` and attaches it during the
-clone — so the ISO only needs to outlive the ``clone_workflow`` call.
+(baking in the pool-allocated IP) and isokit packs them (with a
+``firstboot.manifest``) into ``<vm>-config.iso``. vmkit then uploads that file
+to ``[datastore] <vm>/<vm>-config.iso`` and attaches it during the clone — so
+the ISO only needs to outlive the ``clone_workflow`` call.
 
-Numbering fixes manifest (execution) order: ``10-`` hostname, ``20-`` network,
-``30-`` role. Scripts never reboot — the firstboot runner in the base image
-owns the single reboot (established configgen convention).
+Firstboot is deliberately minimal — identity + network (+ the phone-home agent
+when bundled) — so a booted VM connects within minutes. Role/feature installs
+(AD DS, AD CS, IIS) are *not* baked here: the agent's provision commands
+(``dc.install_forest``, ``ca.install``, ``iis.setup``) run ``Install-Windows\
+Feature`` themselves and are dispatched *after* phone-home, so the (slow) work
+runs as a visible orchestrator step instead of blocking the connection.
+``role_scripts_for`` remains the hook for a genuinely firstboot-only script (one
+that must run *before* the agent), but the shipping templates carry none.
+
+Numbering fixes manifest (execution) order: ``10-`` hostname, ``20-`` network.
+Scripts never reboot — the firstboot runner in the base image owns the single
+reboot (established configgen convention).
 
 ``build_authored_iso`` packs an operator-authored script set verbatim via
 isokit's v2 API — the server injects nothing (no hostname/network render, no
@@ -67,10 +75,23 @@ _UNSAFE_HOSTNAME_CHARS = re.compile(r"[^A-Za-z0-9-]")
 
 def hostname_for(vm_name: str) -> str:
     """Derive a valid Windows computer name from the (namespaced) VM name:
-    safe charset, 15-char NetBIOS limit — keeping the *tail*, since guest
-    names share the ``guest-<slug>-`` prefix and differ at the end."""
+    safe charset, 15-char NetBIOS limit.
+
+    Guest VM names are ``guest-<user>-[<project>-]<machine>``. The ``guest-``
+    literal and the per-user segment don't help distinguish hosts on the shared
+    guest subnet, so they're dropped and the OS hostname keeps the meaningful
+    ``<project>-<machine>`` tail (e.g. ``guest-alice-467893-dc01`` → ``467893-
+    dc01``) — readable *and* collision-safe across projects sharing the pool.
+    The project code is fixed-width and kept intact; only a long machine name
+    is clipped by the 15-char fit. Non-namespaced (operator) names are used
+    as-is. Callers (firstboot render + the sequence engine's NodeContext) all
+    route through this one function, so the OS hostname and the promoted DC name
+    always agree."""
     safe = _UNSAFE_HOSTNAME_CHARS.sub("-", vm_name).strip("-") or "vm"
-    return safe[-15:].strip("-") or "vm"
+    parts = safe.split("-")
+    if parts[0] == "guest" and len(parts) > 2:
+        safe = "-".join(parts[2:])  # drop the "guest" literal + <user> segment
+    return safe[:15].strip("-") or "vm"
 
 
 def role_scripts_for(template: str) -> list[Path]:
@@ -92,8 +113,9 @@ def build_firstboot_iso(
 ) -> Path:
     """Render + pack the per-VM config ISO into ``dest_dir``; returns its path.
 
-    ``agent=None`` uses isokit v1 ``build_script_iso`` (hostname + network +
-    role scripts). When an ``AgentBundle`` is given, the ISO switches to
+    ``agent=None`` uses isokit v1 ``build_script_iso`` (hostname + network,
+    plus any firstboot-only role scripts — none in the shipping templates).
+    When an ``AgentBundle`` is given, the ISO switches to
     isokit's v2
     ``build_config_iso`` and additionally carries the agent binary + rendered
     ``orchestrator.toml`` as payload files plus a static install step — so the

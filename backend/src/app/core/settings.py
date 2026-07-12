@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     orchestrator_agent_path: str | None = None
     backend_public_url: str | None = None
 
+    # How long the clone worker waits for a freshly-booted VM's agent to phone
+    # home before failing the provision op. Role/feature installs now run as
+    # dispatched steps *after* phone-home (not in firstboot), so a healthy VM
+    # connects within minutes; this is the safety ceiling for a slow boot.
+    agent_phone_home_timeout_s: int = 2700
+
     @property
     def orchestrator_bundling_enabled(self) -> bool:
         return bool(self.orchestrator_agent_path and self.backend_public_url)
