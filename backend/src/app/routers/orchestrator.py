@@ -228,8 +228,11 @@ async def connect(websocket: WebSocket) -> None:
         keepalive.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await keepalive
-        await agentbus.clear_agent_live(vm_id)
-        agents.disconnect_if(vm_id, conn)
+        # Only clear the shared liveness key if this socket is still the
+        # registered one — a connection evicted by a takeover (4409) must not
+        # delete the key its replacement just set.
+        if agents.disconnect_if(vm_id, conn):
+            await agentbus.clear_agent_live(vm_id)
 
 
 def _relay_progress(job_id: str, state: dict) -> None:

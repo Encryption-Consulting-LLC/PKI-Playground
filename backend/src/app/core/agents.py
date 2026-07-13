@@ -142,13 +142,17 @@ def pop_connection(vm_id: str) -> AgentConnection | None:
         return conn
 
 
-def disconnect_if(vm_id: str, conn: "AgentConnection") -> None:
+def disconnect_if(vm_id: str, conn: "AgentConnection") -> bool:
     """Drop ``vm_id`` only if its live entry is still ``conn`` — so a socket that
-    was already replaced by a takeover doesn't evict its replacement on cleanup."""
+    was already replaced by a takeover doesn't evict its replacement on cleanup.
+    Returns whether this call removed the entry: the caller only tears down
+    shared per-vm state (the liveness key) when it was the last owner."""
     with _lock:
         if _connected.get(vm_id) is conn:
             del _connected[vm_id]
             _notify_presence()
+            return True
+        return False
 
 
 def resolve_agent(vm_id: str) -> AgentConnection | None:
