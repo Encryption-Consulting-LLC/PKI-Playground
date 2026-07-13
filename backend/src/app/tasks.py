@@ -17,6 +17,7 @@ allocation, vm_registry) go through one short-lived sync client per task
 (``core.db.sync.worker_db``).
 """
 
+import logging
 import time
 import uuid
 from contextlib import nullcontext
@@ -57,6 +58,9 @@ from app.core.jobs.models import (
     ProgressMsg,
     RunningMsg,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _open_worker_connection():
@@ -322,8 +326,13 @@ def _provision_cloned_vm(
         status="running", percent=100.0, phase="Waiting for agent", result=partial
     )
     push()
+    op_started = time.monotonic()
     try:
         agentbus.wait_for_agent(vm_id, timeout_s=settings.agent_phone_home_timeout_s)
+        logger.info(
+            "op %s: agent %s phoned home after %.1fs",
+            op.id, vm_id, time.monotonic() - op_started,
+        )
 
         # A fresh clone phones home during an intermediate firstboot boot and
         # then reboots once more to finalize its hostname — probe boot_info
@@ -337,6 +346,7 @@ def _provision_cloned_vm(
             push()
 
         _boot_phase("Waiting for boot to settle")
+        settle_started = time.monotonic()
         agentbus.wait_for_settled_boot(
             vm_id,
             db=conn_db,
@@ -344,6 +354,10 @@ def _provision_cloned_vm(
             role=owner_role,
             job_key_prefix=f"{job_id}-{op.id}-bootprobe",
             on_phase=_boot_phase,
+        )
+        logger.info(
+            "op %s: boot settled on %s after %.1fs",
+            op.id, vm_id, time.monotonic() - settle_started,
         )
         if steps:
             state[op.id] = OpRunState(
@@ -368,13 +382,15 @@ def _provision_cloned_vm(
                 netbios=netbios,
                 pki_host=f"pki.{domain_name}" if domain_name else None,
             )
-            on_step_complete, on_step_progress = _sequence_progress(
-                op.id, len(steps), state, push, result=partial
+            on_step_complete, on_step_progress, on_step_tick = _sequence_progress(
+                op.id, len(steps), state, push, result=partial,
+                medians=_step_median_seconds(conn_db, steps),
             )
             run_op_sequence(
                 conn_db, steps, ctx, plan_job_id=job_id, op_id=op.id, role=owner_role,
                 on_step_complete=on_step_complete,
                 on_step_progress=on_step_progress,
+                on_step_tick=on_step_tick,
             )
     except (SequenceError, agentbus.AgentUnreachableError, agentbus.DispatchError,
             agentbus.ReconnectTimeoutError) as exc:
@@ -383,6 +399,10 @@ def _provision_cloned_vm(
         push()
         return False
 
+    logger.info(
+        "op %s: provision of %s (%d steps) completed in %.1fs",
+        op.id, vm_name, len(steps), time.monotonic() - op_started,
+    )
     _set_provision_state(conn_db, vm_name, "applied")
     return True
 
@@ -599,19 +619,60 @@ def _run_clone_op(
 _REAL_SEQUENCE_KINDS = frozenset({"domainJoin", "caConnect", "webServerCert"})
 
 
+#: Minimum gap between elapsed-heartbeat pushes for one step (the dispatch
+#: poll ticks every ~1s; republishing that often is churn for no information).
+_STEP_TICK_PUSH_GAP_S = 10.0
+#: An estimated intra-step percent never claims more than this — the agent's
+#: own frames (or step completion) take it the rest of the way.
+_STEP_EST_PCT_CAP = 95.0
+
+
+def _fmt_duration(seconds: float) -> str:
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m}m {s:02d}s" if s else f"{m}m"
+    h, m = divmod(m, 60)
+    return f"{h}h {m:02d}m"
+
+
+def _step_median_seconds(db, steps) -> dict[str, float]:
+    """step_id → median duration (seconds) of past runs of the step's command
+    — the priors behind the estimated intra-step percent. Steps whose command
+    has never completed are absent (their heartbeat shows elapsed time only)."""
+    from app.core.sequences.worker import load_step_medians
+
+    medians_ms = load_step_medians(db, [s.command for s in steps])
+    return {
+        s.id: medians_ms[s.command] / 1000.0
+        for s in steps
+        if s.command in medians_ms
+    }
+
+
 def _sequence_progress(
     op_id: str,
     total: int,
     state: dict[str, OpRunState],
     push,
     result: dict | None = None,
+    medians: dict[str, float] | None = None,
 ):
     """Progress callbacks for one op's step sequence: a completed-step counter
-    (``Step n/total``) plus the agent's own intra-step relay
-    (``Step n/total · step-id: phase``, percent scaled into the step's slice).
-    ``result`` (if given) rides along on every running push so the frontend
-    keeps partial facts — e.g. the agent's vm_id — before the op finishes."""
+    (``Step n/total``), the agent's own intra-step relay
+    (``Step n/total · step-id: phase``, percent scaled into the step's slice),
+    and an elapsed-time heartbeat for steps whose command goes silent for
+    minutes (``Install-ADDSForest`` reports 10% once, then nothing) — throttled
+    to ~10s, with a duration-estimated percent when ``medians`` (step_id →
+    seconds, from ``step_metrics``) knows this command. ``result`` (if given)
+    rides along on every running push so the frontend keeps partial facts —
+    e.g. the agent's vm_id — before the op finishes."""
     done_count = {"n": 0}
+    agent_progress: dict[str, tuple[str | None, float | None]] = {}
+    last_tick_push: dict[str, float] = {}
+    medians = medians or {}
 
     def _push_running(percent: float, phase: str) -> None:
         state[op_id] = OpRunState(
@@ -627,6 +688,7 @@ def _sequence_progress(
         )
 
     def on_step_progress(step_id: str, phase: str | None, percent: float | None) -> None:
+        agent_progress[step_id] = (phase, percent)
         n = done_count["n"]
         label = f"Step {n + 1}/{total} · {step_id}"
         if phase:
@@ -634,7 +696,26 @@ def _sequence_progress(
         overall = round(100.0 * (n + (percent or 0.0) / 100.0) / total, 1)
         _push_running(overall, label)
 
-    return on_step_complete, on_step_progress
+    def on_step_tick(step_id: str, elapsed_s: float) -> None:
+        if elapsed_s - last_tick_push.get(step_id, 0.0) < _STEP_TICK_PUSH_GAP_S:
+            return
+        last_tick_push[step_id] = elapsed_s
+        phase, agent_pct = agent_progress.get(step_id, (None, None))
+        n = done_count["n"]
+        label = f"Step {n + 1}/{total} · {step_id}"
+        if phase:
+            label += f": {phase}"
+        label += f" — {_fmt_duration(elapsed_s)}"
+        pct = agent_pct or 0.0
+        median_s = medians.get(step_id)
+        if median_s:
+            est = min(_STEP_EST_PCT_CAP, 100.0 * elapsed_s / median_s)
+            pct = max(pct, est)
+            label += f" (~{est:.0f}%, est. {_fmt_duration(median_s)})"
+        overall = round(100.0 * (n + pct / 100.0) / total, 1)
+        _push_running(overall, label)
+
+    return on_step_complete, on_step_progress, on_step_tick
 
 
 def _run_sequence_op(
@@ -674,14 +755,18 @@ def _run_sequence_op(
         return None  # nothing to do for this topology — let the caller simulate
 
     total = len(steps)
-    on_step_complete, on_step_progress = _sequence_progress(op.id, total, state, push)
+    on_step_complete, on_step_progress, on_step_tick = _sequence_progress(
+        op.id, total, state, push, medians=_step_median_seconds(db, steps)
+    )
 
+    op_started = time.monotonic()
     try:
         run_op_sequence(
             db, steps, ctx,
             plan_job_id=job_id, op_id=op.id, role=owner_role,
             on_step_complete=on_step_complete,
             on_step_progress=on_step_progress,
+            on_step_tick=on_step_tick,
         )
     except SequenceError as exc:
         state[op.id] = OpRunState(status="error", detail=str(exc))
@@ -692,6 +777,10 @@ def _run_sequence_op(
         push()
         return False
 
+    logger.info(
+        "op %s: %s sequence (%d steps) completed in %.1fs",
+        op.id, op.kind.value, total, time.monotonic() - op_started,
+    )
     state[op.id] = OpRunState(
         status="done", percent=100.0, phase="Done", result={"steps": total}
     )
