@@ -81,3 +81,31 @@ def test_blank_secret_is_dropped_not_encrypted():
     config = extract_template_config("domainController", {"domainAdminPassword": ""})
     stored = encrypt_config_secrets("domainController", config)
     assert "domainAdminPassword" not in stored
+
+
+def test_mldsa_ca_drops_keylength_and_hash():
+    """ML-DSA-87 fixes its own key size/hash, so the RSA-shaped keyLength/
+    hashAlgorithm defaults are meaningless for it — extract drops them (the
+    agent's ca.install derives the real 20736/NoHash values itself). Even when
+    the hidden UI fields still carry stale values, they must not be persisted."""
+    config = extract_template_config(
+        "certificateAuthority",
+        {
+            "caType": "Root",
+            "keyAlgorithm": "ML-DSA-87",
+            "keyLength": "2048",  # stale form state the UI hides but still sends
+            "hashAlgorithm": "SHA256",
+        },
+    )
+    assert config["keyAlgorithm"] == "ML-DSA-87"
+    assert "keyLength" not in config
+    assert "hashAlgorithm" not in config
+
+
+def test_rsa_ca_keeps_keylength_and_hash():
+    """RSA (and any non-ML-DSA algorithm) still carries key length + hash."""
+    config = extract_template_config(
+        "certificateAuthority", {"keyAlgorithm": "RSA"}
+    )
+    assert config["keyLength"] == "2048"
+    assert config["hashAlgorithm"] == "SHA256"

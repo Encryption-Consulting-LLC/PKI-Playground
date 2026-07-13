@@ -72,6 +72,28 @@ def _open_worker_connection():
         raise RuntimeError("No shared ESXi target configured (settings document).")
     return open_connection(target.host, target.user, target.password, target.port)
 
+
+def _live_worker_connection(conn):
+    """Return a live worker connection, reopening it if the ESXi session died.
+
+    A plan holds ONE raw connection across every clone, but provisioning steps
+    between clones (``dc.install_forest`` / ``ca.install``, each up to 1800s)
+    can outlast ESXi's session idle-timeout — the next clone would then fail
+    with ``vim.fault.NotAuthenticated``. The API side handles this in
+    ``core.esxi.ConnectionManager``; the worker mirrors it with a cheap
+    ``CurrentTime`` probe before each clone (clones are infrequent and far more
+    expensive than the round trip, so no rate-limiting is needed here)."""
+    if conn is not None:
+        try:
+            conn.si.CurrentTime()
+            return conn
+        except Exception:  # noqa: BLE001 — expired/dead session; drop and reopen
+            try:
+                Disconnect(conn.si)
+            except Exception:  # noqa: BLE001 — the old session may already be dead
+                pass
+    return _open_worker_connection()
+
 if TYPE_CHECKING:
     from vmkit import Connection
 
@@ -896,15 +918,16 @@ def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
                         continue
 
                     if op.kind is PlanOpKind.create_vm:
-                        if conn is None:
-                            try:
-                                conn = _open_worker_connection()
-                            except Exception as exc:  # noqa: BLE001 — a connection failure blocks this op only, not the whole plan
-                                state[op.id] = OpRunState(status="error", detail=str(exc))
-                                push()
-                                finished.add(op.id)
-                                blocked.add(op.id)
-                                continue
+                        try:
+                            # Probe + reopen if a long provision between clones
+                            # let the ESXi session idle-time out.
+                            conn = _live_worker_connection(conn)
+                        except Exception as exc:  # noqa: BLE001 — a connection failure blocks this op only, not the whole plan
+                            state[op.id] = OpRunState(status="error", detail=str(exc))
+                            push()
+                            finished.add(op.id)
+                            blocked.add(op.id)
+                            continue
                         ok = _run_clone_op(conn, db, op, ops, job_id, state, push, owner_role)
                     else:
                         # Real command sequence where one exists (domainJoin,

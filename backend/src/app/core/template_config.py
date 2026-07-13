@@ -191,11 +191,23 @@ def extract_template_config(
     writing to Mongo. Assumes ``validate_template_config`` has already passed.
     """
     schema = TEMPLATE_CONFIG_FIELDS.get(template, {})
-    return {
+    config = {
         key: params.get(key, spec.default)
         for key, spec in schema.items()
         if spec.provision
     }
+    # ML-DSA-87 has no *caller-selectable* RSA key length and no external hash:
+    # the parameter set fixes both (20736-bit public key, NoHash). Those UI
+    # fields are display-hidden for ML-DSA but the defaults above still fill the
+    # stale RSA-shaped "2048"/"SHA256" — meaningless for a PQC CA. Drop them so
+    # the persisted registry config doesn't misrepresent the algorithm. This is
+    # cosmetic for dispatch: the agent's `ca.install` derives the real ML-DSA
+    # provider string + KeyLength(20736)/HashAlgorithm(NoHash) itself from
+    # keyAlgorithm and ignores whatever crypto params the backend sends for it.
+    if template == "certificateAuthority" and config.get("keyAlgorithm") == "ML-DSA-87":
+        config.pop("keyLength", None)
+        config.pop("hashAlgorithm", None)
+    return config
 
 
 def encrypt_config_secrets(template: str, config: Mapping[str, str]) -> dict:
