@@ -162,6 +162,7 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
     setOpState(opId, {
       status: runState.status,
       progress: runState.percent,
+      phase: runState.status === "running" ? runState.phase : undefined,
       detail: runState.detail,
     })
 
@@ -171,6 +172,11 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
           lifecycle: LIFECYCLE.deploying,
           progress: runState.percent,
           phase: runState.phase,
+          // The agent identity rides on running pushes (partial result) so the
+          // presence dot can appear while provisioning is still underway.
+          ...(typeof runState.result?.agentVmId === "string"
+            ? { orchestratorVmId: runState.result.agentVmId }
+            : {}),
         })
       } else if (runState.status === "done") {
         const node = topology.nodes.find((n) => n.id === op.targetNodeId)

@@ -145,6 +145,7 @@ export function StagedPanel() {
                     <span className="block truncate font-medium">{op.label}</span>
                     <span className="block truncate text-[10px] text-muted-foreground">
                       {nodeName(op.targetNodeId)}
+                      {op.status === OP_STATUS.running && op.phase ? ` — ${op.phase}` : null}
                     </span>
                   </span>
                   <StatusGlyph op={op} />

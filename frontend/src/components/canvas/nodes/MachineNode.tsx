@@ -89,7 +89,8 @@ function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {
  * Live orchestrator link status for a node with a minted agent identity —
  * green while the agent's phone-home socket is up, red the instant it drops
  * (pushed over the presence WebSocket, so no polling lag). Only rendered once
- * a real VM exists (`orchestratorVmId` rides back on the createVm op result).
+ * a real VM exists — `orchestratorVmId` rides on the createVm op's running
+ * pushes (partial result), so the dot appears while provisioning is underway.
  */
 function AgentStatusDot({ vmId }: { vmId: string }) {
   const connected = useAgentConnected(vmId)

@@ -46,6 +46,8 @@ export interface StagedOp extends Record<string, unknown> {
   /** The optimistic edge this op created, if any — lets undo revert it exactly. */
   edgeId?: string
   progress?: number
+  /** Live phase label while running (e.g. "Step 1/3 · install-forest"). */
+  phase?: string
   /** Error detail after a failed deploy. */
   detail?: string
 }
