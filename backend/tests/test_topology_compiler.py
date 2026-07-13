@@ -11,6 +11,7 @@ from app.core.topology import (
     compile_plan,
 )
 from app.routers.deploy import PlanOp
+from app.tasks import _plan_domain_facts
 
 
 def _topology() -> TopologyDocument:
@@ -101,6 +102,20 @@ def test_retry_without_completed_create_operations_still_compiles():
         "join-web",
     ]
     assert compiled.critical_path == ["join-issuing", "connect-ca", "publish"]
+
+
+def test_retry_reads_completed_dc_facts_from_topology():
+    topology = _topology()
+    dc = next(node for node in topology.nodes if node.id == "dc")
+    dc.config = {
+        "domainName": "EncryptionConsulting.com",
+        "netbiosName": "ENCRYPTIONCONSU",
+    }
+
+    assert _plan_domain_facts([], topology) == (
+        "EncryptionConsulting.com",
+        "ENCRYPTIONCONSU",
+    )
 
 
 def test_recompilation_preserves_operation_ids_and_inputs():

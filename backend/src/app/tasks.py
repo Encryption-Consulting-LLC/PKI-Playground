@@ -97,6 +97,7 @@ def _live_worker_connection(conn):
 if TYPE_CHECKING:
     from vmkit import Connection
 
+    from app.core.topology import TopologyDocument
     from app.routers.deploy import PlanOp
 
 #: Server-side mirror of the frontend's STANDALONE_CLONE (constants/templates.ts /
@@ -297,7 +298,9 @@ def _set_provision_state(db, vm_name: str, provision_state: str) -> None:
     )
 
 
-def _plan_domain_facts(ops: list["PlanOp"]) -> tuple[str | None, str | None]:
+def _plan_domain_facts(
+    ops: list["PlanOp"], topology: "TopologyDocument | None" = None
+) -> tuple[str | None, str | None]:
     """The forest's (domainName, netbiosName) read from the plan's DC createVm
     op — a constant decided up front, so the root CA's DSConfigDN / pki URLs
     resolve even when the DC VM isn't up yet (they may clone in parallel)."""
@@ -306,6 +309,15 @@ def _plan_domain_facts(ops: list["PlanOp"]) -> tuple[str | None, str | None]:
     for op in ops:
         if op.kind is PlanOpKind.create_vm and op.params.get("template") == "domainController":
             return op.params.get("domainName"), op.params.get("netbiosName")
+    if topology is not None:
+        from app.core.topology import TopologyRole
+
+        dc = next(
+            (node for node in topology.nodes if node.role is TopologyRole.domain_controller),
+            None,
+        )
+        if dc is not None:
+            return dc.config.get("domainName"), dc.config.get("netbiosName")
     return None, None
 
 
@@ -319,6 +331,7 @@ def _provision_cloned_vm(
     owner_role: str,
     state: dict[str, OpRunState],
     push,
+    topology: "TopologyDocument | None" = None,
 ) -> bool:
     """Run a freshly-cloned VM's per-template provision sequence.
 
@@ -397,7 +410,7 @@ def _provision_cloned_vm(
             )
             # Domain facts from the plan's DC op so the root CA's DSConfigDN /
             # pki URLs resolve even when the DC VM isn't up yet.
-            domain_name, netbios = _plan_domain_facts(ops)
+            domain_name, netbios = _plan_domain_facts(ops, topology)
             ctx = RunContext(
                 nodes={"primary": node},
                 domain_name=domain_name,
@@ -438,6 +451,7 @@ def _run_clone_op(
     state: dict[str, OpRunState],
     push,
     owner_role: str = "guest",
+    topology: "TopologyDocument | None" = None,
 ) -> bool:
     """Execute a ``createVm`` op for real, from one of three ISO sources:
 
@@ -608,7 +622,16 @@ def _run_clone_op(
         # op (dependents cancel) but leaves the booted VM in place for teardown.
         if vm_id is not None:
             provisioned = _provision_cloned_vm(
-                db, op, ops, vm_id, ip, job_id, owner_role, state, push
+                db,
+                op,
+                ops,
+                vm_id,
+                ip,
+                job_id,
+                owner_role,
+                state,
+                push,
+                topology,
             )
             if not provisioned:
                 return False
@@ -933,7 +956,17 @@ def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
                             finished.add(op.id)
                             blocked.add(op.id)
                             continue
-                        ok = _run_clone_op(conn, db, op, ops, job_id, state, push, owner_role)
+                        ok = _run_clone_op(
+                            conn,
+                            db,
+                            op,
+                            ops,
+                            job_id,
+                            state,
+                            push,
+                            owner_role,
+                            request.topology,
+                        )
                     else:
                         # Real command sequence where one exists (domainJoin,
                         # …); otherwise the timed stub. `None` = no sequence for
