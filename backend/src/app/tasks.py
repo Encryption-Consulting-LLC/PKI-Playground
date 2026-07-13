@@ -291,7 +291,12 @@ def _provision_cloned_vm(
 
     vm_name = op.params["vmName"]
     _set_provision_state(conn_db, vm_name, "applying")
-    state[op.id] = OpRunState(status="running", percent=100.0, phase="Waiting for agent")
+    # Carried on every running push so the frontend learns the agent identity
+    # (and can show its presence dot) long before the op finishes.
+    partial = {"agentVmId": vm_id}
+    state[op.id] = OpRunState(
+        status="running", percent=100.0, phase="Waiting for agent", result=partial
+    )
     push()
     try:
         agentbus.wait_for_agent(vm_id, timeout_s=settings.agent_phone_home_timeout_s)
@@ -299,7 +304,10 @@ def _provision_cloned_vm(
         # then reboots once more to finalize its hostname — wait for the
         # connection to settle so we don't dispatch into an agent that reboot is
         # about to kill.
-        state[op.id] = OpRunState(status="running", percent=100.0, phase="Waiting for boot to settle")
+        state[op.id] = OpRunState(
+            status="running", percent=100.0, phase="Waiting for boot to settle",
+            result=partial,
+        )
         push()
         agentbus.wait_for_stable_agent(
             vm_id,
@@ -308,7 +316,9 @@ def _provision_cloned_vm(
             db=conn_db,
         )
         if steps:
-            state[op.id] = OpRunState(status="running", percent=100.0, phase="Provisioning")
+            state[op.id] = OpRunState(
+                status="running", percent=0.0, phase="Provisioning", result=partial
+            )
             push()
             node = NodeContext(
                 node_id=op.target,
@@ -328,8 +338,13 @@ def _provision_cloned_vm(
                 netbios=netbios,
                 pki_host=f"pki.{domain_name}" if domain_name else None,
             )
+            on_step_complete, on_step_progress = _sequence_progress(
+                op.id, len(steps), state, push, result=partial
+            )
             run_op_sequence(
-                conn_db, steps, ctx, plan_job_id=job_id, op_id=op.id, role=owner_role
+                conn_db, steps, ctx, plan_job_id=job_id, op_id=op.id, role=owner_role,
+                on_step_complete=on_step_complete,
+                on_step_progress=on_step_progress,
             )
     except (SequenceError, agentbus.AgentUnreachableError, agentbus.DispatchError,
             agentbus.ReconnectTimeoutError) as exc:
@@ -561,6 +576,44 @@ def _run_clone_op(
 _REAL_SEQUENCE_KINDS = frozenset({"domainJoin", "caConnect", "webServerCert"})
 
 
+def _sequence_progress(
+    op_id: str,
+    total: int,
+    state: dict[str, OpRunState],
+    push,
+    result: dict | None = None,
+):
+    """Progress callbacks for one op's step sequence: a completed-step counter
+    (``Step n/total``) plus the agent's own intra-step relay
+    (``Step n/total · step-id: phase``, percent scaled into the step's slice).
+    ``result`` (if given) rides along on every running push so the frontend
+    keeps partial facts — e.g. the agent's vm_id — before the op finishes."""
+    done_count = {"n": 0}
+
+    def _push_running(percent: float, phase: str) -> None:
+        state[op_id] = OpRunState(
+            status="running", percent=percent, phase=phase, result=result
+        )
+        push()
+
+    def on_step_complete(_step_id: str) -> None:
+        done_count["n"] += 1
+        _push_running(
+            round(100.0 * done_count["n"] / total, 1),
+            f"Step {done_count['n']}/{total}",
+        )
+
+    def on_step_progress(step_id: str, phase: str | None, percent: float | None) -> None:
+        n = done_count["n"]
+        label = f"Step {n + 1}/{total} · {step_id}"
+        if phase:
+            label += f": {phase}"
+        overall = round(100.0 * (n + (percent or 0.0) / 100.0) / total, 1)
+        _push_running(overall, label)
+
+    return on_step_complete, on_step_progress
+
+
 def _run_sequence_op(
     db,
     op: "PlanOp",
@@ -598,22 +651,14 @@ def _run_sequence_op(
         return None  # nothing to do for this topology — let the caller simulate
 
     total = len(steps)
-    done_count = {"n": 0}
-
-    def on_step_complete(_step_id: str) -> None:
-        done_count["n"] += 1
-        state[op.id] = OpRunState(
-            status="running",
-            percent=round(100.0 * done_count["n"] / total, 1),
-            phase=f"Step {done_count['n']}/{total}",
-        )
-        push()
+    on_step_complete, on_step_progress = _sequence_progress(op.id, total, state, push)
 
     try:
         run_op_sequence(
             db, steps, ctx,
             plan_job_id=job_id, op_id=op.id, role=owner_role,
             on_step_complete=on_step_complete,
+            on_step_progress=on_step_progress,
         )
     except SequenceError as exc:
         state[op.id] = OpRunState(status="error", detail=str(exc))
