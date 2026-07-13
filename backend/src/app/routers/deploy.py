@@ -35,6 +35,7 @@ from app.core.db import SETTINGS_DOC_ID, get_db, settings_col, vm_registry_col
 from app.core.esxi import _target_from_doc
 from app.core.firstboot import TEMPLATE_IDS
 from app.core.ippool import guest_network_from_doc
+from app.core.settings import settings
 from app.core.template_config import validate_template_config
 from app.core.jobs import transport
 from app.core.jobs.models import JobStatus, QueuedMsg
@@ -288,6 +289,19 @@ def validate_plan(
                 ),
             )
         op.params["vmName"] = enforce_guest_vm_name(op.params["vmName"], user, project_id)
+        # Guard the golden image: a clone whose resolved name equals the base
+        # copies ``<base>/<base>.vmdk`` onto itself (same src and dst), which
+        # ESXi rejects as "file already exists" — but only after clobbering the
+        # directory. Reject it up front. Guests can't reach this (their names are
+        # namespaced), so this catches free-form operator names.
+        if op.params["vmName"] == settings.clone_base:
+            raise HTTPException(
+                422,
+                detail=(
+                    f"Op '{op.id}' (createVm) would name a VM '{settings.clone_base}', "
+                    "the base image it clones from — rename the node."
+                ),
+            )
 
     # Reject two createVm ops that resolve to the same real VM name (e.g. two
     # nodes both labelled "dc01" in one project) before enqueuing — the user

@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     # Intended `celery worker --concurrency=N`; not enforced here, just documents
     # the global cap the deploy should run with.
     clone_concurrency: int = 2
+    # The golden template every createVm clones from — its ``<base>/<base>.vmdk``
+    # is server-side copied into each new ``<vmName>/`` directory. A clone whose
+    # vmName equals this would collide with (and, worse, could corrupt) the base
+    # image's own datastore directory, so ``deploy.validate_plan`` rejects it.
+    clone_base: str = "ws-2025-base"
 
     # MongoDB — system of record for projects, the VM registry, the settings
     # document, and users. Reachability is checked at startup in the app

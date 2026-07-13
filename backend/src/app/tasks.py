@@ -81,7 +81,7 @@ if TYPE_CHECKING:
 #: the pre-staging topology.ts) — the backend does not accept arbitrary hardware
 #: params from the client, only the per-VM name.
 PLAN_CLONE_DEFAULTS = {
-    "base": "ws-2025-base",
+    "base": settings.clone_base,
     "datastore": "datastore1",
     "cpus": 2,
     "mem_mb": 4096,
@@ -431,6 +431,22 @@ def _run_clone_op(
     from app.routers.vm import CloneProgressReducer, CloneRequest, _clone_total_ops
 
     vm_name = op.params["vmName"]
+    # Golden-image guard, enforced here and not only in deploy.validate_plan:
+    # run_plan_task trusts the plan payload's vmName verbatim (no re-validation,
+    # no re-namespacing), so a plan that skipped the current route — a stale or
+    # redelivered broker task, an old-code enqueue — could otherwise clone the
+    # base image onto itself (`<base>/<base>.vmdk`, src == dst) and clobber the
+    # golden template. Fail the op before any datastore write.
+    if vm_name == settings.clone_base:
+        state[op.id] = OpRunState(
+            status="error",
+            detail=(
+                f"Refusing to clone a VM named '{settings.clone_base}' — it is the "
+                "base image every clone copies from (stale/mis-routed plan?)."
+            ),
+        )
+        push()
+        return False
     iso_id = op.params.get("isoId")
     authored = bool(op.files) or bool(iso_id)
     bundling = settings.orchestrator_bundling_enabled and not authored
