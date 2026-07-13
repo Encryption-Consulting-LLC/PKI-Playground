@@ -324,20 +324,26 @@ def _provision_cloned_vm(
     push()
     try:
         agentbus.wait_for_agent(vm_id, timeout_s=settings.agent_phone_home_timeout_s)
+
         # A fresh clone phones home during an intermediate firstboot boot and
-        # then reboots once more to finalize its hostname — wait for the
-        # connection to settle so we don't dispatch into an agent that reboot is
-        # about to kill.
-        state[op.id] = OpRunState(
-            status="running", percent=100.0, phase="Waiting for boot to settle",
-            result=partial,
-        )
-        push()
-        agentbus.wait_for_stable_agent(
+        # then reboots once more to finalize its hostname — probe boot_info
+        # until the VM is provably on its final boot so we don't dispatch into
+        # an agent that reboot is about to kill (legacy agents fall back to
+        # the connection-stability dwell inside wait_for_settled_boot).
+        def _boot_phase(phase: str) -> None:
+            state[op.id] = OpRunState(
+                status="running", percent=100.0, phase=phase, result=partial
+            )
+            push()
+
+        _boot_phase("Waiting for boot to settle")
+        agentbus.wait_for_settled_boot(
             vm_id,
-            settle_s=settings.agent_boot_settle_s,
-            timeout_s=settings.agent_phone_home_timeout_s,
             db=conn_db,
+            timeout_s=settings.agent_phone_home_timeout_s,
+            role=owner_role,
+            job_key_prefix=f"{job_id}-{op.id}-bootprobe",
+            on_phase=_boot_phase,
         )
         if steps:
             state[op.id] = OpRunState(
