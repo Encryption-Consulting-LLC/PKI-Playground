@@ -66,6 +66,7 @@ def run_op_sequence(
     op_id: str,
     role: str,
     on_step_complete=None,
+    on_step_progress=None,
 ) -> dict[str, dict]:
     """Run one op's step sequence to completion (or raise
     :class:`~app.core.sequences.engine.SequenceError`).
@@ -74,7 +75,8 @@ def run_op_sequence(
 
     * ``dispatch`` → :func:`agentbus.dispatch_and_wait` under a deterministic
       per-step job id, so a redelivered task reuses the already-terminal result
-      instead of re-running a side-effecting command;
+      instead of re-running a side-effecting command; the agent's own progress
+      frames are forwarded to ``on_step_progress(step_id, phase, percent)``;
     * ``wait_for_reconnect`` → the Mongo ``lastConnectedAt`` poll;
     * completed steps come from the ``plan_runs`` cursor and each step's
       completion is persisted before the next runs.
@@ -88,6 +90,9 @@ def run_op_sequence(
         expect_disconnect=False,
     ):
         step_job_id = deterministic_step_job_id(plan_job_id, op_id, job_key)
+        on_progress = None
+        if on_step_progress is not None:
+            on_progress = lambda phase, pct: on_step_progress(job_key, phase, pct)  # noqa: E731
         return agentbus.dispatch_and_wait(
             vm_id,
             command,
@@ -97,6 +102,7 @@ def run_op_sequence(
             timeout_s=timeout_s,
             secret_keys=secret_keys,
             expect_disconnect=expect_disconnect,
+            on_progress=on_progress,
         )
 
     def wait_for_reconnect(vm_id, since_ms, timeout_s):
