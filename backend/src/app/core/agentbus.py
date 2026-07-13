@@ -219,6 +219,54 @@ def wait_for_reconnect(
     )
 
 
+def wait_for_stable_agent(
+    vm_id: str,
+    settle_s: int,
+    timeout_s: int,
+    *,
+    db,
+    client: "redis.Redis | None" = None,
+    sleep=time.sleep,
+    monotonic=time.monotonic,
+    poll_interval_s: float = 3.0,
+) -> None:
+    """Block until ``vm_id``'s agent connection has stayed stable for a
+    continuous ``settle_s`` — its liveness key present AND ``agent.lastConnectedAt``
+    unchanged — or raise :class:`AgentUnreachableError` after ``timeout_s``.
+
+    A freshly-cloned VM phones home during an intermediate firstboot boot, then
+    reboots once more to finalize its hostname; dispatching provisioning at that
+    first phone-home would push a command into an agent the finalize reboot is
+    about to kill. This dwell rides through that reboot: the streak resets
+    whenever the liveness key drops (reboot) or ``lastConnectedAt`` advances
+    (reconnect), so only the final, stable boot accrues ``settle_s``."""
+    r = client or transport._client
+    deadline = monotonic() + timeout_s
+    stable_lca: int | None = None
+    stable_since: float | None = None
+    while monotonic() < deadline:
+        live = r.get(agent_conn_key(vm_id)) is not None
+        doc = db["vm_registry"].find_one(
+            {"agent.vmId": vm_id}, {"agent.lastConnectedAt": 1}
+        )
+        lca = ((doc or {}).get("agent") or {}).get("lastConnectedAt")
+        now = monotonic()
+        if not live or not isinstance(lca, int):
+            stable_lca = None
+            stable_since = None
+        elif lca != stable_lca:
+            # A (re)connect since we last looked — restart the dwell.
+            stable_lca = lca
+            stable_since = now
+        elif stable_since is not None and now - stable_since >= settle_s:
+            return
+        sleep(poll_interval_s)
+    raise AgentUnreachableError(
+        f"agent '{vm_id}' connection did not stay stable for {settle_s}s "
+        f"within {timeout_s}s"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # API side (async)                                                            #
 # --------------------------------------------------------------------------- #
