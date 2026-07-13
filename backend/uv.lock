@@ -516,7 +516,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "redis", specifier = ">=5.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
-    { name = "vmkit", git = "https://github.com/Arnesh-EC/vmkit.git?tag=v0.3.0" },
+    { name = "vmkit", git = "https://github.com/Arnesh-EC/vmkit.git?tag=v0.3.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -934,8 +934,8 @@ wheels = [
 
 [[package]]
 name = "vmkit"
-version = "0.3.0"
-source = { git = "https://github.com/Arnesh-EC/vmkit.git?tag=v0.3.0#1dd351ceff20cef05d9c34f29d656e7001eab068" }
+version = "0.3.1"
+source = { git = "https://github.com/Arnesh-EC/vmkit.git?tag=v0.3.1#63aab6def3fe2fbf98d69a6921e630920a2fe24c" }
 dependencies = [
     { name = "pyvmomi" },
     { name = "requests" },
