@@ -1,5 +1,4 @@
-"""Deploy-plan routes — accept a DAG of staged canvas operations and run them as
-one Celery plan job.
+"""Deploy-plan routes — compile a semantic topology and run it as one plan job.
 
 Mirrors ``vm.py``'s clone route: ``POST /deploy`` enqueues and returns immediately
 with a ``job_id``; the actual walk of the dependency graph happens in the Celery
@@ -39,6 +38,13 @@ from app.core.settings import settings
 from app.core.template_config import validate_template_config
 from app.core.jobs import transport
 from app.core.jobs.models import JobStatus, QueuedMsg
+from app.core.topology import (
+    CompiledPlan,
+    PlanCompilationError,
+    TopologyDocument,
+    TopologyValidationError,
+    compile_plan,
+)
 
 router = APIRouter(prefix="/deploy", tags=["deploy"])
 
@@ -91,6 +97,7 @@ class DeployRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     ops: list[PlanOp] = Field(min_length=1, max_length=50)
+    topology: TopologyDocument
     #: The project the canvas belongs to. For guests it supplies the ``<project>``
     #: segment of every derived VM name (``guest-<user>-<project>-<machine>``) and
     #: is required when the plan clones. Operators keep free-form names and ignore
@@ -98,6 +105,37 @@ class DeployRequest(BaseModel):
     #: caller's ``guest-<user>-`` namespace regardless, so it needs no membership
     #: check (guests have no server-side project records today).
     project_id: str | None = Field(default=None, alias="projectId")
+
+
+def _compile_or_422(req: DeployRequest) -> CompiledPlan:
+    """Translate semantic validation/compiler failures into one API shape."""
+
+    try:
+        return compile_plan(req.topology, req.ops)
+    except (TopologyValidationError, PlanCompilationError) as exc:
+        raise HTTPException(
+            422,
+            detail={
+                "message": "Topology compilation failed.",
+                "diagnostics": [
+                    item.model_dump(by_alias=True) for item in exc.diagnostics
+                ],
+            },
+        ) from exc
+
+
+def _compiled_response(req: DeployRequest, compiled: CompiledPlan) -> dict:
+    return {
+        "topologyVersion": req.topology.version,
+        "operations": [op.model_dump(by_alias=True) for op in compiled.operations],
+        "criticalPath": compiled.critical_path,
+        "estimatedDurationSeconds": compiled.estimated_duration_seconds,
+        "criticalPathDurationSeconds": compiled.critical_path_duration_seconds,
+        "resources": {
+            "nodes": len(req.topology.nodes),
+            "relationships": len(req.topology.edges),
+        },
+    }
 
 
 def validate_plan(
@@ -344,6 +382,30 @@ def validate_plan(
 
 
 @router.post(
+    "/compile",
+    dependencies=[Depends(require_capability(Capability.DEPLOY))],
+)
+async def compile_deploy(
+    req: DeployRequest,
+    user: AuthedUser = Depends(get_current_user),
+) -> dict:
+    """Dry-run topology compilation without checking or changing infrastructure."""
+
+    compiled = _compile_or_422(req)
+    # Reuse payload/security checks, but deliberately treat environmental
+    # prerequisites as available: target/image/network preflight belongs to
+    # execution, while this endpoint is a pure review of topology and intent.
+    validate_plan(
+        compiled.operations,
+        user,
+        target_configured=True,
+        guest_network_configured=True,
+        project_id=req.project_id,
+    )
+    return _compiled_response(req, compiled)
+
+
+@router.post(
     "",
     status_code=202,
     dependencies=[Depends(require_capability(Capability.DEPLOY))],
@@ -361,6 +423,10 @@ async def deploy(
     """
     from app.tasks import run_plan_task  # local import: avoids loading Celery for every route
 
+    compiled = _compile_or_422(req)
+    # From this point forward, every check and the queued worker payload sees
+    # only backend-derived dependencies/order. Client dependsOn never survives.
+    req.ops = compiled.operations
     doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
     validate_plan(
         req.ops,

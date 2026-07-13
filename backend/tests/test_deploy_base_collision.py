@@ -52,9 +52,8 @@ def test_distinct_name_passes_the_base_guard():
 
 
 def test_worker_refuses_base_named_clone_before_any_datastore_write():
-    """Defense-in-depth: run_plan_task never re-runs validate_plan, so the
-    worker's own guard must reject a base-named clone from a stale/mis-routed
-    plan before it touches the network or datastore (conn/db stay untouched)."""
+    """The clone worker's own guard rejects a base-named clone before it
+    touches the network or datastore (conn/db stay untouched)."""
     from app import tasks
 
     op = _create_op(settings.clone_base)

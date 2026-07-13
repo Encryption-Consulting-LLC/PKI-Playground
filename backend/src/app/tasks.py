@@ -859,7 +859,12 @@ def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
     from app.routers.deploy import DeployRequest, PlanOpKind
 
     try:
-        ops = DeployRequest(**plan).ops
+        request = DeployRequest(**plan)
+        # Defense in depth for stale/mis-routed broker messages: reconstruct
+        # the semantic DAG again instead of trusting serialized dependsOn.
+        from app.core.topology import compile_plan
+
+        ops = compile_plan(request.topology, request.ops).operations
         state: dict[str, OpRunState] = {op.id: OpRunState(status="pending") for op in ops}
 
         def push() -> None:
