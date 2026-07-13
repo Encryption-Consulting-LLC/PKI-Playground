@@ -4,8 +4,9 @@ the agent and handling reboots and verify-with-backoff.
 Every side effect is injected, so the walk logic is unit-testable without
 redis, Mongo, or a real agent:
 
-* ``dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s)
-  -> dict`` sends one command and blocks for its terminal result (raising
+* ``dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s,
+  expect_disconnect) -> dict`` sends one command and blocks for its terminal
+  result (raising
   :class:`SequenceError` on agent error / timeout) — in production this is the
   worker↔agent bridge (:func:`app.core.agentbus.dispatch_and_wait`). ``job_key``
   is the step's stable id, used to derive the deterministic per-step job id
@@ -98,6 +99,7 @@ class SequenceEngine:
             role=self._role,
             secret_keys=step.secret_keys,
             timeout_s=step.timeout_s,
+            expect_disconnect=step.expects_disconnect,
         )
 
         for key in step.produces:

@@ -83,7 +83,10 @@ def run_op_sequence(
     completed = set(completed_by_op.get(op_id, []))
     ctx.artifacts.update(artifacts)
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(
+        job_key, vm_id, command, params, *, role, secret_keys, timeout_s,
+        expect_disconnect=False,
+    ):
         step_job_id = deterministic_step_job_id(plan_job_id, op_id, job_key)
         return agentbus.dispatch_and_wait(
             vm_id,
@@ -93,6 +96,7 @@ def run_op_sequence(
             role=role,
             timeout_s=timeout_s,
             secret_keys=secret_keys,
+            expect_disconnect=expect_disconnect,
         )
 
     def wait_for_reconnect(vm_id, since_ms, timeout_s):

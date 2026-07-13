@@ -40,7 +40,7 @@ def test_runs_steps_in_order_and_returns_results():
     clock = FakeClock()
     calls = []
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         calls.append(command)
         return {"ok": command}
 
@@ -63,7 +63,7 @@ def test_reboot_step_waits_for_reconnect_after_dispatch():
     clock = FakeClock()
     reconnect_args = {}
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         clock.t += 1000  # dispatch takes time
         return {}
 
@@ -90,7 +90,7 @@ def test_verify_retries_until_predicate_passes():
     clock = FakeClock()
     probe_results = iter([{"ready": False}, {"ready": False}, {"ready": True}])
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         if command == "dc.verify":
             return next(probe_results)
         return {}
@@ -115,7 +115,7 @@ def test_verify_retries_until_predicate_passes():
 def test_verify_raises_when_window_elapses():
     clock = FakeClock()
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         return {"ready": False}
 
     engine = SequenceEngine(
@@ -140,7 +140,7 @@ def test_verify_treats_probe_error_as_not_ready():
     clock = FakeClock()
     attempts = {"n": 0}
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         if command == "dc.verify":
             attempts["n"] += 1
             if attempts["n"] < 2:
@@ -169,7 +169,7 @@ def test_failed_step_raises_and_stops_the_sequence():
     clock = FakeClock()
     ran = []
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         ran.append(command)
         if command == "domain.join":
             raise SequenceError("bad credentials")
@@ -195,7 +195,7 @@ def test_completed_steps_skip_on_resume():
     clock = FakeClock()
     ran = []
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         ran.append(command)
         return {}
 
@@ -218,7 +218,7 @@ def test_produces_and_consumes_relay_artifacts():
     clock = FakeClock()
     seen_params = {}
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         if command == "file.read":
             return {"contentB64": "Q1NSLWJ5dGVz"}
         if command == "ca.sign_request":
@@ -249,7 +249,7 @@ def test_param_resolver_sees_context():
     def resolver(rt: StepRuntime):
         return {"domainName": rt.node.template_config["domainName"], "host": rt.node.hostname}
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s):
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
         seen.update(params)
         return {}
 
