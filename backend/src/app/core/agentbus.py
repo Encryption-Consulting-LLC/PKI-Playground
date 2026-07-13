@@ -27,6 +27,7 @@ so a reboot step resumes once the agent phones home again.
 import json
 import logging
 import time
+import uuid
 from collections.abc import Callable
 
 import redis
@@ -302,6 +303,188 @@ def wait_for_stable_agent(
     raise AgentUnreachableError(
         f"agent '{vm_id}' connection did not stay stable for {settle_s}s "
         f"within {timeout_s}s"
+    )
+
+
+#: Gap between boot_info probes.
+_BOOT_PROBE_INTERVAL_S = 20.0
+#: Gap before the confirming second probe — must exceed the firstboot
+#: finalize's unregister→reboot window (Start-Sleep 15 + shutdown, ~15-20s),
+#: so a probe that caught boot 2 in that window is always contradicted.
+_BOOT_PROBE_CONFIRM_GAP_S = 45.0
+#: Minimum uptime before a boot with no finalize task can count as settled.
+_BOOT_UPTIME_FLOOR_S = 60
+#: Per-dispatch timeout for one boot_info probe.
+_BOOT_PROBE_TIMEOUT_S = 60
+#: Tolerance when checking the confirm probe's uptime advanced consistently.
+_BOOT_CONFIRM_SLACK_S = 10
+#: Forced reboots before giving up on a finalize task that never unregisters.
+_BOOT_FORCE_REBOOT_MAX = 2
+
+#: The exact detail text an agent that predates ``system.boot_info`` returns —
+#: pinned by an agent-side test; triggers the legacy-dwell fallback.
+_BOOT_INFO_UNKNOWN = "unknown command 'system.boot_info'"
+
+
+def wait_for_settled_boot(
+    vm_id: str,
+    *,
+    db,
+    timeout_s: int,
+    role: str = "guest",
+    job_key_prefix: str,
+    on_phase: "Callable[[str], None] | None" = None,
+    client: "redis.Redis | None" = None,
+    sleep=time.sleep,
+    monotonic=time.monotonic,
+    dispatch=None,
+) -> None:
+    """Block until ``vm_id``'s VM is provably on its final, settled boot.
+
+    Replaces the blind :func:`wait_for_stable_agent` dwell for provisioning:
+    instead of inferring "boot settled" from connection stability (which any
+    reconnect churn — e.g. a fresh clone's post-setup CPU storm — resets
+    forever), this actively dispatches the read-tier ``system.boot_info``
+    command and decides from facts:
+
+    * finalize task still registered → intermediate boot; keep waiting. If it
+      stays registered past ``settings.agent_boot_force_reboot_uptime_s`` (a
+      missed ``-AtStartup`` trigger) and isn't mid-run, dispatch
+      ``system.reboot`` to force it (capped at ``_BOOT_FORCE_REBOOT_MAX``).
+    * finalize task absent + uptime past the floor → candidate settled boot,
+      confirmed by a second probe ``_BOOT_PROBE_CONFIRM_GAP_S`` later on the
+      *same* boot (uptime advanced consistently) — defeating the finalize's
+      brief unregister→reboot window.
+    * agent unreachable / dispatch hiccup → transient (mid-reboot); retry.
+    * the agent doesn't know ``system.boot_info`` (legacy binary) → fall back
+      to :func:`wait_for_stable_agent` for the remaining budget.
+
+    Raises :class:`AgentUnreachableError` when ``timeout_s`` runs out, and
+    :class:`DispatchError` when forced reboots can't clear the finalize task.
+    ``on_phase(text)`` receives human-readable progress; observational only.
+    """
+    _dispatch = dispatch or dispatch_and_wait
+
+    def _phase(text: str) -> None:
+        if on_phase is not None:
+            try:
+                on_phase(text)
+            except Exception:  # noqa: BLE001 — observational only
+                logger.exception("on_phase callback failed")
+
+    nonce = uuid.uuid4().hex[:8]
+    deadline = monotonic() + timeout_s
+    candidate: tuple[float, float] | None = None  # (uptime_s, monotonic_at)
+    forced_reboots = 0
+    attempt = 0
+    while monotonic() < deadline:
+        attempt += 1
+        try:
+            result = _dispatch(
+                vm_id,
+                "system.boot_info",
+                {},
+                job_id=f"{job_key_prefix}:bootinfo:{nonce}:{attempt}",
+                role=role,
+                timeout_s=_BOOT_PROBE_TIMEOUT_S,
+                client=client,
+            )
+        except AgentUnreachableError:
+            candidate = None
+            _phase("Waiting for boot to settle — agent offline (rebooting)")
+            sleep(_BOOT_PROBE_INTERVAL_S)
+            continue
+        except DispatchError as exc:
+            if _BOOT_INFO_UNKNOWN in str(exc):
+                _phase("Waiting for boot to settle (legacy agent)")
+                remaining = max(1, int(deadline - monotonic()))
+                return wait_for_stable_agent(
+                    vm_id,
+                    settle_s=settings.agent_boot_settle_s,
+                    timeout_s=remaining,
+                    db=db,
+                    client=client,
+                    sleep=sleep,
+                    monotonic=monotonic,
+                )
+            candidate = None
+            logger.warning("boot_info probe for %s failed: %s", vm_id, exc)
+            sleep(_BOOT_PROBE_INTERVAL_S)
+            continue
+
+        uptime = result.get("uptimeS")
+        pending = result.get("finalizePending")
+        running = result.get("finalizeRunning")
+        if not isinstance(uptime, (int, float)) or not isinstance(pending, bool):
+            candidate = None
+            sleep(_BOOT_PROBE_INTERVAL_S)
+            continue
+
+        if pending:
+            candidate = None
+            _phase(
+                f"Waiting for boot to settle — finalize pending (up {int(uptime)}s)"
+            )
+            if (
+                uptime >= settings.agent_boot_force_reboot_uptime_s
+                and running is not True
+            ):
+                if forced_reboots >= _BOOT_FORCE_REBOOT_MAX:
+                    raise DispatchError(
+                        f"firstboot finalize on '{vm_id}' still pending after "
+                        f"{forced_reboots} forced reboots"
+                    )
+                forced_reboots += 1
+                _phase("Finalize task missed its startup trigger — forcing a reboot")
+                from app.core.db import now_ms
+
+                since = now_ms()
+                _dispatch(
+                    vm_id,
+                    "system.reboot",
+                    {"delaySeconds": "5"},
+                    job_id=f"{job_key_prefix}:bootkick:{nonce}:{attempt}",
+                    role=role,
+                    timeout_s=120,
+                    expect_disconnect=True,
+                    client=client,
+                )
+                wait_for_reconnect(
+                    vm_id,
+                    since,
+                    max(1, int(deadline - monotonic())),
+                    db=db,
+                    sleep=sleep,
+                )
+            sleep(_BOOT_PROBE_INTERVAL_S)
+            continue
+
+        # Finalize task absent.
+        if uptime < _BOOT_UPTIME_FLOOR_S:
+            candidate = None
+            _phase(f"Waiting for boot to settle — booted {int(uptime)}s ago")
+            sleep(_BOOT_PROBE_INTERVAL_S)
+            continue
+
+        if candidate is None:
+            # First settled-looking probe. Could be boot 2's brief
+            # unregister→reboot window — confirm on the SAME boot after a gap
+            # longer than that window.
+            candidate = (float(uptime), monotonic())
+            _phase(f"Boot looks settled (up {int(uptime)}s) — confirming")
+            sleep(_BOOT_PROBE_CONFIRM_GAP_S)
+            continue
+
+        first_uptime, first_at = candidate
+        elapsed = monotonic() - first_at
+        if uptime >= first_uptime + elapsed - _BOOT_CONFIRM_SLACK_S:
+            return  # same boot, uptime advanced consistently → settled
+        # Uptime went backwards: the finalize reboot happened between probes.
+        candidate = None
+        sleep(_BOOT_PROBE_INTERVAL_S)
+
+    raise AgentUnreachableError(
+        f"agent '{vm_id}' boot did not settle within {timeout_s}s"
     )
 
 

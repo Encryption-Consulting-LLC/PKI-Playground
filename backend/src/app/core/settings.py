@@ -109,13 +109,20 @@ class Settings(BaseSettings):
     # connects within minutes; this is the safety ceiling for a slow boot.
     agent_phone_home_timeout_s: int = 2700
 
-    # How long the agent connection must stay stable (liveness present, no
-    # reconnect) before the worker starts dispatching provisioning. A freshly
-    # cloned VM phones home during an intermediate firstboot boot, then reboots
-    # once more to finalize its hostname; without this dwell the worker would
-    # dispatch into an agent the finalize reboot is about to kill. Must exceed
-    # AGENT_CONN_TTL_SECONDS (90) plus that intermediate-boot window.
+    # LEGACY-AGENT FALLBACK ONLY: how long the agent connection must stay
+    # stable (liveness present, no reconnect) before the worker starts
+    # dispatching provisioning, used when the deployed agent predates
+    # ``system.boot_info``. New agents are probed actively instead
+    # (``agentbus.wait_for_settled_boot``), which is immune to the reconnect
+    # churn that resets this dwell. Must exceed AGENT_CONN_TTL_SECONDS (90)
+    # plus the intermediate-boot window.
     agent_boot_settle_s: int = 180
+
+    # Uptime (seconds) past which a still-registered FirstBootFinalize
+    # scheduled task is treated as having missed its -AtStartup trigger; the
+    # worker then dispatches system.reboot to force the finalize. Tune up for
+    # sites whose storage/CPU make the intermediate boot legitimately slow.
+    agent_boot_force_reboot_uptime_s: int = 600
 
     @property
     def orchestrator_bundling_enabled(self) -> bool:
