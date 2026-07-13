@@ -9,6 +9,7 @@ runs in the Celery worker over a short-lived sync Mongo client.
 
 import datetime
 import logging
+import statistics
 import time
 
 from app.core import agentbus
@@ -23,6 +24,55 @@ logger = logging.getLogger(__name__)
 
 #: plan_runs TTL horizon — 7 days after the last write (matches the plan).
 _PLAN_RUN_TTL_DAYS = 7
+
+#: How many recent runs per command feed the duration median.
+_STEP_MEDIAN_SAMPLE = 20
+
+
+def _record_step_metric(
+    db, *, command: str, step_id: str, vm_id: str, duration_ms: int
+) -> None:
+    """Insert one ``step_metrics`` duration sample. Observational only — a
+    metrics write must never fail a step that just succeeded."""
+    try:
+        db["step_metrics"].insert_one(
+            {
+                "command": command,
+                "stepId": step_id,
+                "vmId": vm_id,
+                "durationMs": duration_ms,
+                "at": now_ms(),
+            }
+        )
+    except Exception:  # noqa: BLE001 — observational only
+        logger.exception("failed to record step metric for %s", command)
+
+
+def load_step_medians(db, commands) -> dict[str, float]:
+    """Median ``durationMs`` of the last ``_STEP_MEDIAN_SAMPLE`` recorded runs
+    per command — the duration priors behind the UI's estimated intra-step
+    percent. Commands with no history are simply absent (first-ever run of a
+    command gets elapsed text only)."""
+    medians: dict[str, float] = {}
+    for command in set(commands):
+        try:
+            docs = (
+                db["step_metrics"]
+                .find({"command": command}, {"durationMs": 1})
+                .sort("at", -1)
+                .limit(_STEP_MEDIAN_SAMPLE)
+            )
+            values = [
+                d["durationMs"]
+                for d in docs
+                if isinstance(d.get("durationMs"), (int, float))
+            ]
+        except Exception:  # noqa: BLE001 — priors are optional
+            logger.exception("failed to load step medians for %s", command)
+            continue
+        if values:
+            medians[command] = float(statistics.median(values))
+    return medians
 
 
 def _load_run_state(db, plan_job_id: str) -> tuple[dict[str, list[str]], dict[str, str]]:
@@ -67,6 +117,7 @@ def run_op_sequence(
     role: str,
     on_step_complete=None,
     on_step_progress=None,
+    on_step_tick=None,
 ) -> dict[str, dict]:
     """Run one op's step sequence to completion (or raise
     :class:`~app.core.sequences.engine.SequenceError`).
@@ -76,7 +127,10 @@ def run_op_sequence(
     * ``dispatch`` → :func:`agentbus.dispatch_and_wait` under a deterministic
       per-step job id, so a redelivered task reuses the already-terminal result
       instead of re-running a side-effecting command; the agent's own progress
-      frames are forwarded to ``on_step_progress(step_id, phase, percent)``;
+      frames are forwarded to ``on_step_progress(step_id, phase, percent)`` and
+      the frameless-poll heartbeat to ``on_step_tick(step_id, elapsed_s)``;
+    * every successful dispatch's duration is logged and sampled into
+      ``step_metrics`` (the priors :func:`load_step_medians` reads);
     * ``wait_for_reconnect`` → the Mongo ``lastConnectedAt`` poll;
     * completed steps come from the ``plan_runs`` cursor and each step's
       completion is persisted before the next runs.
@@ -93,7 +147,11 @@ def run_op_sequence(
         on_progress = None
         if on_step_progress is not None:
             on_progress = lambda phase, pct: on_step_progress(job_key, phase, pct)  # noqa: E731
-        return agentbus.dispatch_and_wait(
+        on_tick = None
+        if on_step_tick is not None:
+            on_tick = lambda elapsed_s: on_step_tick(job_key, elapsed_s)  # noqa: E731
+        started = time.monotonic()
+        result = agentbus.dispatch_and_wait(
             vm_id,
             command,
             params,
@@ -103,7 +161,18 @@ def run_op_sequence(
             secret_keys=secret_keys,
             expect_disconnect=expect_disconnect,
             on_progress=on_progress,
+            on_tick=on_tick,
         )
+        duration_ms = int((time.monotonic() - started) * 1000)
+        logger.info(
+            "sequence step %s/%s (%s) on %s took %.1fs",
+            op_id, job_key, command, vm_id, duration_ms / 1000,
+        )
+        _record_step_metric(
+            db, command=command, step_id=job_key, vm_id=vm_id,
+            duration_ms=duration_ms,
+        )
+        return result
 
     def wait_for_reconnect(vm_id, since_ms, timeout_s):
         agentbus.wait_for_reconnect(vm_id, since_ms, timeout_s, db=db)

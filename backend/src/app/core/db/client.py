@@ -74,6 +74,10 @@ def plan_runs_col() -> AsyncCollection:
     return get_db()["plan_runs"]
 
 
+def step_metrics_col() -> AsyncCollection:
+    return get_db()["step_metrics"]
+
+
 async def _ensure_indexes() -> None:
     """Idempotent — create_indexes no-ops on identical existing indexes."""
     await projects_col().create_indexes(
@@ -133,6 +137,13 @@ async def _ensure_indexes() -> None:
         [
             IndexModel([("jobId", ASCENDING)], unique=True),
             IndexModel([("ttlAt", ASCENDING)], expireAfterSeconds=0),
+        ]
+    )
+    # step_metrics: per-command duration samples written by the sequence
+    # worker; the median loader reads the newest N per command.
+    await step_metrics_col().create_indexes(
+        [
+            IndexModel([("command", ASCENDING), ("at", DESCENDING)]),
         ]
     )
     # settings: singleton via fixed _id — no extra indexes.

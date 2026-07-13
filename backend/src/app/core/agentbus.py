@@ -82,6 +82,7 @@ def dispatch_and_wait(
     secret_keys: tuple[str, ...] = (),
     expect_disconnect: bool = False,
     on_progress: "Callable[[str | None, float | None], None] | None" = None,
+    on_tick: "Callable[[float], None] | None" = None,
     client: "redis.Redis | None" = None,
 ) -> dict:
     """Dispatch one command to ``vm_id``'s agent and block for its terminal
@@ -102,8 +103,11 @@ def dispatch_and_wait(
 
     ``on_progress(phase, percent)`` is invoked for every non-terminal frame the
     agent relays for this job — the live sub-step feed the plan runner folds
-    into the op state. Purely observational: its exceptions are logged and
-    swallowed so a UI callback can never kill a dispatch.
+    into the op state. ``on_tick(elapsed_s)`` is invoked on every ~1s poll that
+    yields no frame — the elapsed-time heartbeat for long silent commands
+    (``Install-ADDSForest`` reports once, then nothing for minutes). Both are
+    purely observational: their exceptions are logged and swallowed so a UI
+    callback can never kill a dispatch.
     """
     r = client or transport._client  # one shared sync pool
 
@@ -134,7 +138,8 @@ def dispatch_and_wait(
         )
         r.publish(DISPATCH_CHANNEL, request)
 
-        deadline = time.monotonic() + timeout_s
+        started = time.monotonic()
+        deadline = started + timeout_s
         liveness_misses = 0
         while time.monotonic() < deadline:
             message = pubsub.get_message(timeout=1.0)
@@ -158,6 +163,11 @@ def dispatch_and_wait(
                             )
                     else:
                         liveness_misses = 0
+                if on_tick is not None:
+                    try:
+                        on_tick(time.monotonic() - started)
+                    except Exception:  # noqa: BLE001 — observational only
+                        logger.exception("on_tick callback failed")
                 continue
             liveness_misses = 0
             frame = json.loads(message["data"])
