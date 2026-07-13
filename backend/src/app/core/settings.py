@@ -109,6 +109,14 @@ class Settings(BaseSettings):
     # connects within minutes; this is the safety ceiling for a slow boot.
     agent_phone_home_timeout_s: int = 2700
 
+    # How long the agent connection must stay stable (liveness present, no
+    # reconnect) before the worker starts dispatching provisioning. A freshly
+    # cloned VM phones home during an intermediate firstboot boot, then reboots
+    # once more to finalize its hostname; without this dwell the worker would
+    # dispatch into an agent the finalize reboot is about to kill. Must exceed
+    # AGENT_CONN_TTL_SECONDS (90) plus that intermediate-boot window.
+    agent_boot_settle_s: int = 180
+
     @property
     def orchestrator_bundling_enabled(self) -> bool:
         return bool(self.orchestrator_agent_path and self.backend_public_url)
