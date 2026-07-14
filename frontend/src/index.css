@@ -193,6 +193,10 @@
     0 0 16px 3px rgb(245 158 11 / 13%);
 }
 
+.offline-relay-package {
+  filter: drop-shadow(0 0 5px rgb(251 191 36 / 65%));
+}
+
 .domain-region-empty {
   animation: domain-breathe 4.8s ease-in-out infinite;
 }
@@ -221,5 +225,9 @@
   .domain-region-rejecting,
   .trust-body {
     animation: none;
+  }
+
+  .offline-relay-package {
+    display: none;
   }
 }
