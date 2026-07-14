@@ -40,6 +40,12 @@ from app.core.db.sync import worker_db
 from app.core.errors import map_vmkit_error
 from app.core.esxi import load_target_sync
 from app.core.firstboot import AgentBundle, build_authored_iso, build_firstboot_iso
+from app.core.golden_image import (
+    GoldenImageConfig,
+    GoldenImagePreflight,
+    golden_image_config_from_doc,
+    preflight_golden_image,
+)
 from app.core.ippool import (
     IpPoolExhaustedError,
     allocate_ip_sync,
@@ -103,12 +109,15 @@ if TYPE_CHECKING:
 #: Server-side mirror of the frontend's STANDALONE_CLONE (constants/templates.ts /
 #: the pre-staging topology.ts) — the backend does not accept arbitrary hardware
 #: params from the client, only the per-VM name.
-PLAN_CLONE_DEFAULTS = {
-    "base": settings.clone_base,
-    "datastore": "datastore1",
-    "cpus": 2,
-    "mem_mb": 4096,
-}
+def _plan_clone_defaults(config: GoldenImageConfig) -> dict:
+    return {
+        "base": config.base,
+        "datastore": config.datastore,
+        "guest_os": config.expected_guest_os,
+        "max_usage_pct": config.max_usage_pct,
+        "cpus": 2,
+        "mem_mb": 4096,
+    }
 
 #: Three named phases per simulated op kind, ticked at a fixed cadence.
 #: ``createVm`` is deliberately absent — it is always a real clone.
@@ -452,6 +461,7 @@ def _run_clone_op(
     push,
     owner_role: str = "guest",
     topology: "TopologyDocument | None" = None,
+    image_config: GoldenImageConfig | None = None,
 ) -> bool:
     """Execute a ``createVm`` op for real, from one of three ISO sources:
 
@@ -466,6 +476,12 @@ def _run_clone_op(
     from app.routers.iso import delete_uploaded_iso_sync, fetch_uploaded_iso_sync
     from app.routers.vm import CloneProgressReducer, CloneRequest, _clone_total_ops
 
+    image_config = image_config or GoldenImageConfig(
+        base=settings.clone_base,
+        datastore=settings.clone_datastore,
+        expectedGuestOs=settings.clone_guest_os,
+        maxUsagePct=settings.clone_max_usage_pct,
+    )
     vm_name = op.params["vmName"]
     # Golden-image guard, enforced here and not only in deploy.validate_plan:
     # run_plan_task trusts the plan payload's vmName verbatim (no re-validation,
@@ -473,11 +489,11 @@ def _run_clone_op(
     # redelivered broker task, an old-code enqueue — could otherwise clone the
     # base image onto itself (`<base>/<base>.vmdk`, src == dst) and clobber the
     # golden template. Fail the op before any datastore write.
-    if vm_name == settings.clone_base:
+    if vm_name == image_config.base:
         state[op.id] = OpRunState(
             status="error",
             detail=(
-                f"Refusing to clone a VM named '{settings.clone_base}' — it is the "
+                f"Refusing to clone a VM named '{image_config.base}' — it is the "
                 "base image every clone copies from (stale/mis-routed plan?)."
             ),
         )
@@ -594,7 +610,7 @@ def _run_clone_op(
                 name=vm_name,
                 iso_path=str(iso),
                 power_on=True,
-                **PLAN_CLONE_DEFAULTS,
+                **_plan_clone_defaults(image_config),
             )
             reducer = CloneProgressReducer(
                 _op_progress_publisher(state, op.id, push), _clone_total_ops(req)
@@ -863,8 +879,42 @@ def _simulate_op(op: "PlanOp", state: dict[str, OpRunState], push) -> bool:
     return True
 
 
+def _verify_worker_preflight(
+    conn: "Connection",
+    db,
+    ops: list["PlanOp"],
+    accepted_payload: dict | None,
+) -> GoldenImageConfig:
+    """Re-check the API snapshot before any clone can write to the datastore."""
+    if accepted_payload is None:
+        raise RuntimeError("Deploy job is missing its golden-image preflight snapshot.")
+    accepted = GoldenImagePreflight(**accepted_payload)
+    doc = db["settings"].find_one({"_id": "global"})
+    config = golden_image_config_from_doc(doc)
+    names = [op.params["vmName"] for op in ops if op.kind.value == "createVm"]
+    current = preflight_golden_image(
+        conn,
+        config,
+        requested_vm_names=names,
+        clone_count=len(names),
+    )
+    if not current.ready:
+        failed = "; ".join(check.detail for check in current.checks if not check.ok)
+        raise RuntimeError(f"Golden-image preflight no longer passes: {failed}")
+    if current.snapshot_id != accepted.snapshot_id:
+        raise RuntimeError(
+            "Golden-image prerequisites changed after preflight; retry the deploy."
+        )
+    return config
+
+
 @celery_app.task(name="run_plan")
-def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
+def run_plan_task(
+    job_id: str,
+    plan: dict,
+    owner_role: str = "guest",
+    preflight_snapshot: dict | None = None,
+) -> None:
     """Walk a validated deploy-plan DAG, running each op in dependency order.
 
     Sequential ready-set loop (Kahn-style): repeatedly pick the first remaining
@@ -919,6 +969,12 @@ def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
 
                     gc_orphan_isos(db)
                     _sweep_stale_agents_sync(db)
+                image_config = None
+                if any(op.kind is PlanOpKind.create_vm for op in ops):
+                    conn = _live_worker_connection(conn)
+                    image_config = _verify_worker_preflight(
+                        conn, db, ops, preflight_snapshot
+                    )
                 while remaining:
                     for idx, op in enumerate(remaining):
                         if all(dep in finished for dep in op.depends_on):
@@ -966,6 +1022,7 @@ def run_plan_task(job_id: str, plan: dict, owner_role: str = "guest") -> None:
                             push,
                             owner_role,
                             request.topology,
+                            image_config,
                         )
                     else:
                         # Real command sequence where one exists (domainJoin,

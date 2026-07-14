@@ -4,13 +4,17 @@ import os
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
 os.environ.setdefault(
     "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 )
 
 from app.core import golden_image  # noqa: E402
+from app import tasks  # noqa: E402
 from app.routers import settings as settings_router  # noqa: E402
+from app.routers.deploy import PlanOp  # noqa: E402
 
 
 def _config(**overrides):
@@ -57,7 +61,9 @@ def _patch_inventory(
 
 def _run(names=None, count=None):
     return golden_image.preflight_golden_image(
-        SimpleNamespace(content=object()),
+        SimpleNamespace(
+            content=SimpleNamespace(about=SimpleNamespace(instanceUuid="esxi-1"))
+        ),
         _config(),
         requested_vm_names=names,
         clone_count=count,
@@ -71,6 +77,7 @@ def test_ready_image_returns_capacity_and_identity_snapshot(monkeypatch):
 
     assert result.ready is True
     assert result.base_moid == "vm-42"
+    assert result.esxi_instance_uuid == "esxi-1"
     assert result.actual_guest_os == "windows2022srvNext-64"
     assert result.required_bytes == 200
     assert result.projected_usage_pct == 60
@@ -158,3 +165,88 @@ def test_settings_validation_endpoint_returns_wire_snapshot(monkeypatch):
     assert response["cloneCount"] == 2
     assert response["baseMoid"] == "vm-42"
     assert len(response["snapshotId"]) == 64
+
+
+def test_snapshot_changes_when_esxi_host_identity_changes(monkeypatch):
+    _patch_inventory(monkeypatch)
+    first = _run(["DC01"], 1)
+    second = golden_image.preflight_golden_image(
+        SimpleNamespace(
+            content=SimpleNamespace(about=SimpleNamespace(instanceUuid="esxi-2"))
+        ),
+        _config(),
+        requested_vm_names=["DC01"],
+        clone_count=1,
+    )
+
+    assert first.snapshot_id != second.snapshot_id
+
+
+class _SettingsCollection:
+    def find_one(self, _query):
+        return {
+            "cloneBase": "ws-2025-base",
+            "cloneDatastore": "datastore1",
+            "cloneGuestOs": "windows2022srvNext-64",
+            "cloneMaxUsagePct": 80,
+        }
+
+
+class _WorkerDb:
+    def __getitem__(self, name):
+        assert name == "settings"
+        return _SettingsCollection()
+
+
+def test_worker_accepts_an_unchanged_preflight(monkeypatch):
+    _patch_inventory(monkeypatch)
+    accepted = _run(["DC01"], 1)
+    monkeypatch.setattr(
+        tasks, "preflight_golden_image", lambda *_args, **_kwargs: accepted
+    )
+    op = PlanOp(
+        id="create-dc",
+        kind="createVm",
+        target="dc",
+        params={"vmName": "DC01", "template": "domainController"},
+    )
+
+    config = tasks._verify_worker_preflight(
+        SimpleNamespace(content=object()),
+        _WorkerDb(),
+        [op],
+        accepted.model_dump(by_alias=True),
+    )
+
+    assert config.base == "ws-2025-base"
+    assert tasks._plan_clone_defaults(config)["datastore"] == "datastore1"
+
+
+def test_worker_rejects_changed_preflight_before_clone(monkeypatch):
+    _patch_inventory(monkeypatch)
+    current = _run(["DC01"], 1)
+    accepted = current.model_copy(update={"snapshot_id": "0" * 64})
+    monkeypatch.setattr(
+        tasks, "preflight_golden_image", lambda *_args, **_kwargs: current
+    )
+    op = PlanOp(
+        id="create-dc",
+        kind="createVm",
+        target="dc",
+        params={"vmName": "DC01", "template": "domainController"},
+    )
+
+    with pytest.raises(RuntimeError, match="changed after preflight"):
+        tasks._verify_worker_preflight(
+            SimpleNamespace(content=object()),
+            _WorkerDb(),
+            [op],
+            accepted.model_dump(by_alias=True),
+        )
+
+
+def test_worker_rejects_clone_job_without_snapshot():
+    with pytest.raises(RuntimeError, match="missing"):
+        tasks._verify_worker_preflight(
+            SimpleNamespace(content=object()), _WorkerDb(), [], None
+        )

@@ -51,6 +51,20 @@ def test_distinct_name_passes_the_base_guard():
     )
 
 
+def test_persisted_golden_image_name_drives_the_base_guard():
+    with pytest.raises(HTTPException) as exc:
+        validate_plan(
+            [_create_op("site-windows-base")],
+            _operator(),
+            target_configured=True,
+            guest_network_configured=True,
+            clone_base="site-windows-base",
+        )
+
+    assert exc.value.status_code == 422
+    assert "site-windows-base" in str(exc.value.detail)
+
+
 def test_worker_refuses_base_named_clone_before_any_datastore_write():
     """The clone worker's own guard rejects a base-named clone before it
     touches the network or datastore (conn/db stay untouched)."""

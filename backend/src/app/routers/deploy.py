@@ -15,11 +15,13 @@ simulated stubs (see ``app.tasks._simulate_op``).
 import re
 import uuid
 from enum import Enum
+from functools import partial
 
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.core.authz import (
     ROLE_CAPABILITIES,
@@ -31,8 +33,13 @@ from app.core.authz import (
     require_capability,
 )
 from app.core.db import SETTINGS_DOC_ID, get_db, settings_col, vm_registry_col
-from app.core.esxi import _target_from_doc
+from app.core.esxi import _target_from_doc, manager
 from app.core.firstboot import TEMPLATE_IDS
+from app.core.golden_image import (
+    GoldenImagePreflight,
+    golden_image_config_from_doc,
+    preflight_golden_image,
+)
 from app.core.ippool import guest_network_from_doc
 from app.core.settings import settings
 from app.core.template_config import validate_template_config
@@ -145,6 +152,7 @@ def validate_plan(
     target_configured: bool,
     guest_network_configured: bool,
     project_id: str | None = None,
+    clone_base: str | None = None,
 ) -> None:
     """Raise 422 on a malformed plan: duplicate ids, unknown/self deps, cycles,
     a ``createVm`` missing its ``vmName``/``template`` params, or invalid
@@ -165,6 +173,7 @@ def validate_plan(
     Called explicitly from the route (not a pydantic validator) so the checks
     stay easy to read and the errors are unambiguous 422s.
     """
+    clone_base = clone_base or settings.clone_base
     ids = [op.id for op in ops]
     if len(ids) != len(set(ids)):
         raise HTTPException(422, detail="Plan contains duplicate op ids.")
@@ -332,11 +341,11 @@ def validate_plan(
         # ESXi rejects as "file already exists" — but only after clobbering the
         # directory. Reject it up front. Guests can't reach this (their names are
         # namespaced), so this catches free-form operator names.
-        if op.params["vmName"] == settings.clone_base:
+        if op.params["vmName"] == clone_base:
             raise HTTPException(
                 422,
                 detail=(
-                    f"Op '{op.id}' (createVm) would name a VM '{settings.clone_base}', "
+                    f"Op '{op.id}' (createVm) would name a VM '{clone_base}', "
                     "the base image it clones from — rename the node."
                 ),
             )
@@ -428,12 +437,15 @@ async def deploy(
     # only backend-derived dependencies/order. Client dependsOn never survives.
     req.ops = compiled.operations
     doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
+    image_config = golden_image_config_from_doc(doc)
+    target = _target_from_doc(doc)
     validate_plan(
         req.ops,
         user,
-        target_configured=_target_from_doc(doc) is not None,
+        target_configured=target is not None,
         guest_network_configured=guest_network_from_doc(doc) is not None,
         project_id=req.project_id,
+        clone_base=image_config.base,
     )
 
     # Reject a derived name that already belongs to a *different* live VM before
@@ -480,9 +492,40 @@ async def deploy(
                 ),
             )
 
+    # Last read-only gate before enqueue: prove the selected Windows image,
+    # aggregate datastore capacity, and every derived inventory name against
+    # the live ESXi host. The snapshot rides with the job and is checked again
+    # by the worker before its first datastore write.
+    preflight: GoldenImagePreflight | None = None
+    if create_ops:
+        assert target is not None  # validate_plan rejected an unconfigured target
+        conn = await run_in_threadpool(manager.get, target)
+        preflight = await run_in_threadpool(
+            partial(
+                preflight_golden_image,
+                conn,
+                image_config,
+                requested_vm_names=[op.params["vmName"] for op in create_ops],
+                clone_count=len(create_ops),
+            )
+        )
+        if not preflight.ready:
+            raise HTTPException(
+                409,
+                detail={
+                    "message": "Golden-image preflight failed.",
+                    "preflight": preflight.model_dump(by_alias=True),
+                },
+            )
+
     job_id = uuid.uuid4().hex
     transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)
     # Owner role rides along so a minted agent's provisioning command is later
     # dispatched under the deploying user's role (both roles hold VM_PROVISION).
-    run_plan_task.delay(job_id, req.model_dump(by_alias=True), user.role.value)
+    run_plan_task.delay(
+        job_id,
+        req.model_dump(by_alias=True),
+        user.role.value,
+        preflight.model_dump(by_alias=True) if preflight else None,
+    )
     return {"job_id": job_id}

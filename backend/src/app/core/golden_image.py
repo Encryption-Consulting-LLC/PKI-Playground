@@ -43,6 +43,7 @@ class GoldenImagePreflight(BaseModel):
     snapshot_id: str = Field(alias="snapshotId")
     base: str
     datastore: str
+    esxi_instance_uuid: str | None = Field(default=None, alias="esxiInstanceUuid")
     base_moid: str | None = Field(default=None, alias="baseMoid")
     base_change_version: str | None = Field(default=None, alias="baseChangeVersion")
     expected_guest_os: str = Field(alias="expectedGuestOs")
@@ -106,6 +107,9 @@ def preflight_golden_image(
     vmdk_size = None
     required = None
     projected_pct = None
+    esxi_instance_uuid = getattr(
+        getattr(conn.content, "about", None), "instanceUuid", None
+    )
 
     try:
         inventory_names = list_vm_names(conn.content)
@@ -222,6 +226,7 @@ def preflight_golden_image(
     facts = {
         "base": config.base,
         "datastore": config.datastore,
+        "esxiInstanceUuid": esxi_instance_uuid,
         "baseMoid": base_moid,
         "baseChangeVersion": change_version,
         "expectedGuestOs": config.expected_guest_os,
