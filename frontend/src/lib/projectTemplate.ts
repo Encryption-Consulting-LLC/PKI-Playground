@@ -116,6 +116,28 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
     { x: 740, y: 340 },
     { certEnrollPath: "C:\\CertEnroll", enableOcsp: "Enabled", ocspRefreshMinutes: "15" },
   )
+  // Enrol the issuing CA and web server into the DC's domain (the offline root
+  // stays out — roots must never be domain-joined). Membership is staged
+  // before service relationships so the supplied project's persisted list
+  // also reads in the semantic order the backend compiler will enforce.
+  if (dcId) {
+    const dc = useTopologyStore.getState().nodes.find((n) => n.id === dcId)
+    if (dc) {
+      const domainName = domainLabel(dc)
+      const members = [issuingId, webId].filter(
+        (id): id is string => !!id,
+      )
+      const changes: DomainSyncChange[] = members
+        .map((nodeId): DomainSyncChange | null => {
+          const node = useTopologyStore.getState().nodes.find((n) => n.id === nodeId)
+          if (!node) return null
+          return { nodeId, nodeName: node.data.name, dcId, domainName }
+        })
+        .filter((c): c is DomainSyncChange => c !== null)
+      useTopologyStore.getState().applyDomainChanges(changes)
+    }
+  }
+
   // Offline Root signs the Issuing CA (a dashed "manual transfer" edge).
   if (rootId && issuingId) {
     useTopologyStore.getState().connect({
@@ -133,25 +155,5 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
       sourceHandle: "server",
       targetHandle: null,
     })
-  }
-
-  // Enrol the issuing CA and web server into the DC's domain (the offline root
-  // stays out — roots must never be domain-joined).
-  if (dcId) {
-    const dc = useTopologyStore.getState().nodes.find((n) => n.id === dcId)
-    if (dc) {
-      const domainName = domainLabel(dc)
-      const members = [issuingId, webId].filter(
-        (id): id is string => !!id,
-      )
-      const changes: DomainSyncChange[] = members
-        .map((nodeId): DomainSyncChange | null => {
-          const node = useTopologyStore.getState().nodes.find((n) => n.id === nodeId)
-          if (!node) return null
-          return { nodeId, nodeName: node.data.name, dcId, domainName }
-        })
-        .filter((c): c is DomainSyncChange => c !== null)
-      useTopologyStore.getState().applyDomainChanges(changes)
-    }
   }
 }
