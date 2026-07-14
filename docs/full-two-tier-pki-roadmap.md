@@ -252,7 +252,7 @@ while an expert can inspect every generated setting and command.
 
 ## Bold UI Direction
 
-### 1. Living domain bubbles
+### 1. Living domain bubbles [complete]
 
 Keep the growing circle, but turn it into a real boundary object:
 
