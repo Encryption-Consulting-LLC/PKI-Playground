@@ -137,11 +137,20 @@ def build_run_context(db, op, all_ops, topology=None) -> RunContext:
     controller — the ``secondary`` itself for a join, otherwise the DC found in
     the same guest namespace). Domain facts come from the DC's own config.
     """
-    nodes: dict[str, NodeContext] = {PRIMARY: _resolve_node(db, op.target)}
+    kind = str(getattr(op.kind, "value", op.kind))
+    # A webServerCert relationship is authored issuing-CA -> web-host so the
+    # compiler can key CA dependencies naturally, while its command sequence
+    # executes primarily on the web host. Normalize those aliases here; the
+    # other op kinds already execute on their authored target.
+    primary_id = op.secondary if kind == "webServerCert" else op.target
+    secondary_id = op.target if kind == "webServerCert" else op.secondary
+    if primary_id is None:
+        raise ContextError(f"operation '{kind}' has no primary node")
+    nodes: dict[str, NodeContext] = {PRIMARY: _resolve_node(db, primary_id)}
 
     secondary_ctx = None
-    if op.secondary:
-        secondary_ctx = _resolve_node(db, op.secondary)
+    if secondary_id:
+        secondary_ctx = _resolve_node(db, secondary_id)
         nodes[SECONDARY] = secondary_ctx
 
     # The DC is the secondary when the op joins to it directly; otherwise the
