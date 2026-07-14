@@ -95,14 +95,14 @@ export function CapabilityEdge(props: EdgeProps) {
       <defs>
         <marker
           id={markerId}
-          markerWidth="10"
-          markerHeight="10"
-          refX="9"
-          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          refX="6.3"
+          refY="3.5"
           orient="auto"
           markerUnits="strokeWidth"
         >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill={arrowColor} />
+          <path d="M 0 0 L 7 3.5 L 0 7 z" fill={arrowColor} />
         </marker>
         {liveProbe && (
           <linearGradient

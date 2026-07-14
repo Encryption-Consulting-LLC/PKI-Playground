@@ -123,9 +123,15 @@ export function Canvas() {
     }))
   }, [displayedNodes, journeyActive, journeyProjection])
   const visibleEdges = useMemo(() => {
-    if (!journeyActive || !journeyProjection) return displayedEdges
+    // Domain membership is represented by the surrounding region, while its
+    // hidden edge exists only for persistence and topology calculations.
+    // Do not give those logical-only edges to React Flow: it still resolves
+    // handles for hidden edges, and domain controllers intentionally expose
+    // no generic target handle (which otherwise emits React Flow error 008).
+    const renderableEdges = displayedEdges.filter((edge) => !edge.hidden)
+    if (!journeyActive || !journeyProjection) return renderableEdges
     const involved = new Set(journeyProjection.edgeIds)
-    return displayedEdges.map((edge) => ({
+    return renderableEdges.map((edge) => ({
       ...edge,
       animated: involved.has(edge.id),
       style: involved.has(edge.id)
