@@ -14,12 +14,14 @@ simulated stubs (see ``app.tasks._simulate_op``).
 
 import re
 import uuid
+import io
 from enum import Enum
 from functools import partial
 
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -32,7 +34,10 @@ from app.core.authz import (
     get_current_user,
     require_capability,
 )
-from app.core.db import SETTINGS_DOC_ID, get_db, settings_col, vm_registry_col
+from app.core.db import (
+    SETTINGS_DOC_ID, get_db, plan_runs_col, settings_col, vm_registry_col,
+)
+from app.core.evidence import build_evidence_bundle
 from app.core.esxi import _target_from_doc, manager
 from app.core.firstboot import TEMPLATE_IDS
 from app.core.golden_image import (
@@ -539,5 +544,32 @@ async def deploy(
         req.model_dump(by_alias=True),
         user.role.value,
         preflight.model_dump(by_alias=True) if preflight else None,
+        user.username,
     )
     return {"job_id": job_id}
+
+
+@router.get(
+    "/{job_id}/evidence",
+    dependencies=[Depends(require_capability(Capability.DEPLOY))],
+)
+async def download_evidence(
+    job_id: str,
+    user: AuthedUser = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download the redacted topology, execution facts, and public PKI artifacts."""
+
+    run = await plan_runs_col().find_one({"jobId": job_id})
+    if run is None:
+        raise HTTPException(404, detail=f"Evidence for job '{job_id}' was not found.")
+    if user.role is not Role.OPERATOR and run.get("owner") != user.username:
+        raise HTTPException(403, detail="This deployment belongs to another user.")
+    payload, digest = build_evidence_bundle(run)
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="pki-evidence-{job_id}.zip"',
+            "X-Evidence-SHA256": digest,
+        },
+    )

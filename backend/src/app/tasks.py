@@ -20,6 +20,7 @@ allocation, vm_registry) go through one short-lived sync client per task
 import logging
 import time
 import uuid
+import datetime
 from contextlib import nullcontext
 from dataclasses import asdict
 from pathlib import Path
@@ -59,6 +60,7 @@ from app.core.infrastructure_preflight import (
     preflight_infrastructure,
 )
 from app.core.settings import settings
+from app.core.evidence import redact_evidence
 from app.core.template_config import encrypt_config_secrets, extract_template_config
 from app.core.jobs import transport
 from app.core.jobs.models import (
@@ -962,12 +964,39 @@ def _verify_worker_infrastructure_preflight(
     return profiles
 
 
+def _initialize_plan_run(
+    db, job_id: str, request, owner_role: str, owner: str | None,
+    preflight_snapshot: dict | None,
+) -> None:
+    """Persist a redacted recovery/evidence snapshot before the first step."""
+
+    ttl_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=7)
+    payload = request.model_dump(by_alias=True)
+    db["plan_runs"].update_one(
+        {"jobId": job_id},
+        {
+            "$setOnInsert": {
+                "jobId": job_id,
+                "owner": owner,
+                "ownerRole": owner_role,
+                "topology": redact_evidence(payload.get("topology") or {}),
+                "operations": redact_evidence(payload.get("ops") or []),
+                "preflight": preflight_snapshot,
+                "createdAt": now_ms(),
+            },
+            "$set": {"updatedAt": now_ms(), "ttlAt": ttl_at},
+        },
+        upsert=True,
+    )
+
+
 @celery_app.task(name="run_plan")
 def run_plan_task(
     job_id: str,
     plan: dict,
     owner_role: str = "guest",
     preflight_snapshot: dict | None = None,
+    owner: str | None = None,
 ) -> None:
     """Walk a validated deploy-plan DAG, running each op in dependency order.
 
@@ -1017,6 +1046,9 @@ def run_plan_task(
         try:
             with db_ctx as db:
                 if db is not None:
+                    _initialize_plan_run(
+                        db, job_id, request, owner_role, owner, preflight_snapshot
+                    )
                     # Lazy GC for abandoned ISO uploads — piggybacks
                     # on plan runs instead of needing a scheduler.
                     from app.routers.iso import gc_orphan_isos
