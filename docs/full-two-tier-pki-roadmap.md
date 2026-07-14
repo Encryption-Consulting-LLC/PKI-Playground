@@ -266,7 +266,7 @@ Keep the growing circle, but turn it into a real boundary object:
 
 Provide an accessible `Join domain` action that produces the same preview.
 
-### 2. PKI trust gravity
+### 2. PKI trust gravity [complete]
 
 Render CAs as weighted trust bodies. A root sits at the top/center, issuing CAs
 orbit by tier, and workloads sit downstream. Creating a hierarchy edge visibly
@@ -277,7 +277,7 @@ The offline root has a broken orbit: requests and certificates animate as a
 small sealed package crossing the gap through the backend relay, never as live
 network traffic.
 
-### 3. Service sockets instead of anonymous handles
+### 3. Service sockets instead of anonymous handles [complete]
 
 Replace tiny unlabeled handles with discoverable sockets that appear on focus:
 
@@ -352,4 +352,4 @@ Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layo
 5. ~~Structured ML-DSA/OCSP/CDP/AIA final health gate.~~
 6. ~~Real operator settings/preflight UI.~~
 7. Real-ESXi canary matrix, then three-run soak acceptance with evidence bundles.
-8. Deploy compiler, service sockets, certificate journey, and evidence UI.
+8. Deploy compiler, certificate journey, and evidence UI.
