@@ -18,7 +18,7 @@
 import { create } from "zustand"
 import { toast } from "sonner"
 
-import { CONNECTION_HEALTH, LIFECYCLE } from "@/constants/topology"
+import { CONNECTION_HEALTH, EDGE_TYPE, LIFECYCLE, SERVICE_SOCKET } from "@/constants/topology"
 import { deployPlan, type PlanOpPayload } from "@/lib/api"
 import {
   OP_KIND,
@@ -56,8 +56,10 @@ function revertOp(op: StagedOp) {
       }
       return
     case OP_KIND.caConnect:
+      for (const edgeId of operationEdgeIds(op)) topology.removeEdge(edgeId)
+      return
     case OP_KIND.webServerCert:
-      if (op.edgeId) topology.removeEdge(op.edgeId)
+      for (const edgeId of operationEdgeIds(op)) topology.removeEdge(edgeId)
       return
     case OP_KIND.domainLeave:
       if (op.params.prevDcId) {
@@ -65,6 +67,29 @@ function revertOp(op: StagedOp) {
       }
       return
   }
+}
+
+function operationEdgeIds(op: StagedOp): string[] {
+  if (op.kind === OP_KIND.caConnect && op.secondaryNodeId) {
+    return useTopologyStore.getState().edges
+      .filter((edge) =>
+        edge.id === op.edgeId ||
+        (edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+          edge.data?.serviceSocket === SERVICE_SOCKET.publication &&
+          edge.source === op.secondaryNodeId),
+      )
+      .map((edge) => edge.id)
+  }
+  if (op.kind !== OP_KIND.webServerCert || !op.secondaryNodeId) {
+    return op.edgeId ? [op.edgeId] : []
+  }
+  return useTopologyStore.getState().edges
+    .filter((edge) =>
+      edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+      edge.source === op.targetNodeId &&
+      edge.target === op.secondaryNodeId,
+    )
+    .map((edge) => edge.id)
 }
 
 interface StageOpInput {
@@ -268,12 +293,12 @@ function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: 
 
     // Edge ops (domainJoin/caConnect/webServerCert) — clear ghost styling once
     // deployed. domainLeave has no edgeId; there's nothing left to commit.
-    if (op.edgeId) {
+    for (const edgeId of operationEdgeIds(op)) {
       topology.setEdgeHealth(
-        op.edgeId,
+        edgeId,
         connectionHealthForOperation(runState.status),
       )
-      if (runState.status === "done") topology.commitEdge(op.edgeId)
+      if (runState.status === "done") topology.commitEdge(edgeId)
     }
     if (
       op.kind === OP_KIND.webServerCert &&
@@ -319,7 +344,9 @@ function revertNonTerminalToStaged(): void {
         phase: undefined,
       })
     }
-    if (op.edgeId) topology.setEdgeHealth(op.edgeId, CONNECTION_HEALTH.planned)
+    for (const edgeId of operationEdgeIds(op)) {
+      topology.setEdgeHealth(edgeId, CONNECTION_HEALTH.planned)
+    }
     remaining.push({ ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined })
   }
 
@@ -486,7 +513,9 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
 
     const topologyStore = useTopologyStore.getState()
     for (const op of pruned) {
-      if (op.edgeId) topologyStore.setEdgeHealth(op.edgeId, CONNECTION_HEALTH.planned)
+      for (const edgeId of operationEdgeIds(op)) {
+        topologyStore.setEdgeHealth(edgeId, CONNECTION_HEALTH.planned)
+      }
     }
 
     set({ ops: pruned.map((op) => ({ ...op, status: OP_STATUS.pending })) })

@@ -29,7 +29,7 @@ import {
   type DomainSyncChange,
 } from "@/store/topology"
 import { opsReferencingNode, useStagingStore } from "@/store/staging"
-import type { StagedOp } from "@/lib/staging"
+import { OP_KIND, type StagedOp } from "@/lib/staging"
 import { EDGE_TYPE } from "@/constants/topology"
 import {
   domainJoinBlockReason,
@@ -156,6 +156,7 @@ export function Canvas() {
   // started so a declined change can snap the whole cluster back — keeping
   // the circle (geometry) and membership in agreement.
   const dragStart = useRef<DragSnapshot | null>(null)
+  const connectionSucceeded = useRef(false)
   const [pendingChanges, setPendingChanges] = useState<DomainSyncChange[] | null>(null)
   const [pendingOperations, setPendingOperations] = useState<string[]>([])
   const [domainDragPreview, setDomainDragPreview] = useState<DomainDragPreview | null>(null)
@@ -218,7 +219,21 @@ export function Canvas() {
   )
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => applyEdgeChanges(changes),
+    (changes: EdgeChange[]) => {
+      for (const change of changes) {
+        if (change.type !== "remove") continue
+        const edge = useTopologyStore.getState().edges.find((candidate) => candidate.id === change.id)
+        if (!edge) continue
+        const op = useStagingStore.getState().ops.find((candidate) =>
+          candidate.edgeId === edge.id ||
+          (candidate.kind === OP_KIND.webServerCert &&
+            candidate.targetNodeId === edge.source &&
+            candidate.secondaryNodeId === edge.target),
+        )
+        if (op) useStagingStore.getState().removeOpCascade(op.id)
+      }
+      applyEdgeChanges(changes)
+    },
     [applyEdgeChanges],
   )
 
@@ -226,12 +241,14 @@ export function Canvas() {
     (connection: Connection) => {
       const error = connect(connection)
       if (error) toast.error(error)
+      else connectionSucceeded.current = true
     },
     [connect],
   )
 
   const onConnectStart: OnConnectStart = useCallback(
     (_, params) => {
+      connectionSucceeded.current = false
       if (params.nodeId && params.handleId && params.handleType === "source") {
         startConnectionGesture(params.nodeId, params.handleId)
       }
@@ -240,6 +257,20 @@ export function Canvas() {
   )
 
   const onConnectEnd = useCallback(() => {
+    const gesture = useConnectionGestureStore.getState().gesture
+    if (
+      !connectionSucceeded.current &&
+      gesture?.targetNodeId &&
+      gesture.targetHandleId
+    ) {
+      const validation = canConnectServiceSockets({
+        source: gesture.sourceNodeId,
+        sourceHandle: gesture.sourceHandleId,
+        target: gesture.targetNodeId,
+        targetHandle: gesture.targetHandleId,
+      }, useTopologyStore.getState().nodes, useTopologyStore.getState().edges)
+      if (validation.reason) toast.error(validation.reason)
+    }
     endConnectionGesture()
   }, [endConnectionGesture])
 

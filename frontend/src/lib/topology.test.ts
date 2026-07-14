@@ -19,6 +19,7 @@ import {
   domainJoinOperations,
   domainRadius,
   domainRegionSummary,
+  edgeStyle,
   isConnectable,
   lintTopologyRelationships,
   serviceSocketHandleId,
@@ -90,15 +91,15 @@ describe("connection capability guidance", () => {
   it("defines every capability named by the roadmap", () => {
     expect(CONNECTION_PORT_GUIDANCE).toMatchObject({
       caParent: { capabilities: ["Issues CA certificate"] },
-      caPublication: { capabilities: ["HTTP CDP", "HTTP AIA", "OCSP URL"] },
+      caPublication: { capabilities: ["HTTP CDP", "HTTP AIA"] },
       domainBoundary: {
         capabilities: ["AD membership", "DNS resolver", "LDAP publication"],
       },
       webHost: {
-        capabilities: ["CertEnroll share", "HTTP CertEnroll", "Online Responder"],
+        capabilities: ["CertEnroll directory/share", "HTTP CertEnroll"],
       },
       probeCertificate: {
-        capabilities: ["Enrollment", "Chain validation", "Revocation validation"],
+        capabilities: ["OCSP URL", "Online Responder", "Response validation"],
       },
     })
   })
@@ -106,7 +107,7 @@ describe("connection capability guidance", () => {
   it("explains prerequisites and generated operations", () => {
     const guidance = connectionGuidance(EDGE_TYPE.webServerCert)
 
-    expect(guidance.intent).toContain("Publishes PKI services")
+    expect(guidance.intent).toContain("Publishes certificates")
     expect(guidance.requirements).toContain(
       "Issuing CA and web host share an AD domain",
     )
@@ -119,6 +120,22 @@ describe("connection capability guidance", () => {
     expect(connectionHealthForOperation("done")).toBe(CONNECTION_HEALTH.verified)
     expect(connectionHealthForOperation("cancelled")).toBe(CONNECTION_HEALTH.degraded)
     expect(connectionHealthForOperation("error")).toBe(CONNECTION_HEALTH.broken)
+  })
+
+  it("colors publication and OCSP edges and dots offline root publication", () => {
+    expect(edgeStyle(EDGE_TYPE.webServerCert, {
+      serviceSocket: SERVICE_SOCKET.publication,
+    }).style.stroke).toBe("#10b981")
+    expect(edgeStyle(EDGE_TYPE.webServerCert, {
+      serviceSocket: SERVICE_SOCKET.ocsp,
+    }).style.stroke).toBe("#8b5cf6")
+    expect(edgeStyle(EDGE_TYPE.webServerCert, {
+      rootIssuer: true,
+      serviceSocket: SERVICE_SOCKET.publication,
+    }).style).toMatchObject({
+      strokeDasharray: "1 6",
+      strokeLinecap: "round",
+    })
   })
 })
 
@@ -300,8 +317,6 @@ describe("service socket compatibility", () => {
     expect(serviceSocketsForNode(root, []).map(({ socket, type }) => `${socket}:${type}`)).toEqual([
       "issuance:source",
       "publication:source",
-      "ocsp:source",
-      "enrollment:source",
     ])
     expect(serviceSocketsForNode(issuing, [])).not.toContainEqual(
       expect.objectContaining({ socket: "domain" }),
@@ -340,7 +355,27 @@ describe("service socket compatibility", () => {
       socketConnection("issuing", "root", SERVICE_SOCKET.issuance),
       [root, issuing, other],
       hierarchy,
-    ).reason).toContain("loop")
+    ).reason).toBe("3+ Tier PKI is not supported yet.")
+  })
+
+  it("allows CDP/AIA and OCSP between the same issuing CA and web host", () => {
+    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const web = machine("web", "SRV1", "webServer")
+    const publication = relationship("publication", "issuing", "web", EDGE_TYPE.webServerCert)
+    publication.sourceHandle = serviceSocketHandleId(SERVICE_SOCKET.publication, "source")
+    publication.targetHandle = serviceSocketHandleId(SERVICE_SOCKET.publication, "target")
+    publication.data = { ...publication.data, serviceSocket: SERVICE_SOCKET.publication }
+
+    expect(canConnectServiceSockets(
+      socketConnection("issuing", "web", SERVICE_SOCKET.ocsp),
+      [issuing, web],
+      [publication],
+    )).toEqual({ ok: true })
+    expect(canConnectServiceSockets(
+      socketConnection("issuing", "web", SERVICE_SOCKET.publication),
+      [issuing, web],
+      [publication],
+    ).reason).toBe("CDP/AIA is already connected.")
   })
 
   it("reports concrete missing publication prerequisites", () => {

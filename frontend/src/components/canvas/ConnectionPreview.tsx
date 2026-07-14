@@ -35,7 +35,13 @@ export function ConnectionPreview() {
   const validation = connection
     ? canConnectServiceSockets(connection, nodes, edges)
     : null
-  const guidance = edgeType ? connectionGuidance(edgeType) : null
+  const sourceNode = nodes.find((node) => node.id === gesture.sourceNodeId)
+  const guidance = edgeType
+    ? connectionGuidance(edgeType, {
+        rootIssuer: sourceNode?.data.config?.caType === "Root",
+        serviceSocket: parsed.socket,
+      })
+    : null
   const missing = edgeType && connection
     ? connectionMissingRequirements(
         edgeType,
@@ -43,6 +49,7 @@ export function ConnectionPreview() {
         connection.target,
         nodes,
         edges,
+        parsed.socket,
       )
     : []
 
@@ -74,7 +81,9 @@ export function ConnectionPreview() {
             {edgeType === EDGE_TYPE.caHierarchy
               ? "issues CA certificate"
               : edgeType === EDGE_TYPE.webServerCert
-                ? "publishes PKI services and validates enrollment"
+                ? parsed.socket === "ocsp"
+                  ? "online certificate status"
+                  : "HTTP certificate and CRL publication"
                 : edgeType === EDGE_TYPE.domainJoin
                   ? "domain membership and DNS"
                   : socketGuidance.label}

@@ -4,6 +4,7 @@ import {
   CONNECTION_HEALTH,
   CONNECTION_PORT,
   EDGE_TYPE,
+  SERVICE_SOCKET,
 } from "@/constants/topology"
 import type {
   ConnectionHealth,
@@ -12,6 +13,7 @@ import type {
 } from "@/constants/topology"
 import type { CertificateJourney } from "@/lib/certificateJourney"
 import type { MachineData } from "@/store/topology"
+import { edgeServiceSocket } from "@/lib/topology"
 
 export interface HealthCheck {
   ok: boolean
@@ -122,6 +124,21 @@ export function serviceHealthForEdge(
     }
   }
   if (type === EDGE_TYPE.webServerCert) {
+    const legacyAggregate = edge.data?.serviceSocket === undefined
+    if (edgeServiceSocket(edge) === SERVICE_SOCKET.ocsp) {
+      return {
+        [CONNECTION_PORT.probeCertificate]: health(
+          report,
+          "certificate.chain",
+          "certificate.ocsp",
+          "certificate.mlDsa",
+          "certificate.validity",
+          "certificate.revocationFreshness",
+          "enterprisePki.templates",
+          "ocspResponder",
+        ),
+      }
+    }
     return {
       [CONNECTION_PORT.caPublication]: health(
         report,
@@ -134,18 +151,21 @@ export function serviceHealthForEdge(
       [CONNECTION_PORT.webHost]: health(
         report,
         "enterprisePki.httpArtifacts",
-        "ocspResponder",
         "runtimeIdentities.web",
       ),
-      [CONNECTION_PORT.probeCertificate]: health(
-        report,
-        "certificate.chain",
-        "certificate.ocsp",
-        "certificate.mlDsa",
-        "certificate.validity",
-        "certificate.revocationFreshness",
-        "enterprisePki.templates",
-      ),
+      ...(legacyAggregate
+        ? {
+            [CONNECTION_PORT.probeCertificate]: health(
+              report,
+              "certificate.chain",
+              "certificate.ocsp",
+              "certificate.mlDsa",
+              "certificate.validity",
+              "certificate.revocationFreshness",
+              "enterprisePki.templates",
+            ),
+          }
+        : {}),
     }
   }
   return {}

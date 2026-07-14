@@ -1,4 +1,4 @@
-import { BadgeCheck, FileText, Radio, ShieldCheck } from "lucide-react"
+import { FileText, Radio, ShieldCheck } from "lucide-react"
 
 import { CONNECTION_HEALTH, SERVICE_SOCKET } from "@/constants/topology"
 import {
@@ -11,7 +11,6 @@ const PORTS = [
   { socket: SERVICE_SOCKET.issuance, icon: ShieldCheck, color: "bg-amber-500 text-stone-950" },
   { socket: SERVICE_SOCKET.publication, icon: FileText, color: "bg-emerald-500 text-emerald-950" },
   { socket: SERVICE_SOCKET.ocsp, icon: Radio, color: "bg-violet-500 text-violet-950" },
-  { socket: SERVICE_SOCKET.enrollment, icon: BadgeCheck, color: "bg-slate-100 text-slate-900" },
 ]
 
 const HEALTH = [

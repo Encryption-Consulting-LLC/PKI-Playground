@@ -43,7 +43,6 @@ export const SERVICE_SOCKET = {
   issuance: "issuance",
   publication: "publication",
   ocsp: "ocsp",
-  enrollment: "enrollment",
 } as const
 
 export type ServiceSocket =

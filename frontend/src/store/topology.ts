@@ -23,6 +23,7 @@ import { create } from "zustand"
 
 import { AUTO_NAME_PREFIX } from "@/constants/templates"
 import { CONNECTION_HEALTH, EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
+import { SERVICE_SOCKET } from "@/constants/topology"
 import type { ConnectionHealth, Lifecycle } from "@/constants/topology"
 import type { IsoMode } from "@/constants/iso"
 import { toast } from "sonner"
@@ -38,9 +39,12 @@ import {
   domainJoinEdge,
   domainLabel,
   edgeStyle,
+  edgeServiceSocket,
   findDomainForNode,
   inferEdgeType,
   isDomainEligible,
+  parseServiceSocketHandle,
+  serviceSocketHandleId,
   serviceSocketEdgeType,
 } from "@/lib/topology"
 import { OP_KIND, findStagedOp } from "@/lib/staging"
@@ -429,6 +433,9 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     const targetNode = nodes.find((n) => n.id === target)!
     const type = serviceSocketEdgeType(connection, nodes) ??
       inferEdgeType(sourceNode.data.typeId, targetNode.data.typeId)
+    const serviceSocket = type === EDGE_TYPE.webServerCert
+      ? parseServiceSocketHandle(sourceHandle)?.socket ?? SERVICE_SOCKET.publication
+      : null
 
     if (type === EDGE_TYPE.domainJoin) {
       get().applyDomainChanges([{
@@ -440,9 +447,11 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       return null
     }
     const rootIssuer = sourceNode.data.config?.caType === "Root"
-    const style = edgeStyle(type, { rootIssuer })
+    const style = edgeStyle(type, { rootIssuer, serviceSocket })
 
-    const edgeId = `e-${source}-${target}`
+    const edgeId = type === EDGE_TYPE.webServerCert
+      ? `e-${source}-${target}-${serviceSocket}`
+      : `e-${source}-${target}`
     const newEdge: Edge = {
       id: edgeId,
       source,
@@ -457,10 +466,15 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
         staged: true,
         health: CONNECTION_HEALTH.planned,
         rootIssuer,
+        ...(serviceSocket ? { serviceSocket } : {}),
       },
       ...style,
       // Ghost styling until this op is deployed — commitEdge (M4) clears it.
-      style: { ...style.style, strokeDasharray: "6 4", opacity: 0.6 },
+      style: {
+        ...style.style,
+        ...(!rootIssuer ? { strokeDasharray: "6 4" } : {}),
+        opacity: 0.6,
+      },
     }
 
     // A connection is a relationship edit, not a layout command. Keep every
@@ -472,6 +486,27 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     // inferDependsOn, which keys a webServerCert op's caConnect dependency
     // off this same targetNodeId.
     const isCaHierarchy = type === EDGE_TYPE.caHierarchy
+    if (type === EDGE_TYPE.webServerCert) {
+      // Root HTTP publication is fulfilled by the offline caConnect relay.
+      // An issuing CA's CDP/AIA + OCSP sockets together describe the one
+      // atomic backend webServerCert operation.
+      if (rootIssuer) return null
+      const relationshipEdges = get().edges.filter((edge) =>
+        edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+        edge.source === source &&
+        edge.target === target,
+      )
+      const sockets = new Set(relationshipEdges.map(edgeServiceSocket))
+      if (!sockets.has(SERVICE_SOCKET.publication) || !sockets.has(SERVICE_SOCKET.ocsp)) {
+        return null
+      }
+      const alreadyStaged = useStagingStore.getState().ops.some((op) =>
+        op.kind === OP_KIND.webServerCert &&
+        op.targetNodeId === source &&
+        op.secondaryNodeId === target,
+      )
+      if (alreadyStaged) return null
+    }
     const opTarget = isCaHierarchy ? targetNode : sourceNode
     const opSecondary = isCaHierarchy ? sourceNode : targetNode
 
@@ -482,7 +517,7 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       params: {},
       label: isCaHierarchy
         ? `Issue from ${opSecondary.data.name}`
-        : `Publish CDP/AIA to ${opSecondary.data.name}`,
+        : `Publish CDP/AIA and OCSP to ${opSecondary.data.name}`,
       edgeId,
     })
 
@@ -812,7 +847,10 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
             },
           }
         }
-        const clean = edgeStyle(edgeType, { rootIssuer: e.data?.rootIssuer as boolean | undefined })
+        const clean = edgeStyle(edgeType, {
+          rootIssuer: e.data?.rootIssuer as boolean | undefined,
+          serviceSocket: edgeServiceSocket(e),
+        })
         return {
           ...e,
           ...clean,
@@ -874,11 +912,33 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     // switch shouldn't leak sockets tied to nodes that are about to unmount.
     for (const close of activeSockets.values()) close()
     activeSockets.clear()
-    const hydratedEdges = edges.map((edge) => {
+    const migratedEdges = edges.flatMap((edge) => {
+      if (edge.data?.edgeType !== EDGE_TYPE.webServerCert || edge.data?.serviceSocket) {
+        return [edge]
+      }
+      const publication: Edge = {
+        ...edge,
+        sourceHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "source"),
+        targetHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "target"),
+        data: { ...edge.data, serviceSocket: SERVICE_SOCKET.publication },
+      }
+      const source = nodes.find((node) => node.id === edge.source)
+      if (source?.data.config?.caType === "Root") return [publication]
+      const ocsp: Edge = {
+        ...edge,
+        id: `${edge.id}-ocsp`,
+        sourceHandle: serviceSocketHandleId(SERVICE_SOCKET.ocsp, "source"),
+        targetHandle: serviceSocketHandleId(SERVICE_SOCKET.ocsp, "target"),
+        data: { ...edge.data, serviceSocket: SERVICE_SOCKET.ocsp },
+      }
+      return [publication, ocsp]
+    })
+    const hydratedEdges = migratedEdges.map((edge) => {
       const edgeType = edge.data?.edgeType as ReturnType<typeof inferEdgeType> | undefined
       if (!edgeType || edgeType === EDGE_TYPE.network) return edge
       const rootIssuer = edge.data?.rootIssuer === true
-      const visual = edgeStyle(edgeType, { rootIssuer })
+      const serviceSocket = edgeServiceSocket(edge)
+      const visual = edgeStyle(edgeType, { rootIssuer, serviceSocket })
       const staged = edge.data?.staged === true
       const savedHealth = edge.data?.health as ConnectionHealth | undefined
       const health = Object.values(CONNECTION_HEALTH).includes(savedHealth as ConnectionHealth)
@@ -898,9 +958,14 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
           staged,
           health,
           rootIssuer,
+          ...(serviceSocket ? { serviceSocket } : {}),
         },
         style: staged
-          ? { ...visual.style, strokeDasharray: "6 4", opacity: 0.6 }
+          ? {
+              ...visual.style,
+              ...(!rootIssuer ? { strokeDasharray: "6 4" } : {}),
+              opacity: 0.6,
+            }
           : visual.style,
       }
     })

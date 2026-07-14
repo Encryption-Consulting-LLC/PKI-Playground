@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest"
 
+import { EDGE_TYPE } from "@/constants/topology"
 import { buildDeployTopology } from "@/lib/deployTopology"
 import { buildPkiTemplateIntoStores } from "@/lib/projectTemplate"
 import type { StagedOp } from "@/lib/staging"
@@ -125,6 +126,36 @@ describe("supplied PKI project template", () => {
       { kind: "A", server: "DC01", subject: "DC01", zone: "encon.pki", name: undefined },
       { kind: "A", server: "DC01", subject: "SRV1", zone: "encon.pki", name: undefined },
       { kind: "CNAME", server: "DC01", subject: "SRV1", zone: "encon.pki", name: "pki" },
+    ])
+  })
+
+  it("requires both issuing service sockets before exporting publication", () => {
+    const { nodes, edges } = useTopologyStore.getState()
+    const withoutOcsp = edges.filter((edge) => edge.data?.serviceSocket !== "ocsp")
+    const topology = buildDeployTopology(nodes, withoutOcsp)
+
+    expect(topology.edges.some((edge) => edge.kind === "caPublication")).toBe(false)
+    expect(topology.dnsRecords.some((record) => record.kind === "CNAME")).toBe(false)
+  })
+
+  it("upgrades a legacy aggregate service edge on snapshot load", () => {
+    const { nodes, edges, counters, viewport } = useTopologyStore.getState()
+    const publication = edges.find((edge) =>
+      edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+      edge.data?.serviceSocket === "publication" &&
+      nodes.find((node) => node.id === edge.source)?.data.config?.caType === "Issuing",
+    )
+    expect(publication).toBeDefined()
+    const legacy = {
+      ...publication!,
+      data: { ...publication!.data, serviceSocket: undefined },
+    }
+
+    useTopologyStore.getState().loadSnapshot(nodes, [legacy], counters, viewport)
+
+    expect(useTopologyStore.getState().edges.map((edge) => edge.data?.serviceSocket).sort()).toEqual([
+      "ocsp",
+      "publication",
     ])
   })
 

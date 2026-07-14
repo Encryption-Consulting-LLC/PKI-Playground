@@ -1,4 +1,4 @@
-import { useId, useState } from "react"
+import { useId, useState, type CSSProperties } from "react"
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -7,29 +7,36 @@ import {
   type EdgeProps,
 } from "@xyflow/react"
 
-import { CONNECTION_HEALTH, EDGE_TYPE } from "@/constants/topology"
+import { CONNECTION_HEALTH, EDGE_TYPE, SERVICE_SOCKET } from "@/constants/topology"
 import type { ConnectionHealth, ConnectionPort, EdgeType } from "@/constants/topology"
 import type { ServiceHealth } from "@/lib/labEvidence"
 import {
   CONNECTION_HEALTH_GUIDANCE,
   CONNECTION_PORT_GUIDANCE,
   connectionGuidance,
+  edgeServiceSocket,
 } from "@/lib/topology"
 import { cn } from "@/lib/utils"
+
+const OFFLINE_RELAY_LABEL_OFFSET_Y = 28
 
 export function CapabilityEdge(props: EdgeProps) {
   const [hovered, setHovered] = useState(false)
   const gradientId = `service-health-${useId().replaceAll(":", "")}`
+  const markerId = `${gradientId}-arrow`
   const edgeType = props.data?.edgeType as EdgeType | undefined
   if (!edgeType) return null
 
   const guidance = connectionGuidance(edgeType, {
     rootIssuer: props.data?.rootIssuer === true,
+    serviceSocket: edgeServiceSocket(props),
   })
   const [path, labelX, labelY] =
     edgeType === EDGE_TYPE.webServerCert
       ? getBezierPath(props)
       : getSmoothStepPath(props)
+  const hasOfflineRelay =
+    edgeType === EDGE_TYPE.caHierarchy && props.data?.rootIssuer === true
   const expanded = hovered || props.selected
   const health = (props.data?.health as ConnectionHealth | undefined) ??
     (props.data?.staged === true
@@ -50,7 +57,7 @@ export function CapabilityEdge(props: EdgeProps) {
       case CONNECTION_HEALTH.broken: return "#ef4444"
     }
   }
-  const pathStyle = {
+  const pathStyle: CSSProperties = {
     ...props.style,
     ...(health === CONNECTION_HEALTH.applying
       ? { strokeDasharray: "7 4", opacity: 1 }
@@ -62,12 +69,42 @@ export function CapabilityEdge(props: EdgeProps) {
     ...(liveProbe
       ? { stroke: `url(#${gradientId})`, strokeWidth: 3, opacity: 1 }
       : {}),
+    ...(edgeType === EDGE_TYPE.webServerCert && props.data?.rootIssuer === true
+      ? { strokeDasharray: "1 6", strokeLinecap: "round" }
+      : {}),
   }
+  const baseColor = edgeType === EDGE_TYPE.caHierarchy
+    ? "#f59e0b"
+    : edgeServiceSocket(props) === SERVICE_SOCKET.ocsp
+      ? "#8b5cf6"
+      : typeof props.style?.stroke === "string"
+        ? props.style.stroke
+        : "#10b981"
+  const arrowColor = liveServices.length > 0
+    ? serviceColor(liveServices[liveServices.length - 1].health)
+    : health === CONNECTION_HEALTH.broken
+      ? "#ef4444"
+      : health === CONNECTION_HEALTH.degraded
+        ? "#f59e0b"
+        : health === CONNECTION_HEALTH.applying
+          ? "#8b5cf6"
+          : baseColor
 
   return (
     <>
-      {liveProbe && (
-        <defs>
+      <defs>
+        <marker
+          id={markerId}
+          markerWidth="10"
+          markerHeight="10"
+          refX="9"
+          refY="5"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
+          <path d="M 0 0 L 10 5 L 0 10 z" fill={arrowColor} />
+        </marker>
+        {liveProbe && (
           <linearGradient
             id={gradientId}
             gradientUnits="userSpaceOnUse"
@@ -86,15 +123,15 @@ export function CapabilityEdge(props: EdgeProps) {
               ]
             })}
           </linearGradient>
-        </defs>
-      )}
+        )}
+      </defs>
       <BaseEdge
         id={props.id}
         path={path}
-        markerEnd={props.markerEnd}
+        markerEnd={`url(#${markerId})`}
         style={pathStyle}
       />
-      {edgeType === EDGE_TYPE.caHierarchy && props.data?.rootIssuer === true && (
+      {hasOfflineRelay && (
         <g className="offline-relay-package pointer-events-none" aria-hidden="true">
           <title>Sealed certificate request and signed certificate relay</title>
           <rect
@@ -127,7 +164,11 @@ export function CapabilityEdge(props: EdgeProps) {
         <div
           className="nodrag nopan absolute z-10"
           style={{
-            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            // Leave the path clear for the sealed relay package animation.
+            // Other edge labels stay centered on their paths as before.
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${
+              labelY + (hasOfflineRelay ? OFFLINE_RELAY_LABEL_OFFSET_Y : 0)
+            }px)`,
           }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}

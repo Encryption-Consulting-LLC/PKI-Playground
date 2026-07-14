@@ -1,7 +1,6 @@
 import { Fragment, useEffect } from "react"
 import {
   AlertTriangle,
-  BadgeCheck,
   CheckCircle2,
   Clock,
   FileText,
@@ -43,8 +42,10 @@ import { Badge } from "@/components/ui/badge"
 import { ProgressBar } from "./ProgressBar"
 
 const MACHINE_NODE_WIDTH = 304
-const MACHINE_NODE_HEIGHT = 216
+const MACHINE_NODE_MIN_HEIGHT = 216
 const DRAFT_NODE_HEIGHT = 92
+const SOCKET_ROW_HEIGHT = 24
+const SOCKETS_WITHIN_COMPACT_CARD = 2
 
 const SOCKET_APPEARANCE: Record<
   ServiceSocket,
@@ -64,11 +65,6 @@ const SOCKET_APPEARANCE: Record<
     icon: Radio,
     dotClassName: "!bg-violet-500",
     iconClassName: "text-violet-500",
-  },
-  [SERVICE_SOCKET.enrollment]: {
-    icon: BadgeCheck,
-    dotClassName: "!bg-slate-100",
-    iconClassName: "text-slate-400",
   },
 }
 
@@ -106,6 +102,15 @@ function socketPlacement(socket: ServiceSocket, type: "source" | "target") {
         labelStyle: { left: 3, top, transform: "translateY(-50%)" },
         labelClassName: "justify-start",
       }
+}
+
+function machineNodeHeight(
+  socketSpecs: Array<{ socket: ServiceSocket; type: "source" | "target" }>,
+  isDraft: boolean,
+): number {
+  if (isDraft) return DRAFT_NODE_HEIGHT
+  return MACHINE_NODE_MIN_HEIGHT +
+    Math.max(0, socketSpecs.length - SOCKETS_WITHIN_COMPACT_CARD) * SOCKET_ROW_HEIGHT
 }
 
 function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {
@@ -325,7 +330,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
     socketSpecs.some((spec) => spec.type === "target" && socketCompatibility(spec.socket)?.ok)
   const dimmedByGesture = gesture && gesture.sourceNodeId !== id && !compatibleDestination
   const isDraft = data.lifecycle === LIFECYCLE.draft
-  const nodeHeight = isDraft ? DRAFT_NODE_HEIGHT : MACHINE_NODE_HEIGHT
+  const nodeHeight = machineNodeHeight(socketSpecs, isDraft)
 
   return (
     <div
@@ -403,14 +408,26 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
                 if (gesture && spec.type === "target") hoverTarget()
               }}
               className={cn(
-                "service-socket machine-node-service-reveal !z-20 !h-3 !w-3 !rounded-full !border-0 !shadow-sm",
+                // Keep the compact 12px dot, but give it a 24px interaction
+                // target. Root CAs expose only output sockets, so shrinking
+                // the Handle itself to the visible dot made every relationship
+                // drag needlessly difficult to start.
+                "service-socket machine-node-service-reveal !z-20 !flex !h-6 !w-6 !items-center !justify-center",
+                "!rounded-full !border-0 !bg-transparent !shadow-none cursor-crosshair",
                 "transition-opacity duration-150 focus-visible:!outline-none focus-visible:!ring-2 focus-visible:!ring-ring",
-                appearance.dotClassName,
                 visible
                   ? "!opacity-100"
                   : "pointer-events-none !opacity-0",
               )}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none h-3 w-3 rounded-full shadow-sm",
+                  appearance.dotClassName,
+                )}
+              />
+            </Handle>
             <span
               aria-hidden="true"
               style={placement.labelStyle}

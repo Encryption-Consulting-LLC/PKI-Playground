@@ -148,13 +148,30 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
       targetHandle: serviceSocketHandleId(SERVICE_SOCKET.issuance, "target"),
     })
   }
-  // Issuing CA publishes its CRL/AIA to the web server.
+  // The offline root's HTTP artifacts cross the air gap through the issuing
+  // workflow; the dotted edge records that publication intent without adding
+  // a live root-to-web deployment operation.
+  if (rootId && webId) {
+    useTopologyStore.getState().connect({
+      source: rootId,
+      target: webId,
+      sourceHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "source"),
+      targetHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "target"),
+    })
+  }
+  // Issuing CA publishes CDP/AIA and provides OCSP through PKI web services.
   if (issuingId && webId) {
     useTopologyStore.getState().connect({
       source: issuingId,
       target: webId,
       sourceHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "source"),
       targetHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "target"),
+    })
+    useTopologyStore.getState().connect({
+      source: issuingId,
+      target: webId,
+      sourceHandle: serviceSocketHandleId(SERVICE_SOCKET.ocsp, "source"),
+      targetHandle: serviceSocketHandleId(SERVICE_SOCKET.ocsp, "target"),
     })
   }
 }

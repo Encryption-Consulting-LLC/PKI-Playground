@@ -145,6 +145,42 @@ export function connectionPorts(type: EdgeType): ConnectionPort[] {
   }
 }
 
+/** The single canvas capability represented by a CA-to-web edge. */
+export function edgeServiceSocket(edge: Pick<Edge, "sourceHandle" | "data">): ServiceSocket | null {
+  if (edge.data?.edgeType !== EDGE_TYPE.webServerCert) return null
+  const persisted = edge.data?.serviceSocket as ServiceSocket | undefined
+  if (persisted === SERVICE_SOCKET.publication || persisted === SERVICE_SOCKET.ocsp) {
+    return persisted
+  }
+  const parsed = parseServiceSocketHandle(edge.sourceHandle)
+  return parsed?.socket === SERVICE_SOCKET.ocsp
+    ? SERVICE_SOCKET.ocsp
+    : SERVICE_SOCKET.publication
+}
+
+export function webServiceEdges(
+  edges: Edge[],
+  sourceId?: string,
+  targetId?: string,
+): Edge[] {
+  return edges.filter((edge) =>
+    edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+    (sourceId === undefined || edge.source === sourceId) &&
+    (targetId === undefined || edge.target === targetId),
+  )
+}
+
+export function hasCompleteWebServiceRelationship(
+  edges: Edge[],
+  sourceId: string,
+  targetId: string,
+): boolean {
+  const sockets = new Set(
+    webServiceEdges(edges, sourceId, targetId).map(edgeServiceSocket),
+  )
+  return sockets.has(SERVICE_SOCKET.publication) && sockets.has(SERVICE_SOCKET.ocsp)
+}
+
 export interface ConnectionPortGuidance {
   label: string
   capabilities: string[]
@@ -160,7 +196,7 @@ export const CONNECTION_PORT_GUIDANCE: Record<
   },
   [CONNECTION_PORT.caPublication]: {
     label: "CA publication",
-    capabilities: ["HTTP CDP", "HTTP AIA", "OCSP URL"],
+    capabilities: ["HTTP CDP", "HTTP AIA"],
   },
   [CONNECTION_PORT.domainBoundary]: {
     label: "Domain boundary",
@@ -168,11 +204,11 @@ export const CONNECTION_PORT_GUIDANCE: Record<
   },
   [CONNECTION_PORT.webHost]: {
     label: "Web host",
-    capabilities: ["CertEnroll share", "HTTP CertEnroll", "Online Responder"],
+    capabilities: ["CertEnroll directory/share", "HTTP CertEnroll"],
   },
   [CONNECTION_PORT.probeCertificate]: {
-    label: "Probe certificate",
-    capabilities: ["Enrollment", "Chain validation", "Revocation validation"],
+    label: "OCSP service",
+    capabilities: ["OCSP URL", "Online Responder", "Response validation"],
   },
 }
 
@@ -197,11 +233,6 @@ export const SERVICE_SOCKET_GUIDANCE: Record<ServiceSocket, ServiceSocketGuidanc
     label: "OCSP",
     intent: "Attach an Online Responder path",
     operation: "webServerCert · configure, enroll, and verify OCSP",
-  },
-  [SERVICE_SOCKET.enrollment]: {
-    label: "Cert Enroll",
-    intent: "Enroll and validate a workload certificate",
-    operation: "webServerCert · enroll and verify the probe certificate",
   },
 }
 
@@ -266,7 +297,6 @@ export function serviceSocketEdgeType(
         : null
     case SERVICE_SOCKET.publication:
     case SERVICE_SOCKET.ocsp:
-    case SERVICE_SOCKET.enrollment:
       return source.data.typeId === "certificateAuthority" &&
         target.data.typeId === "webServer"
         ? EDGE_TYPE.webServerCert
@@ -293,15 +323,13 @@ export function serviceSocketsForNode(
       ...(!root ? [{ socket: SERVICE_SOCKET.issuance, type: "target" } as const] : []),
       { socket: SERVICE_SOCKET.issuance, type: "source" },
       { socket: SERVICE_SOCKET.publication, type: "source" },
-      { socket: SERVICE_SOCKET.ocsp, type: "source" },
-      { socket: SERVICE_SOCKET.enrollment, type: "source" },
+      ...(!root ? [{ socket: SERVICE_SOCKET.ocsp, type: "source" } as const] : []),
     ]
   }
   if (node.data.typeId === "webServer") {
     return [
       { socket: SERVICE_SOCKET.publication, type: "target" },
       { socket: SERVICE_SOCKET.ocsp, type: "target" },
-      { socket: SERVICE_SOCKET.enrollment, type: "target" },
     ]
   }
   return []
@@ -379,8 +407,13 @@ export function lintTopologyRelationships(
       .filter((edge) => edge.data?.edgeType === EDGE_TYPE.caHierarchy)
       .map((edge) => [edge.target, edge]),
   )
-  const publications = edges.filter(
-    (edge) => edge.data?.edgeType === EDGE_TYPE.webServerCert,
+  const publications = webServiceEdges(edges).filter(
+    (edge) => edgeServiceSocket(edge) === SERVICE_SOCKET.publication,
+  )
+  const ocspConnections = webServiceEdges(edges).filter(
+    (edge) =>
+      edgeServiceSocket(edge) === SERVICE_SOCKET.ocsp ||
+      edge.data?.serviceSocket === undefined,
   )
 
   const issuingCas = nodes.filter(
@@ -425,8 +458,9 @@ export function lintTopologyRelationships(
   )
   for (const web of webHosts) {
     const publication = publications.find((edge) => edge.target === web.id)
+    const ocspConnection = ocspConnections.find((edge) => edge.target === web.id)
     const ocspEnabled = web.data.config?.enableOcsp !== "Disabled"
-    if (ocspEnabled && !publication) {
+    if (ocspEnabled && !ocspConnection) {
       diagnostics.push({
         code: "ocsp-template-grant-missing",
         message: `${web.data.name} has OCSP enabled, but no issuing CA grants its enrollment templates.`,
@@ -434,11 +468,10 @@ export function lintTopologyRelationships(
         nodeIds: [web.id],
         edgeIds: [],
       })
-      continue
     }
     if (!publication) continue
 
-    const health = publication.data?.health as ConnectionHealth | undefined
+    const health = ocspConnection?.data?.health as ConnectionHealth | undefined
     if (
       health === CONNECTION_HEALTH.degraded ||
       health === CONNECTION_HEALTH.broken
@@ -447,8 +480,8 @@ export function lintTopologyRelationships(
         code: "probe-ocsp-path-unverified",
         message: `${web.data.name} can enroll its probe, but no verified OCSP path reaches its certificate.`,
         severity: health === CONNECTION_HEALTH.broken ? "error" : "warning",
-        nodeIds: [publication.source, web.id],
-        edgeIds: [publication.id],
+        nodeIds: [ocspConnection?.source ?? publication.source, web.id],
+        edgeIds: ocspConnection ? [ocspConnection.id] : [],
       })
     }
 
@@ -490,17 +523,30 @@ export function connectionGuidance(
         ports,
       }
     case EDGE_TYPE.webServerCert:
+    {
+      const ocsp = opts?.serviceSocket === SERVICE_SOCKET.ocsp
       return {
-        intent: "Publishes PKI services and verifies a probe certificate",
-        requirements: [
-          "Issuing CA has a root parent",
-          "Issuing CA and web host share an AD domain",
-          "Web host has Online Responder enabled",
-        ],
-        operations: [
-          "webServerCert: publish CertEnroll, configure OCSP, enroll a probe, and verify PKI health",
-        ],
-        ports,
+        intent: ocsp
+          ? "Provides online certificate status through OCSP"
+          : "Publishes certificates and revocation artifacts through HTTP",
+        requirements: opts?.rootIssuer
+          ? ["Configured offline root CA", "Configured PKI web services host"]
+          : [
+              "Issuing CA has a root parent",
+              "Issuing CA and web host share an AD domain",
+              ...(ocsp ? ["Web host has Online Responder enabled"] : []),
+            ],
+        operations: opts?.rootIssuer
+          ? ["caConnect: relay root certificate and CRL through the issuing CA"]
+          : [
+              ocsp
+                ? "webServerCert: configure, enroll, and verify OCSP"
+                : "webServerCert: publish and verify CertEnroll HTTP artifacts",
+            ],
+        ports: ocsp
+          ? [CONNECTION_PORT.probeCertificate]
+          : [CONNECTION_PORT.caPublication, CONNECTION_PORT.webHost],
+    }
       }
     case EDGE_TYPE.domainJoin:
       return {
@@ -1138,15 +1184,6 @@ export function canConnect(
     return { ok: false, reason: "Cannot connect a node to itself." }
   }
 
-  const duplicate = edges.some(
-    (e) =>
-      (e.source === sourceId && e.target === targetId) ||
-      (e.source === targetId && e.target === sourceId),
-  )
-  if (duplicate) {
-    return { ok: false, reason: "A connection between these nodes already exists." }
-  }
-
   const source = nodes.find((n) => n.id === sourceId)
   const target = nodes.find((n) => n.id === targetId)
 
@@ -1181,6 +1218,22 @@ export function canConnect(
   }
 
   const edgeType = inferEdgeType(source.data.typeId, target.data.typeId)
+
+  if (
+    edgeType === EDGE_TYPE.caHierarchy &&
+    (source.data.config?.caType === "Issuing" || caTier(sourceId, edges) === "issuing")
+  ) {
+    return { ok: false, reason: "3+ Tier PKI is not supported yet." }
+  }
+
+  const duplicate = edges.some(
+    (e) =>
+      (e.source === sourceId && e.target === targetId) ||
+      (e.source === targetId && e.target === sourceId),
+  )
+  if (duplicate && edgeType !== EDGE_TYPE.webServerCert) {
+    return { ok: false, reason: "A connection between these nodes already exists." }
+  }
 
   // Root CAs must not be domain-joined
   if (edgeType === EDGE_TYPE.domainJoin) {
@@ -1239,6 +1292,15 @@ export function canConnectServiceSockets(
   if (!serviceSocketEdgeType(connection, nodes)) {
     return { ok: false, reason: "That service socket is not supported by this destination." }
   }
+  const sourceSocket = sourceHandle.socket
+  const duplicate = edges.some((edge) =>
+    edge.source === connection.source &&
+    edge.target === connection.target &&
+    edgeServiceSocket(edge) === sourceSocket,
+  )
+  if (duplicate) {
+    return { ok: false, reason: `${SERVICE_SOCKET_GUIDANCE[sourceSocket].label} is already connected.` }
+  }
   return canConnect(connection.source, connection.target, nodes, edges)
 }
 
@@ -1249,6 +1311,7 @@ export function connectionMissingRequirements(
   targetId: string,
   nodes: Node<MachineData>[],
   edges: Edge[],
+  serviceSocket: ServiceSocket = SERVICE_SOCKET.ocsp,
 ): string[] {
   if (type !== EDGE_TYPE.webServerCert) return []
   const source = nodes.find((node) => node.id === sourceId)
@@ -1257,6 +1320,7 @@ export function connectionMissingRequirements(
 
   const missing: string[] = []
   const rootIssuer = source.data.config?.caType === "Root" || caTier(source.id, edges) === "root"
+  if (rootIssuer) return missing
   if (!rootIssuer && !caParent(source.id, edges)) {
     missing.push(`${source.data.name} still needs a root CA parent`)
   }
@@ -1269,7 +1333,7 @@ export function connectionMissingRequirements(
   if (!sourceDomain || sourceDomain !== targetDomain) {
     missing.push(`${source.data.name} and ${target.data.name} must share an AD domain`)
   }
-  if (target.data.config?.enableOcsp === "Disabled") {
+  if (serviceSocket === SERVICE_SOCKET.ocsp && target.data.config?.enableOcsp === "Disabled") {
     missing.push(`${target.data.name} must enable Online Responder`)
   }
   return missing
@@ -1293,6 +1357,7 @@ export interface EdgeStyleOptions {
    * CA02), not over a live connection the way an online issuing CA publishes.
    */
   rootIssuer?: boolean
+  serviceSocket?: ServiceSocket | null
 }
 
 export function edgeStyle(type: EdgeType, opts?: EdgeStyleOptions): EdgeStyleProps {
@@ -1321,15 +1386,21 @@ export function edgeStyle(type: EdgeType, opts?: EdgeStyleOptions): EdgeStylePro
         labelStyle: { fill: "#f59e0b", fontSize: 11 },
       }
     case EDGE_TYPE.webServerCert:
+    {
+      const ocsp = opts?.serviceSocket === SERVICE_SOCKET.ocsp
+      const color = ocsp ? "#8b5cf6" : "#10b981"
       return {
         style: {
-          stroke: "#10b981",
+          stroke: color,
           strokeWidth: 2,
-          ...(opts?.rootIssuer ? { strokeDasharray: "6 4" } : {}),
+          ...(opts?.rootIssuer
+            ? { strokeDasharray: "1 6", strokeLinecap: "round" }
+            : {}),
         },
         animated: false,
-        label: "publishes CDP/AIA · enables OCSP",
-        labelStyle: { fill: "#10b981", fontSize: 11 },
+        label: ocsp ? "enables OCSP" : "publishes CDP/AIA",
+        labelStyle: { fill: color, fontSize: 11 },
+    }
       }
     case EDGE_TYPE.network:
       return {

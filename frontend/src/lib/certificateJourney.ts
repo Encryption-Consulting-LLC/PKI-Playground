@@ -44,7 +44,10 @@ export function projectCertificateJourney(
   nodes: Node<MachineData>[],
   edges: Edge[],
 ): CertificateJourneyProjection | null {
-  const publication = edges.find((edge) => edge.data?.edgeType === EDGE_TYPE.webServerCert)
+  const publication = edges.find((edge) =>
+    edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+    edgeServiceSocket(edge) === SERVICE_SOCKET.publication,
+  )
   if (!publication) return null
   const issuing = nodes.find((node) => node.id === publication.source)
   const web = nodes.find((node) => node.id === publication.target)
@@ -61,7 +64,13 @@ export function projectCertificateJourney(
     issuing.id,
     ...(parent ? [parent.source] : []),
   ]))
-  const edgeIds = [publication.id, ...(parent ? [parent.id] : [])]
+  const ocsp = edges.find((edge) =>
+    edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+    edge.source === publication.source &&
+    edge.target === publication.target &&
+    edgeServiceSocket(edge) === SERVICE_SOCKET.ocsp,
+  )
+  const edgeIds = [publication.id, ...(ocsp ? [ocsp.id] : []), ...(parent ? [parent.id] : [])]
   if (web.data.certificateJourney) {
     return { journey: web.data.certificateJourney, nodeIds, edgeIds, live: true }
   }
@@ -110,5 +119,6 @@ export function projectCertificateJourney(
 }
 import type { Edge, Node } from "@xyflow/react"
 
-import { EDGE_TYPE } from "@/constants/topology"
+import { EDGE_TYPE, SERVICE_SOCKET } from "@/constants/topology"
+import { edgeServiceSocket } from "@/lib/topology"
 import type { MachineData } from "@/store/topology"
