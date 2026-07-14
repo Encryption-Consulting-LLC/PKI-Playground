@@ -290,7 +290,7 @@ Replace tiny unlabeled handles with discoverable sockets that appear on focus:
 Dragging from a socket highlights only compatible destinations and previews the
 edge label, required operations, and anything still missing.
 
-### 4. Deploy compiler view
+### 4. Deploy compiler view [complete]
 
 Deploy opens a review sheet rather than immediately posting the list:
 
@@ -301,7 +301,7 @@ Deploy opens a review sheet rather than immediately posting the list:
 Users can click any timeline step to highlight the responsible nodes and edges.
 The final button reads `Deploy 4 VMs / 38 verified steps` rather than just Deploy.
 
-### 5. Certificate journey lens
+### 5. Certificate journey lens [complete]
 
 A toggle changes the canvas from infrastructure view to the path of one sample
 certificate:
@@ -352,4 +352,4 @@ Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layo
 5. ~~Structured ML-DSA/OCSP/CDP/AIA final health gate.~~
 6. ~~Real operator settings/preflight UI.~~
 7. Real-ESXi canary matrix, then three-run soak acceptance with evidence bundles.
-8. Deploy compiler, certificate journey, and evidence UI.
+8. ~~Deploy compiler and certificate journey,~~ then evidence UI.
