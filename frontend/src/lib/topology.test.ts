@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest"
 
-import { CONNECTION_HEALTH, CONNECTION_PORT, EDGE_TYPE } from "@/constants/topology"
+import {
+  CONNECTION_HEALTH,
+  CONNECTION_PORT,
+  EDGE_TYPE,
+  SERVICE_SOCKET,
+} from "@/constants/topology"
 import {
   CONNECTION_PORT_GUIDANCE,
   canConnect,
+  canConnectServiceSockets,
+  connectionMissingRequirements,
   connectionGuidance,
   connectionHealthForOperation,
   connectionPorts,
@@ -12,6 +19,7 @@ import {
   domainRegionSummary,
   isConnectable,
   lintTopologyRelationships,
+  serviceSocketHandleId,
   trustGravityLayout,
 } from "@/lib/topology"
 import type { Edge, Node } from "@xyflow/react"
@@ -244,5 +252,73 @@ describe("PKI trust gravity", () => {
     const standalone = { ...machine("other", "CA99", "certificateAuthority"), position: { x: 900, y: 700 } }
 
     expect(trustGravityLayout([root, standalone], [], "root")).toEqual([root, standalone])
+  })
+})
+
+describe("service socket compatibility", () => {
+  const socketConnection = (
+    source: string,
+    target: string,
+    socket: (typeof SERVICE_SOCKET)[keyof typeof SERVICE_SOCKET],
+  ) => ({
+    source,
+    target,
+    sourceHandle: serviceSocketHandleId(socket, "source"),
+    targetHandle: serviceSocketHandleId(socket, "target"),
+  })
+
+  it("accepts only matching role-specific service sockets", () => {
+    const root = machine("root", "CA01", "certificateAuthority", { caType: "Root" })
+    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const web = machine("web", "SRV1", "webServer")
+
+    expect(canConnectServiceSockets(
+      socketConnection("root", "issuing", SERVICE_SOCKET.issuance),
+      [root, issuing, web],
+      [],
+    )).toEqual({ ok: true })
+    expect(canConnectServiceSockets(
+      socketConnection("root", "web", SERVICE_SOCKET.issuance),
+      [root, issuing, web],
+      [],
+    ).ok).toBe(false)
+  })
+
+  it("resists second parents and hierarchy cycles during the gesture", () => {
+    const root = machine("root", "CA01", "certificateAuthority")
+    const issuing = machine("issuing", "CA02", "certificateAuthority")
+    const other = machine("other", "CA03", "certificateAuthority")
+    const hierarchy = [
+      relationship("parent", "root", "other", EDGE_TYPE.caHierarchy),
+      relationship("child", "other", "issuing", EDGE_TYPE.caHierarchy),
+    ]
+
+    expect(canConnectServiceSockets(
+      socketConnection("root", "issuing", SERVICE_SOCKET.issuance),
+      [root, issuing, other],
+      hierarchy,
+    ).reason).toContain("already has an issuer")
+    expect(canConnectServiceSockets(
+      socketConnection("issuing", "root", SERVICE_SOCKET.issuance),
+      [root, issuing, other],
+      hierarchy,
+    ).reason).toContain("loop")
+  })
+
+  it("reports concrete missing publication prerequisites", () => {
+    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const web = machine("web", "SRV1", "webServer", { enableOcsp: "Disabled" })
+
+    expect(connectionMissingRequirements(
+      EDGE_TYPE.webServerCert,
+      "issuing",
+      "web",
+      [issuing, web],
+      [],
+    )).toEqual([
+      "CA02 still needs a root CA parent",
+      "CA02 and SRV1 must share an AD domain",
+      "SRV1 must enable Online Responder",
+    ])
   })
 })

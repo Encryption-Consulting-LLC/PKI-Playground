@@ -3,17 +3,19 @@
  * All inputs are plain arrays of Node/Edge data so these are trivially testable.
  */
 
-import type { Edge, Node } from "@xyflow/react"
+import type { Connection, Edge, Node } from "@xyflow/react"
 import {
   CONNECTION_HEALTH,
   CONNECTION_PORT,
   EDGE_TYPE,
   LIFECYCLE,
+  SERVICE_SOCKET,
 } from "@/constants/topology"
 import type {
   ConnectionHealth,
   ConnectionPort,
   EdgeType,
+  ServiceSocket,
 } from "@/constants/topology"
 import type { IsoAuthoring, MachineData } from "@/store/topology"
 
@@ -172,6 +174,107 @@ export const CONNECTION_PORT_GUIDANCE: Record<
     label: "Probe certificate",
     capabilities: ["Enrollment", "Chain validation", "Revocation validation"],
   },
+}
+
+export interface ServiceSocketGuidance {
+  label: string
+  intent: string
+  operation: string
+}
+
+export const SERVICE_SOCKET_GUIDANCE: Record<ServiceSocket, ServiceSocketGuidance> = {
+  [SERVICE_SOCKET.issuance]: {
+    label: "CA issuance",
+    intent: "Issue a subordinate CA certificate",
+    operation: "caConnect · request, relay, sign, install, and verify",
+  },
+  [SERVICE_SOCKET.publication]: {
+    label: "CDP/AIA publication",
+    intent: "Publish certificates and revocation artifacts",
+    operation: "webServerCert · publish CertEnroll and verify HTTP artifacts",
+  },
+  [SERVICE_SOCKET.ocsp]: {
+    label: "OCSP",
+    intent: "Attach an Online Responder path",
+    operation: "webServerCert · configure, enroll, and verify OCSP",
+  },
+  [SERVICE_SOCKET.domain]: {
+    label: "Domain membership / DNS",
+    intent: "Join Active Directory and use its DNS resolver",
+    operation: "domainJoin · set DNS, join, reboot, and verify",
+  },
+  [SERVICE_SOCKET.enrollment]: {
+    label: "Certificate enrollment",
+    intent: "Enroll and validate a workload certificate",
+    operation: "webServerCert · enroll and verify the probe certificate",
+  },
+}
+
+export type ServiceSocketHandleType = "source" | "target"
+
+export function serviceSocketHandleId(
+  socket: ServiceSocket,
+  type: ServiceSocketHandleType,
+): string {
+  return `socket:${socket}:${type}`
+}
+
+export function parseServiceSocketHandle(
+  handleId: string | null | undefined,
+): { socket: ServiceSocket; type: ServiceSocketHandleType } | null {
+  if (!handleId) return null
+  const [prefix, socket, type, extra] = handleId.split(":")
+  if (
+    prefix !== "socket" ||
+    extra !== undefined ||
+    !Object.values(SERVICE_SOCKET).includes(socket as ServiceSocket) ||
+    (type !== "source" && type !== "target")
+  ) {
+    return null
+  }
+  return { socket: socket as ServiceSocket, type }
+}
+
+/** Resolves a matching socket pair to the one relationship it can create. */
+export function serviceSocketEdgeType(
+  connection: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">,
+  nodes: Node<MachineData>[],
+): EdgeType | null {
+  const sourceHandle = parseServiceSocketHandle(connection.sourceHandle)
+  const targetHandle = parseServiceSocketHandle(connection.targetHandle)
+  if (
+    !sourceHandle ||
+    !targetHandle ||
+    sourceHandle.type !== "source" ||
+    targetHandle.type !== "target" ||
+    sourceHandle.socket !== targetHandle.socket
+  ) {
+    return null
+  }
+
+  const source = nodes.find((node) => node.id === connection.source)
+  const target = nodes.find((node) => node.id === connection.target)
+  if (!source || !target) return null
+
+  switch (sourceHandle.socket) {
+    case SERVICE_SOCKET.issuance:
+      return source.data.typeId === "certificateAuthority" &&
+        target.data.typeId === "certificateAuthority"
+        ? EDGE_TYPE.caHierarchy
+        : null
+    case SERVICE_SOCKET.publication:
+    case SERVICE_SOCKET.ocsp:
+    case SERVICE_SOCKET.enrollment:
+      return source.data.typeId === "certificateAuthority" &&
+        target.data.typeId === "webServer"
+        ? EDGE_TYPE.webServerCert
+        : null
+    case SERVICE_SOCKET.domain:
+      return source.data.typeId !== "domainController" &&
+        target.data.typeId === "domainController"
+        ? EDGE_TYPE.domainJoin
+        : null
+  }
 }
 
 export interface ConnectionGuidance {
@@ -1028,6 +1131,11 @@ export function canConnect(
     return { ok: false, reason: `"${target.data.name}" must be configured first.` }
   }
 
+  if (target.data.typeId === "domainController") {
+    const reason = domainJoinBlockReason(source, target, edges)
+    return reason ? { ok: false, reason } : { ok: true }
+  }
+
   const isCaToCa =
     source.data.typeId === "certificateAuthority" &&
     target.data.typeId === "certificateAuthority"
@@ -1078,6 +1186,63 @@ export function canConnect(
   }
 
   return { ok: true }
+}
+
+/**
+ * Live gesture validation for labeled sockets. React Flow calls this while a
+ * connection is still being dragged, so invalid roles, cycles, and second CA
+ * parents resist the gesture before a drop can create an edge.
+ */
+export function canConnectServiceSockets(
+  connection: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">,
+  nodes: Node<MachineData>[],
+  edges: Edge[],
+): CanConnectResult {
+  const sourceHandle = parseServiceSocketHandle(connection.sourceHandle)
+  const targetHandle = parseServiceSocketHandle(connection.targetHandle)
+  if (!sourceHandle || !targetHandle) {
+    return { ok: false, reason: "Use a labeled service socket to create this relationship." }
+  }
+  if (sourceHandle.socket !== targetHandle.socket) {
+    return { ok: false, reason: "These service sockets provide different capabilities." }
+  }
+  if (!serviceSocketEdgeType(connection, nodes)) {
+    return { ok: false, reason: "That service socket is not supported by this destination." }
+  }
+  return canConnect(connection.source, connection.target, nodes, edges)
+}
+
+/** Concrete unmet prerequisites shown in the live socket preview. */
+export function connectionMissingRequirements(
+  type: EdgeType,
+  sourceId: string,
+  targetId: string,
+  nodes: Node<MachineData>[],
+  edges: Edge[],
+): string[] {
+  if (type !== EDGE_TYPE.webServerCert) return []
+  const source = nodes.find((node) => node.id === sourceId)
+  const target = nodes.find((node) => node.id === targetId)
+  if (!source || !target) return ["Both endpoints must still exist"]
+
+  const missing: string[] = []
+  const rootIssuer = source.data.config?.caType === "Root" || caTier(source.id, edges) === "root"
+  if (!rootIssuer && !caParent(source.id, edges)) {
+    missing.push(`${source.data.name} still needs a root CA parent`)
+  }
+  const sourceDomain = edges.find(
+    (edge) => edge.source === source.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+  )?.target
+  const targetDomain = edges.find(
+    (edge) => edge.source === target.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+  )?.target
+  if (!sourceDomain || sourceDomain !== targetDomain) {
+    missing.push(`${source.data.name} and ${target.data.name} must share an AD domain`)
+  }
+  if (target.data.config?.enableOcsp === "Disabled") {
+    missing.push(`${target.data.name} must enable Online Responder`)
+  }
+  return missing
 }
 
 // ---------------------------------------------------------------------------

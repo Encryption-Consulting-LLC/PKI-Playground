@@ -39,6 +39,17 @@ export const CONNECTION_PORT = {
 export type ConnectionPort =
   (typeof CONNECTION_PORT)[keyof typeof CONNECTION_PORT]
 
+export const SERVICE_SOCKET = {
+  issuance: "issuance",
+  publication: "publication",
+  ocsp: "ocsp",
+  domain: "domain",
+  enrollment: "enrollment",
+} as const
+
+export type ServiceSocket =
+  (typeof SERVICE_SOCKET)[keyof typeof SERVICE_SOCKET]
+
 export const CONNECTION_HEALTH = {
   planned: "planned",
   applying: "applying",
