@@ -32,6 +32,19 @@ function domainJoinEdgeIds(edges: ReturnType<typeof useTopologyStore.getState>["
   )
 }
 
+function edgeHealthChanged(
+  edges: ReturnType<typeof useTopologyStore.getState>["edges"],
+  previous: ReturnType<typeof useTopologyStore.getState>["edges"],
+) {
+  const previousById = new Map(previous.map((edge) => [edge.id, edge.data]))
+  return edges.some((edge) => {
+    const old = previousById.get(edge.id)
+    return old?.health !== edge.data?.health ||
+      JSON.stringify(old?.serviceHealth ?? {}) !==
+        JSON.stringify(edge.data?.serviceHealth ?? {})
+  })
+}
+
 let initialized = false
 
 export function initProjectAutosave() {
@@ -75,8 +88,10 @@ export function initProjectAutosave() {
     const domainChanged =
       state.edges !== prev.edges &&
       !setsEqual(domainJoinEdgeIds(state.edges), domainJoinEdgeIds(prev.edges))
+    const healthChanged =
+      state.edges !== prev.edges && edgeHealthChanged(state.edges, prev.edges)
 
-    if (nodeSetChanged || nodeStateChanged || domainChanged) {
+    if (nodeSetChanged || nodeStateChanged || domainChanged || healthChanged) {
       useProjectsStore.getState().saveActiveSnapshot()
     } else {
       useProjectsStore.getState().markActiveDirty()
