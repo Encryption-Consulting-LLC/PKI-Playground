@@ -50,6 +50,13 @@ export interface StagedOp extends Record<string, unknown> {
   phase?: string
   /** Error detail after a failed deploy. */
   detail?: string
+  /** Backend-authored child execution states, keyed by compiled step id. */
+  executionSteps?: Record<string, {
+    status: OpStatus
+    percent?: number
+    phase?: string
+    detail?: string
+  }>
 }
 
 /** Ops (anywhere in the list) that transitively depend on `opId`, in list order. */

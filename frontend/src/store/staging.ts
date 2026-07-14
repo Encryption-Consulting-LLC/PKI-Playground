@@ -234,6 +234,7 @@ function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: 
       progress: runState.percent,
       phase: runState.status === "running" ? runState.phase : undefined,
       detail: runState.detail,
+      executionSteps: runState.steps,
     })
 
     if (op.kind === OP_KIND.createVm) {

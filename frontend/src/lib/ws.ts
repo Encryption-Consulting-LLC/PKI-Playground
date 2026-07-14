@@ -43,6 +43,14 @@ export interface OpRunState {
   phase?: string
   detail?: string
   result?: Record<string, unknown>
+  steps?: Record<string, StepRunState>
+}
+
+export interface StepRunState {
+  status: "pending" | "running" | "done" | "error" | "cancelled"
+  percent?: number
+  phase?: string
+  detail?: string
 }
 
 /** Full snapshot of every op's state in a deploy plan, published whole on every transition. */

@@ -1,10 +1,11 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Popover } from "@base-ui/react/popover"
 import { toast } from "sonner"
 import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  ChevronRight,
   Circle,
   Globe,
   Loader2,
@@ -19,7 +20,11 @@ import type { LucideIcon } from "lucide-react"
 
 import { OP_KIND, OP_STATUS, transitiveDependents } from "@/lib/staging"
 import type { StagedOp } from "@/lib/staging"
-import { compileDeployPlan, type CompiledDeployPlan } from "@/lib/api"
+import {
+  compileDeployPlan,
+  type CompiledDeployPlan,
+  type CompiledExecutionGroup,
+} from "@/lib/api"
 import {
   prepareDeployPlan,
   useStagingStore,
@@ -98,6 +103,44 @@ export function StagedPanel() {
   const [review, setReview] = useState<CompiledDeployPlan | null>(null)
   const [prepared, setPrepared] = useState<PreparedDeployPlan | null>(null)
   const [compiling, setCompiling] = useState(false)
+  const [preview, setPreview] = useState<CompiledDeployPlan | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const previewGeneration = useRef(0)
+
+  // The backend owns sequence expansion. Keep its tree warm while the user
+  // stages a valid topology, but never surface expected incomplete-topology
+  // failures as toasts during construction.
+  useEffect(() => {
+    if (deploying || ops.length === 0) {
+      return
+    }
+    const generation = ++previewGeneration.current
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      setPreviewing(true)
+      const next = prepareDeployPlan(ops)
+      try {
+        const compiled = await compileDeployPlan(
+          next.payload,
+          next.topology,
+          next.projectId,
+          { signal: controller.signal },
+        )
+        if (generation === previewGeneration.current) setPreview(compiled)
+      } catch (error) {
+        if (generation === previewGeneration.current && !(error instanceof DOMException && error.name === "AbortError")) {
+          setPreview(null)
+        }
+      } finally {
+        if (generation === previewGeneration.current) setPreviewing(false)
+      }
+    }, 400)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [deploying, ops, nodes])
 
   function nodeName(id: string) {
     return nodes.find((n) => n.id === id)?.data.name ?? "?"
@@ -150,6 +193,12 @@ export function StagedPanel() {
 
   const hasErrors = ops.some((op) => op.status === OP_STATUS.error)
   const doneCount = ops.filter((op) => op.status === OP_STATUS.done).length
+  const groups = new Map((preview?.groups ?? []).map((group) => [group.id, group]))
+
+  function subtitle(op: StagedOp, group?: CompiledExecutionGroup) {
+    const destination = nodeName(op.targetNodeId)
+    return group?.sourceBase ? `${group.sourceBase} → ${destination}` : destination
+  }
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -162,31 +211,72 @@ export function StagedPanel() {
           <ol className="flex flex-col">
             {ops.map((op, i) => {
               const Icon = KIND_ICON[op.kind]
+              const group = groups.get(op.id)
+              const autoExpanded = op.status === OP_STATUS.running || op.status === OP_STATUS.error
+              const isExpanded = expanded[op.id] ?? autoExpanded
               return (
                 <li
                   key={op.id}
-                  className="flex items-center gap-2 border-b px-2 py-2 text-xs last:border-b-0"
+                  className="border-b text-xs last:border-b-0"
                 >
-                  <span className="w-4 shrink-0 text-right text-[10px] text-muted-foreground">
-                    {i + 1}
-                  </span>
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{op.label}</span>
-                    <span className="block truncate text-[10px] text-muted-foreground">
-                      {nodeName(op.targetNodeId)}
-                      {op.status === OP_STATUS.running && op.phase ? ` — ${op.phase}` : null}
-                    </span>
-                  </span>
-                  <StatusGlyph op={op} />
-                  {!deploying && (
+                  <div className="flex items-start gap-2 px-2 py-2">
                     <button
-                      onClick={() => requestRemove(op)}
-                      className="shrink-0 text-muted-foreground transition-colors hover:text-red-500"
-                      aria-label={`Remove ${op.label}`}
+                      type="button"
+                      className="mt-0.5 shrink-0 rounded-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-expanded={isExpanded}
+                      aria-label={`${isExpanded ? "Collapse" : "Expand"} ${group?.label ?? op.label}`}
+                      onClick={() => setExpanded((current) => ({ ...current, [op.id]: !isExpanded }))}
                     >
-                      <X className="h-3 w-3" />
+                      <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                     </button>
+                    <span className="w-4 shrink-0 text-right text-[10px] text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium leading-snug">{group?.label ?? op.label}</span>
+                      <span className="block break-words text-[10px] leading-snug text-muted-foreground">
+                        {subtitle(op, group)}
+                        {op.status === OP_STATUS.running && op.phase ? ` — ${op.phase}` : null}
+                      </span>
+                    </span>
+                    <StatusGlyph op={op} />
+                    {!deploying && (
+                      <button
+                        onClick={() => requestRemove(op)}
+                        className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-red-500"
+                        aria-label={`Remove ${op.label}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  {isExpanded && (
+                    <ol className="border-t bg-muted/20 py-1 pl-9 pr-2" aria-label={`${group?.label ?? op.label} steps`}>
+                      {group?.steps.length ? group.steps.map((step) => {
+                        const runtime = op.executionSteps?.[step.id]
+                        const status = runtime?.status ?? (op.status === OP_STATUS.done ? OP_STATUS.done : OP_STATUS.pending)
+                        return (
+                          <li key={step.id} className="flex items-start gap-2 border-l py-1.5 pl-3 text-[10px]">
+                            <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${status === OP_STATUS.done ? "bg-emerald-500" : status === OP_STATUS.running ? "bg-sky-500" : status === OP_STATUS.error ? "bg-red-500" : "bg-muted-foreground/30"}`} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block break-words font-medium leading-snug">{step.label}</span>
+                              <span className="block break-words leading-snug text-muted-foreground">
+                                {nodeName(step.targetNodeId)} · {step.command ?? step.kind}
+                                {runtime?.phase ? ` — ${runtime.phase}` : ""}
+                              </span>
+                            </span>
+                            {runtime?.percent != null && status === OP_STATUS.running && (
+                              <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(runtime.percent)}%</span>
+                            )}
+                          </li>
+                        )
+                      }) : (
+                        <li className="border-l py-2 pl-3 text-[10px] text-muted-foreground">
+                          {previewing ? "Expanding backend steps…" : "Complete the required relationships to preview backend steps."}
+                        </li>
+                      )}
+                    </ol>
                   )}
                 </li>
               )

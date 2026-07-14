@@ -487,6 +487,7 @@ export interface CompiledDeployPlan {
   criticalPath: string[]
   estimatedDurationSeconds: number
   criticalPathDurationSeconds: number
+  groups: CompiledExecutionGroup[]
   resources: {
     nodes: number
     relationships: number
@@ -494,14 +495,36 @@ export interface CompiledDeployPlan {
   }
 }
 
+export interface CompiledExecutionStep {
+  id: string
+  label: string
+  command?: string
+  kind: "backend" | "clone" | "agent" | "relay" | "verify" | "wait"
+  targetNodeId: string
+  dependsOn: string[]
+}
+
+export interface CompiledExecutionGroup {
+  id: string
+  kind: string
+  label: string
+  target: string
+  secondary?: string | null
+  dependsOn: string[]
+  sourceBase?: string | null
+  steps: CompiledExecutionStep[]
+}
+
 export const compileDeployPlan = (
   ops: PlanOpPayload[],
   topology: TopologyPayload,
   projectId?: string | null,
+  init?: RequestInit,
 ) =>
   request<CompiledDeployPlan>(URLS.deploy.compile, {
     method: "POST",
     body: JSON.stringify({ ops, topology, ...(projectId ? { projectId } : {}) }),
+    ...init,
   })
 
 export const deployPlan = (
