@@ -47,7 +47,7 @@ export function ConnectionLegend() {
           )
         })}
         <div className="border-t pt-2">
-          <p className="mb-1.5 font-semibold">Connection health</p>
+          <p className="mb-1.5 font-semibold">Connection health · live probe segments</p>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             {HEALTH.map(({ health, color }) => (
               <span key={health} className="flex items-center gap-1 text-muted-foreground">

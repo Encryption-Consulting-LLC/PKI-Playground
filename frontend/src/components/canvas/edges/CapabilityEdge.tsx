@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -8,7 +8,8 @@ import {
 } from "@xyflow/react"
 
 import { CONNECTION_HEALTH, EDGE_TYPE } from "@/constants/topology"
-import type { ConnectionHealth, EdgeType } from "@/constants/topology"
+import type { ConnectionHealth, ConnectionPort, EdgeType } from "@/constants/topology"
+import type { ServiceHealth } from "@/lib/labEvidence"
 import {
   CONNECTION_HEALTH_GUIDANCE,
   CONNECTION_PORT_GUIDANCE,
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils"
 
 export function CapabilityEdge(props: EdgeProps) {
   const [hovered, setHovered] = useState(false)
+  const gradientId = `service-health-${useId().replaceAll(":", "")}`
   const edgeType = props.data?.edgeType as EdgeType | undefined
   if (!edgeType) return null
 
@@ -34,6 +36,20 @@ export function CapabilityEdge(props: EdgeProps) {
       ? CONNECTION_HEALTH.planned
       : CONNECTION_HEALTH.verified)
   const healthGuidance = CONNECTION_HEALTH_GUIDANCE[health]
+  const serviceHealth = (props.data?.serviceHealth as ServiceHealth | undefined) ?? {}
+  const liveServices = guidance.ports
+    .map((port) => ({ port, health: serviceHealth[port] }))
+    .filter((item): item is { port: ConnectionPort; health: ConnectionHealth } => !!item.health)
+  const liveProbe = liveServices.length > 0
+  const serviceColor = (state: ConnectionHealth) => {
+    switch (state) {
+      case CONNECTION_HEALTH.planned: return "#38bdf8"
+      case CONNECTION_HEALTH.applying: return "#8b5cf6"
+      case CONNECTION_HEALTH.verified: return "#10b981"
+      case CONNECTION_HEALTH.degraded: return "#f59e0b"
+      case CONNECTION_HEALTH.broken: return "#ef4444"
+    }
+  }
   const pathStyle = {
     ...props.style,
     ...(health === CONNECTION_HEALTH.applying
@@ -43,10 +59,35 @@ export function CapabilityEdge(props: EdgeProps) {
         : health === CONNECTION_HEALTH.broken
           ? { stroke: "#ef4444", strokeWidth: 2.5, opacity: 1 }
           : {}),
+    ...(liveProbe
+      ? { stroke: `url(#${gradientId})`, strokeWidth: 3, opacity: 1 }
+      : {}),
   }
 
   return (
     <>
+      {liveProbe && (
+        <defs>
+          <linearGradient
+            id={gradientId}
+            gradientUnits="userSpaceOnUse"
+            x1={props.sourceX}
+            y1={props.sourceY}
+            x2={props.targetX}
+            y2={props.targetY}
+          >
+            {liveServices.flatMap((service, index) => {
+              const start = `${(index / liveServices.length) * 100}%`
+              const end = `${((index + 1) / liveServices.length) * 100}%`
+              const color = serviceColor(service.health)
+              return [
+                <stop key={`${service.port}-start`} offset={start} stopColor={color} />,
+                <stop key={`${service.port}-end`} offset={end} stopColor={color} />,
+              ]
+            })}
+          </linearGradient>
+        </defs>
+      )}
       <BaseEdge
         id={props.id}
         path={path}
@@ -114,7 +155,7 @@ export function CapabilityEdge(props: EdgeProps) {
                 health === CONNECTION_HEALTH.broken && "bg-red-500/15 text-red-500",
               )}
             >
-              {healthGuidance.label}
+              {liveProbe ? "Live probes" : healthGuidance.label}
             </span>
           </button>
 
@@ -136,9 +177,32 @@ export function CapabilityEdge(props: EdgeProps) {
               </div>
 
               <p className="mt-3 text-[11px] font-semibold">Health</p>
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {healthGuidance.label}: {healthGuidance.detail}
-              </p>
+              {liveProbe ? (
+                <div className="mt-1.5 space-y-1.5">
+                  {guidance.ports.map((port) => {
+                    const item = CONNECTION_PORT_GUIDANCE[port]
+                    const state = serviceHealth[port] ?? health
+                    return (
+                      <div key={port} className="flex items-start gap-2 text-[10px]">
+                        <span
+                          className="mt-1 h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: serviceColor(state) }}
+                        />
+                        <span className="min-w-0">
+                          <span className="font-medium">{item.label}</span>{" "}
+                          <span className="text-muted-foreground">
+                            · {CONNECTION_HEALTH_GUIDANCE[state].label} · {item.capabilities.join(" / ")}
+                          </span>
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  {healthGuidance.label}: {healthGuidance.detail}
+                </p>
+              )}
 
               <p className="mt-3 text-[11px] font-semibold">Requirements</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-muted-foreground">
