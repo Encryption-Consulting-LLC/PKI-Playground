@@ -30,6 +30,8 @@ from app.core.ippool import guest_network_from_doc, sync_pool_async, validate_ne
 from app.core.infrastructure import InfrastructureProfile
 from app.core.infrastructure import infrastructure_profiles_from_doc
 from app.core.infrastructure_preflight import PlannedMachine, preflight_infrastructure
+from app.core.environment_preflight import preflight_control_plane
+from app.core.db import get_db
 from app.core.secrets import encrypt_secret
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -146,6 +148,28 @@ async def validate_infrastructure(
             conn,
             infrastructure_profiles_from_doc(doc),
             body.machines,
+        )
+    )
+    return result.model_dump(by_alias=True)
+
+
+@router.post(
+    "/environment/validate",
+    dependencies=[Depends(require_capability(Capability.SETTINGS_READ))],
+)
+async def validate_environment() -> dict:
+    """Validate API/worker reachability and immutable agent inputs."""
+
+    doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
+    try:
+        mongo_ready = (await get_db().command("ping")).get("ok") == 1
+    except Exception:  # noqa: BLE001
+        mongo_ready = False
+    result = await run_in_threadpool(
+        partial(
+            preflight_control_plane,
+            infrastructure_profiles_from_doc(doc),
+            mongo_ready=mongo_ready,
         )
     )
     return result.model_dump(by_alias=True)

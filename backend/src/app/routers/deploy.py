@@ -50,6 +50,7 @@ from app.core.golden_image import (
 from app.core.ippool import guest_network_from_doc
 from app.core.infrastructure import infrastructure_profiles_from_doc, role_for_template
 from app.core.infrastructure_preflight import PlannedMachine, preflight_infrastructure
+from app.core.environment_preflight import preflight_control_plane
 from app.core.settings import settings
 from app.core.template_config import validate_template_config
 from app.core.jobs import transport
@@ -470,6 +471,21 @@ async def deploy(
     # node's prior/failed attempt being retried, not a collision — exclude it.
     create_ops = [op for op in req.ops if op.kind is PlanOpKind.create_vm]
     if create_ops:
+        environment = await run_in_threadpool(
+            partial(
+                preflight_control_plane,
+                infrastructure_profiles_from_doc(doc),
+                mongo_ready=True,
+            )
+        )
+        if not environment.ready:
+            raise HTTPException(
+                409,
+                detail={
+                    "message": "Control-plane preflight failed.",
+                    "preflight": environment.model_dump(by_alias=True),
+                },
+            )
         plan_node_ids = {op.target for op in create_ops}
         names = [op.params["vmName"] for op in create_ops]
         cursor = vm_registry_col().find(

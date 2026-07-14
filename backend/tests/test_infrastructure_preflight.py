@@ -22,6 +22,8 @@ def _profile(role, *, base="ws-2025", datastore="store", network="PKI"):
             "runnerVersion": "2.0.0", "agentSha256": "a" * 64,
             "validatedAt": 1, "mlDsa87Available": True,
             "systemContextValidated": True,
+            "timeSynchronized": True, "windowsUpdatesCurrent": True,
+            "backendCallbackReachable": True,
             **(
                 {"ocspReferenceSha256": "b" * 64}
                 if role == "webServer" else {}

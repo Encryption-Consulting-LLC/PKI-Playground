@@ -36,6 +36,7 @@ export const URLS = {
     root: "/settings",
     validateGoldenImage: "/settings/golden-image/validate",
     validateInfrastructure: "/settings/infrastructure/validate",
+    validateEnvironment: "/settings/environment/validate",
   },
   iso: {
     upload: "/iso",

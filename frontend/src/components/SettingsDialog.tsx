@@ -17,6 +17,8 @@ import {
   getSettings,
   updateSettings,
   validateInfrastructure,
+  validateEnvironment,
+  type EnvironmentPreflight,
   type InfrastructurePreflight,
   type InfrastructureProfile,
   type ImageQualification,
@@ -114,6 +116,7 @@ export function SettingsDialog() {
   const [validating, setValidating] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [preflight, setPreflight] = useState<InfrastructurePreflight | null>(null)
+  const [environment, setEnvironment] = useState<EnvironmentPreflight | null>(null)
 
   useEffect(() => {
     if (!open || !isOperator) return
@@ -170,12 +173,14 @@ export function SettingsDialog() {
       setLoading(true)
       setLoadError(null)
       setPreflight(null)
+      setEnvironment(null)
     }
   }
 
   function patch(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }))
     setPreflight(null)
+    setEnvironment(null)
   }
 
   function patchProfile(
@@ -197,6 +202,7 @@ export function SettingsDialog() {
       ),
     }))
     setPreflight(null)
+    setEnvironment(null)
   }
 
   function patchQualification(
@@ -219,6 +225,7 @@ export function SettingsDialog() {
       }),
     }))
     setPreflight(null)
+    setEnvironment(null)
   }
 
   function addQualification(role: InfrastructureProfile["role"]) {
@@ -236,6 +243,9 @@ export function SettingsDialog() {
                 validatedAt: Date.now(),
                 mlDsa87Available: false,
                 systemContextValidated: false,
+                timeSynchronized: false,
+                windowsUpdatesCurrent: false,
+                backendCallbackReachable: false,
                 ocspReferenceSha256: null,
               },
             }
@@ -243,6 +253,7 @@ export function SettingsDialog() {
       ),
     }))
     setPreflight(null)
+    setEnvironment(null)
   }
 
   function payload(): OperatorSettingsUpdate {
@@ -313,13 +324,18 @@ export function SettingsDialog() {
 
   async function runValidation() {
     setPreflight(null)
+    setEnvironment(null)
     const saved = await save(false)
     if (!saved) return
     setValidating(true)
     try {
-      const result = await validateInfrastructure()
+      const [result, controlPlane] = await Promise.all([
+        validateInfrastructure(),
+        validateEnvironment(),
+      ])
       setPreflight(result)
-      if (result.ready) toast.success("Infrastructure is deploy-ready.")
+      setEnvironment(controlPlane)
+      if (result.ready && controlPlane.ready) toast.success("Infrastructure is deploy-ready.")
       else toast.error("Infrastructure validation found blocking issues.")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Validation failed.")
@@ -450,6 +466,9 @@ export function SettingsDialog() {
                           </div>
                           <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
                             <label className="flex items-center gap-2"><input type="checkbox" checked={profile.qualification.systemContextValidated} onChange={(event) => patchQualification(profile.role, "systemContextValidated", event.target.checked)} /> SYSTEM operations validated</label>
+                            <label className="flex items-center gap-2"><input type="checkbox" checked={profile.qualification.timeSynchronized} onChange={(event) => patchQualification(profile.role, "timeSynchronized", event.target.checked)} /> Time synchronized</label>
+                            <label className="flex items-center gap-2"><input type="checkbox" checked={profile.qualification.windowsUpdatesCurrent} onChange={(event) => patchQualification(profile.role, "windowsUpdatesCurrent", event.target.checked)} /> Windows updates current</label>
+                            <label className="flex items-center gap-2"><input type="checkbox" checked={profile.qualification.backendCallbackReachable} onChange={(event) => patchQualification(profile.role, "backendCallbackReachable", event.target.checked)} /> Backend callback reached</label>
                             {(profile.role === "rootCa" || profile.role === "issuingCa") && <label className="flex items-center gap-2"><input type="checkbox" checked={profile.qualification.mlDsa87Available} onChange={(event) => patchQualification(profile.role, "mlDsa87Available", event.target.checked)} /> ML-DSA-87 provider validated</label>}
                           </div>
                         </div>
@@ -476,6 +495,22 @@ export function SettingsDialog() {
                   </div>
                   <ul className="mt-3 space-y-2">
                     {preflight.checks.map((check) => (
+                      <li key={check.key} className="flex items-start gap-2 text-xs">
+                        {check.ok ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" /> : <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />}
+                        <span className={check.ok ? "text-muted-foreground" : "text-destructive"}>{check.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {environment && (
+                <section className="rounded-lg border bg-muted/30 p-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    {environment.ready ? <ShieldCheck className="h-4 w-4 text-emerald-500" /> : <CircleAlert className="h-4 w-4 text-destructive" />}
+                    {environment.ready ? "Control plane ready" : "Control plane action required"}
+                  </div>
+                  <ul className="mt-3 space-y-2">
+                    {environment.checks.map((check) => (
                       <li key={check.key} className="flex items-start gap-2 text-xs">
                         {check.ok ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" /> : <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />}
                         <span className={check.ok ? "text-muted-foreground" : "text-destructive"}>{check.detail}</span>

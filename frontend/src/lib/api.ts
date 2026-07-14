@@ -198,6 +198,9 @@ export interface ImageQualification {
   validatedAt: number
   mlDsa87Available: boolean
   systemContextValidated: boolean
+  timeSynchronized: boolean
+  windowsUpdatesCurrent: boolean
+  backendCallbackReachable: boolean
   ocspReferenceSha256: string | null
 }
 
@@ -274,6 +277,18 @@ export interface InfrastructurePreflight {
 
 export const validateInfrastructure = () =>
   request<InfrastructurePreflight>(URLS.settings.validateInfrastructure, {
+    method: "POST",
+    body: JSON.stringify({}),
+  })
+
+export interface EnvironmentPreflight {
+  ready: boolean
+  checkedAt: number
+  checks: Array<{ key: string; ok: boolean; detail: string }>
+}
+
+export const validateEnvironment = () =>
+  request<EnvironmentPreflight>(URLS.settings.validateEnvironment, {
     method: "POST",
     body: JSON.stringify({}),
   })

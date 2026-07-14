@@ -203,6 +203,9 @@ def preflight_infrastructure(
             qualification
             and qualification.base_change_version == change_version
             and qualification.system_context_validated
+            and qualification.time_synchronized
+            and qualification.windows_updates_current
+            and qualification.backend_callback_reachable
             and (
                 machine.role not in ("rootCa", "issuingCa")
                 or qualification.ml_dsa_87_available

@@ -83,6 +83,9 @@ def test_role_specific_profile_overrides_legacy_image():
                         "validatedAt": 1,
                         "mlDsa87Available": True,
                         "systemContextValidated": True,
+                        "timeSynchronized": True,
+                        "windowsUpdatesCurrent": True,
+                        "backendCallbackReachable": True,
                     },
                 }
             ],

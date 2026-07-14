@@ -28,6 +28,11 @@ class ImageQualification(BaseModel):
     validated_at: int = Field(alias="validatedAt", gt=0)
     ml_dsa_87_available: bool = Field(alias="mlDsa87Available")
     system_context_validated: bool = Field(alias="systemContextValidated")
+    time_synchronized: bool = Field(default=False, alias="timeSynchronized")
+    windows_updates_current: bool = Field(default=False, alias="windowsUpdatesCurrent")
+    backend_callback_reachable: bool = Field(
+        default=False, alias="backendCallbackReachable"
+    )
     ocsp_reference_sha256: str | None = Field(
         default=None, alias="ocspReferenceSha256", pattern=r"^[0-9a-fA-F]{64}$"
     )
