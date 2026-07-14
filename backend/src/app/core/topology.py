@@ -754,6 +754,24 @@ def compile_plan(
         )
 
     edge_keys = {(edge.kind, edge.source, edge.target) for edge in topology.edges}
+    resource_states: dict[
+        tuple[str, str, str | None], TopologyResourceState
+    ] = {
+        ("createVm", node.id, None): node.state for node in topology.nodes
+    }
+    resource_labels: dict[tuple[str, str, str | None], str] = {
+        ("createVm", node.id, None): f"node {node.name}" for node in topology.nodes
+    }
+    for edge in topology.edges:
+        if edge.kind is TopologyEdgeKind.domain_membership:
+            key = ("domainJoin", edge.source, edge.target)
+        elif edge.kind is TopologyEdgeKind.ca_parent:
+            key = ("caConnect", edge.target, edge.source)
+        else:
+            key = ("webServerCert", edge.source, edge.target)
+        resource_states[key] = edge.state
+        resource_labels[key] = f"relationship {edge.id}"
+
     for op in operations:
         kind = _kind_value(op)
         if op.id in seen_ids:
@@ -785,6 +803,15 @@ def compile_plan(
             )
         else:
             semantic_ops[key] = op
+
+        resource_state = resource_states.get(key)
+        if resource_state is TopologyResourceState.realized:
+            error(
+                "operation-resource-realized",
+                f"Operation '{op.id}' would repeat already realized {resource_labels[key]}.",
+                op.target,
+                *([op.secondary] if op.secondary else []),
+            )
 
         if kind == "createVm":
             template = op.params.get("template")
@@ -838,6 +865,16 @@ def compile_plan(
                     op.target,
                     *([op.secondary] if op.secondary else []),
                 )
+
+    for key, state in resource_states.items():
+        if state is TopologyResourceState.planned and key not in semantic_ops:
+            kind, target, secondary = key
+            error(
+                "missing-operation",
+                f"Planned {resource_labels[key]} requires a '{kind}' operation.",
+                target,
+                *([secondary] if secondary else []),
+            )
 
     if diagnostics:
         raise PlanCompilationError(diagnostics)

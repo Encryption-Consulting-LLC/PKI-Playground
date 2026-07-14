@@ -7,6 +7,7 @@ from app.core.topology import (
     TopologyDocument,
     TopologyEdge,
     TopologyNode,
+    TopologyResourceState,
     _canonical_order,
     compile_plan,
 )
@@ -142,9 +143,12 @@ def test_supplied_template_compiles_joins_before_pki_services():
 
 
 def test_retry_without_completed_create_operations_still_compiles():
+    topology = _topology()
+    for node in topology.nodes:
+        node.state = TopologyResourceState.realized
     remaining = [op for op in _ops() if op.kind.value != "createVm"]
 
-    compiled = compile_plan(_topology(), remaining)
+    compiled = compile_plan(topology, remaining)
 
     assert [op.id for op in compiled.operations] == [
         "join-issuing",
@@ -209,6 +213,37 @@ def test_operation_must_exist_in_final_topology():
         raise AssertionError("invalid topology unexpectedly compiled")
 
     assert any(item.code == "missing-publication-host" for item in diagnostics)
+
+
+def test_every_planned_resource_requires_an_operation():
+    operations = [op for op in _ops() if op.id != "publish"]
+
+    with pytest.raises(PlanCompilationError) as caught:
+        compile_plan(_topology(), operations)
+
+    diagnostic = next(
+        item for item in caught.value.diagnostics if item.code == "missing-operation"
+    )
+    assert diagnostic.message == (
+        "Planned relationship publication requires a 'webServerCert' operation."
+    )
+
+
+def test_realized_resources_reject_replayed_operations():
+    topology = _topology()
+    topology.edges[-1].state = TopologyResourceState.realized
+
+    with pytest.raises(PlanCompilationError) as caught:
+        compile_plan(topology, _ops())
+
+    diagnostic = next(
+        item
+        for item in caught.value.diagnostics
+        if item.code == "operation-resource-realized"
+    )
+    assert diagnostic.message == (
+        "Operation 'publish' would repeat already realized relationship publication."
+    )
 
 
 def test_compiler_reports_duration_and_critical_path_estimates():
