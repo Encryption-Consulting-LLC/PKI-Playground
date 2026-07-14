@@ -52,6 +52,9 @@ import {
   CertificateJourneyLens,
   CertificateJourneyToggle,
 } from "./CertificateJourneyLens"
+import { EvidenceModePanel, EvidenceModeToggle } from "./EvidenceMode"
+import { findLabEvidence } from "@/lib/labEvidence"
+import type { LabEvidence } from "@/lib/labEvidence"
 
 const DRAG_TYPE = "application/reactflow"
 
@@ -94,14 +97,23 @@ export function Canvas() {
   const resolvedTheme = useResolvedTheme()
   const [initialViewport] = useState(() => useTopologyStore.getState().viewport)
   const [journeyActive, setJourneyActive] = useState(false)
+  const [evidenceActive, setEvidenceActive] = useState(false)
+  const labEvidence = useMemo(() => findLabEvidence(nodes), [nodes])
+  const [evidenceSnapshot, setEvidenceSnapshot] = useState<{
+    nodes: typeof nodes
+    edges: typeof edges
+    evidence: LabEvidence
+  } | null>(null)
+  const displayedNodes = evidenceActive && evidenceSnapshot ? evidenceSnapshot.nodes : nodes
+  const displayedEdges = evidenceActive && evidenceSnapshot ? evidenceSnapshot.edges : edges
   const journeyProjection = useMemo(
     () => projectCertificateJourney(nodes, edges),
     [nodes, edges],
   )
   const visibleNodes = useMemo(() => {
-    if (!journeyActive || !journeyProjection) return nodes
+    if (!journeyActive || !journeyProjection) return displayedNodes
     const involved = new Set(journeyProjection.nodeIds)
-    return nodes.map((node) => ({
+    return displayedNodes.map((node) => ({
       ...node,
       style: {
         ...node.style,
@@ -109,18 +121,18 @@ export function Canvas() {
         filter: involved.has(node.id) ? "none" : "grayscale(1)",
       },
     }))
-  }, [nodes, journeyActive, journeyProjection])
+  }, [displayedNodes, journeyActive, journeyProjection])
   const visibleEdges = useMemo(() => {
-    if (!journeyActive || !journeyProjection) return edges
+    if (!journeyActive || !journeyProjection) return displayedEdges
     const involved = new Set(journeyProjection.edgeIds)
-    return edges.map((edge) => ({
+    return displayedEdges.map((edge) => ({
       ...edge,
       animated: involved.has(edge.id),
       style: involved.has(edge.id)
         ? { ...edge.style, stroke: "#8b5cf6", strokeWidth: 3, opacity: 1 }
         : { ...edge.style, opacity: 0.12 },
     }))
-  }, [edges, journeyActive, journeyProjection])
+  }, [displayedEdges, journeyActive, journeyProjection])
 
   // The canvas's own pan/zoom is uncontrolled (smooth, no per-frame store
   // writes); we only need to (a) imperatively snap the camera when a project
@@ -160,7 +172,7 @@ export function Canvas() {
 
   const requestNodeDelete = useCallback(
     (nodeId: string) => {
-      if (deploying) return
+      if (deploying || evidenceActive) return
       const target = nodes.find((n) => n.id === nodeId)
       if (!target) return
       const affected = opsReferencingNode(useStagingStore.getState().ops, nodeId)
@@ -175,7 +187,7 @@ export function Canvas() {
       }
       setPendingNodeDelete({ nodeId, ops: affected, hostNote: deployed })
     },
-    [nodes, deploying, removeNode],
+    [nodes, deploying, evidenceActive, removeNode],
   )
 
   const confirmNodeDelete = useCallback(() => {
@@ -501,7 +513,7 @@ export function Canvas() {
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
-      if (deploying) return
+      if (deploying || evidenceActive) return
       const typeId = e.dataTransfer.getData(DRAG_TYPE)
       if (!typeId) return
 
@@ -511,7 +523,7 @@ export function Canvas() {
       })
       addNode(typeId, position)
     },
-    [screenToFlowPosition, addNode, deploying],
+    [screenToFlowPosition, addNode, deploying, evidenceActive],
   )
 
   return (
@@ -540,9 +552,9 @@ export function Canvas() {
         defaultViewport={initialViewport}
         colorMode={resolvedTheme}
         proOptions={{ hideAttribution: true }}
-        nodesDraggable={!deploying}
-        nodesConnectable={!deploying}
-        elementsSelectable={!deploying}
+        nodesDraggable={!deploying && !evidenceActive}
+        nodesConnectable={!deploying && !evidenceActive}
+        elementsSelectable={!deploying && !evidenceActive}
       >
         <DomainRegions preview={domainDragPreview} />
         <Background gap={16} size={1} />
@@ -553,23 +565,49 @@ export function Canvas() {
             <CertificateJourneyToggle
               active={journeyActive}
               available={journeyProjection !== null}
-              onToggle={() => setJourneyActive((active) => !active)}
+              onToggle={() => {
+                setEvidenceActive(false)
+                setJourneyActive((active) => !active)
+              }}
             />
-            {!journeyActive && <ConnectionLegend />}
+            <EvidenceModeToggle
+              active={evidenceActive}
+              available={labEvidence !== null}
+              onToggle={() => {
+                setJourneyActive(false)
+                if (evidenceActive) {
+                  setEvidenceActive(false)
+                  setEvidenceSnapshot(null)
+                } else if (labEvidence) {
+                  setEvidenceSnapshot({ nodes, edges, evidence: labEvidence })
+                  setEvidenceActive(true)
+                }
+              }}
+            />
+            {!journeyActive && !evidenceActive && <ConnectionLegend />}
           </div>
         </Panel>
-        {!journeyActive && <Panel position="top-left">
+        {!journeyActive && !evidenceActive && <Panel position="top-left">
           <TopologyGuidance />
         </Panel>}
-        {!journeyActive && <Panel position="top-center">
+        {!journeyActive && !evidenceActive && <Panel position="top-center">
           <ConnectionPreview />
         </Panel>}
-        {!journeyActive && <Panel position="bottom-center">
+        {!journeyActive && !evidenceActive && <Panel position="bottom-center">
           <DomainJoinAction onRequest={requestAccessibleDomainJoin} />
         </Panel>}
         {journeyActive && journeyProjection && (
           <Panel position="bottom-center">
             <CertificateJourneyLens projection={journeyProjection} />
+          </Panel>
+        )}
+        {evidenceActive && evidenceSnapshot && (
+          <Panel position="bottom-center">
+            <EvidenceModePanel
+              nodes={evidenceSnapshot.nodes}
+              edges={evidenceSnapshot.edges}
+              evidence={evidenceSnapshot.evidence}
+            />
           </Panel>
         )}
       </ReactFlow>

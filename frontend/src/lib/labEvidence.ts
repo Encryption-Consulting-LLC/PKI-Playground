@@ -237,6 +237,7 @@ export function buildAuditSnapshot(
         name: node.data.name,
         role: runtimeRole(node) ?? node.data.typeId,
         lifecycle: node.data.lifecycle,
+        position: node.position,
       })),
       relationships: edges
         .filter((edge) => edge.data?.edgeType)

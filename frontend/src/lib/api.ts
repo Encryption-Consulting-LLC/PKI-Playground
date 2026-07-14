@@ -487,6 +487,41 @@ export const deployPlan = (
     body: JSON.stringify({ ops, topology, ...(projectId ? { projectId } : {}) }),
   })
 
+export interface DownloadedEvidence {
+  blob: Blob
+  digest: string | null
+  filename: string
+}
+
+/** Fetch the access-controlled evidence archive without dropping auth headers. */
+export async function downloadDeployEvidence(jobId: string): Promise<DownloadedEvidence> {
+  const token = useAuthStore.getState().token
+  const res = await fetch(`${API_BASE}${URLS.deploy.evidence(jobId)}`, {
+    headers: token ? { "x-session-token": token } : {},
+  })
+  if (!res.ok) {
+    if (res.status === 401 && token) useAuthStore.getState().clear()
+    let message = `${res.status} ${res.statusText}`
+    try {
+      const body = await res.json()
+      if (body?.detail) message = typeof body.detail === "string"
+        ? body.detail
+        : JSON.stringify(body.detail)
+    } catch {
+      // Keep the HTTP status when the response is not JSON.
+    }
+    throw new ApiError(res.status, message)
+  }
+  const disposition = res.headers.get("content-disposition") ?? ""
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ??
+    `pki-evidence-${jobId}.zip`
+  return {
+    blob: await res.blob(),
+    digest: res.headers.get("x-evidence-sha256"),
+    filename,
+  }
+}
+
 // --- /iso --------------------------------------------------------------------
 
 export interface UploadedIso {

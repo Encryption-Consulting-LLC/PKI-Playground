@@ -58,8 +58,8 @@ export function Workspace() {
 
   // No active project (the last one was deleted) → the landing page replaces
   // the whole workspace; there's no project to show a toolbox/tabs/canvas for.
-  const hasActiveProject = useProjectsStore((s) => s.activeProjectId !== null)
-  if (!hasActiveProject) return <ProjectLanding />
+  const activeProjectId = useProjectsStore((s) => s.activeProjectId)
+  if (!activeProjectId) return <ProjectLanding />
 
   return (
     <ReactFlowProvider>
@@ -68,7 +68,7 @@ export function Workspace() {
         <div className="flex flex-1 flex-col overflow-hidden">
           <ProjectTabBar />
           <div className="flex flex-1 overflow-hidden">
-            <Canvas />
+            <Canvas key={activeProjectId} />
             <Inspector />
           </div>
         </div>
