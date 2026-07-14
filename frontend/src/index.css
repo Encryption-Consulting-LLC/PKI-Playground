@@ -153,6 +153,17 @@
   50% { transform: translate(-50%, -50%) scale(1.06); }
 }
 
+@keyframes domain-accept {
+  0%, 100% { filter: drop-shadow(0 0 4px rgb(16 185 129 / 18%)); }
+  50% { filter: drop-shadow(0 0 16px rgb(16 185 129 / 42%)); }
+}
+
+@keyframes domain-repel {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  30% { transform: translate(-50%, -50%) scale(0.985); }
+  60% { transform: translate(-50%, -50%) scale(1.008); }
+}
+
 .domain-region-empty {
   animation: domain-breathe 4.8s ease-in-out infinite;
 }
@@ -166,9 +177,19 @@
   animation: domain-well-drift 5.6s ease-in-out infinite;
 }
 
+.domain-region-accepting {
+  animation: domain-accept 1.5s ease-in-out infinite;
+}
+
+.domain-region-rejecting {
+  animation: domain-repel 420ms ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .domain-region-empty,
-  .domain-member-well {
+  .domain-member-well,
+  .domain-region-accepting,
+  .domain-region-rejecting {
     animation: none;
   }
 }

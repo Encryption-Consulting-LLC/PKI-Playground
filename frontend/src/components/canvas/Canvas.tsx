@@ -17,7 +17,7 @@ import {
 import { toast } from "sonner"
 import type { Node } from "@xyflow/react"
 import { MachineNode } from "./nodes/MachineNode"
-import { DomainRegions } from "./DomainRegions"
+import { DomainRegions, type DomainDragPreview } from "./DomainRegions"
 import { DomainConfirmDialog } from "./DomainConfirmDialog"
 import { StagedRemoveDialog } from "./StagedRemoveDialog"
 import {
@@ -28,7 +28,14 @@ import {
 import { opsReferencingNode, useStagingStore } from "@/store/staging"
 import type { StagedOp } from "@/lib/staging"
 import { EDGE_TYPE } from "@/constants/topology"
-import { findOverlappingId, isDeployed, nearestFreePosition } from "@/lib/topology"
+import {
+  domainJoinBlockReason,
+  domainJoinOperations,
+  findDomainForNode,
+  findOverlappingId,
+  isDeployed,
+  nearestFreePosition,
+} from "@/lib/topology"
 import { useResolvedTheme } from "@/hooks/useTheme"
 import { ConnectionLegend } from "./ConnectionLegend"
 import { CapabilityEdge } from "./edges/CapabilityEdge"
@@ -96,6 +103,8 @@ export function Canvas() {
   // the circle (geometry) and membership in agreement.
   const dragStart = useRef<DragSnapshot | null>(null)
   const [pendingChanges, setPendingChanges] = useState<DomainSyncChange[] | null>(null)
+  const [pendingOperations, setPendingOperations] = useState<string[]>([])
+  const [domainDragPreview, setDomainDragPreview] = useState<DomainDragPreview | null>(null)
 
   // Backspace/Delete is handled here instead of via React Flow's built-in
   // `deleteKeyCode` (disabled below) — that default path deletes through
@@ -183,6 +192,7 @@ export function Canvas() {
       if (nodes.filter((n) => n.selected).length > 1) {
         dragStart.current = null
         setOverlapNode(null)
+        setDomainDragPreview(null)
         return
       }
       // Dragging a domain controller carries its committed members along
@@ -197,6 +207,7 @@ export function Canvas() {
           : []
       dragStart.current = { id: node.id, position: { ...node.position }, members }
       setOverlapNode(null)
+      setDomainDragPreview(null)
     },
     [nodes, edges, setOverlapNode],
   )
@@ -230,8 +241,26 @@ export function Canvas() {
 
       const others = nodes.filter((n) => n.id !== node.id && !memberIds.includes(n.id))
       setOverlapNode(findOverlappingId(node, others) ? node.id : null)
+
+      const dragNodes = nodes.map((candidate) => candidate.id === node.id ? node : candidate)
+      const dc = findDomainForNode(node, dragNodes, edges)
+      const currentDomain = edges.find(
+        (edge) => edge.source === node.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+      )?.target
+      if (!dc || currentDomain === dc.id) {
+        setDomainDragPreview(null)
+        return
+      }
+      const reason = domainJoinBlockReason(node, dc, edges)
+      setDomainDragPreview({
+        nodeId: node.id,
+        dcId: dc.id,
+        allowed: reason === null,
+        reason,
+        operations: reason ? [] : domainJoinOperations(node, dc, dragNodes),
+      })
     },
-    [nodes, applyNodeChanges, setOverlapNode],
+    [nodes, edges, applyNodeChanges, setOverlapNode],
   )
 
   // When a node is dropped: if it lands on top of another, relocate it (and
@@ -242,6 +271,7 @@ export function Canvas() {
     (_: MouseEvent | TouchEvent, node: Node<MachineData>) => {
       if (nodes.filter((n) => n.selected).length > 1) {
         setOverlapNode(null)
+        setDomainDragPreview(null)
         return
       }
 
@@ -271,14 +301,51 @@ export function Canvas() {
       }
       setOverlapNode(null)
 
+      const droppedNode = {
+        ...node,
+        position: findOverlappingId(node, others)
+          ? nearestFreePosition(node, others, node.position)
+          : node.position,
+      }
+      const dragNodes = nodes.map((candidate) =>
+        candidate.id === node.id ? droppedNode : candidate,
+      )
+      const dropDomain = findDomainForNode(droppedNode, dragNodes, edges)
+      const currentDomain = edges.find(
+        (edge) => edge.source === node.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+      )?.target
+      const invalidReason = dropDomain && currentDomain !== dropDomain.id
+        ? domainJoinBlockReason(droppedNode, dropDomain, edges)
+        : null
+      if (invalidReason) {
+        if (start) {
+          applyNodeChanges([
+            { id: start.id, type: "position", position: start.position },
+            ...start.members.map((member) => ({
+              id: member.id,
+              type: "position" as const,
+              position: member.position,
+            })),
+          ])
+        }
+        toast.error(invalidReason)
+        dragStart.current = null
+        setDomainDragPreview(null)
+        return
+      }
+
       const changes = computeDomainChanges(node.id)
       if (changes.length === 0) {
         dragStart.current = null
+        setDomainDragPreview(null)
         return
       }
+      setPendingOperations(
+        dropDomain ? domainJoinOperations(droppedNode, dropDomain, dragNodes) : [],
+      )
       setPendingChanges(changes)
     },
-    [nodes, applyNodeChanges, computeDomainChanges, setOverlapNode],
+    [nodes, edges, applyNodeChanges, computeDomainChanges, setOverlapNode],
   )
 
   const confirmDomainChanges = useCallback(() => {
@@ -290,6 +357,8 @@ export function Canvas() {
     }
     dragStart.current = null
     setPendingChanges(null)
+    setPendingOperations([])
+    setDomainDragPreview(null)
   }, [pendingChanges, applyDomainChanges])
 
   const cancelDomainChanges = useCallback(() => {
@@ -308,6 +377,8 @@ export function Canvas() {
     }
     dragStart.current = null
     setPendingChanges(null)
+    setPendingOperations([])
+    setDomainDragPreview(null)
   }, [applyNodeChanges])
 
   const onDragOver = useCallback((e: React.DragEvent) => {
@@ -358,7 +429,7 @@ export function Canvas() {
         nodesConnectable={!deploying}
         elementsSelectable={!deploying}
       >
-        <DomainRegions />
+        <DomainRegions preview={domainDragPreview} />
         <Background gap={16} size={1} />
         <Controls />
         <MiniMap zoomable pannable nodeColor={miniMapColor} />
@@ -371,6 +442,7 @@ export function Canvas() {
       </ReactFlow>
       <DomainConfirmDialog
         changes={pendingChanges}
+        operations={pendingOperations}
         onConfirm={confirmDomainChanges}
         onCancel={cancelDomainChanges}
       />

@@ -4,12 +4,21 @@ import { CONNECTION_HEALTH, EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
 import type { ConnectionHealth } from "@/constants/topology"
 import {
   domainLabel,
+  domainJoinEdge,
   domainRadius,
   domainRegionSummary,
   isConnectable,
   nodeCenter,
 } from "@/lib/topology"
 import { useTopologyStore } from "@/store/topology"
+
+export interface DomainDragPreview {
+  nodeId: string
+  dcId: string
+  allowed: boolean
+  reason: string | null
+  operations: string[]
+}
 
 const HEALTH_COLOR: Record<ConnectionHealth, string> = {
   [CONNECTION_HEALTH.planned]: "#38bdf8",
@@ -26,7 +35,7 @@ const SERVICE_LABELS = [
 ] as const
 
 /** A domain boundary that exposes forest state, member gravity, and service reach. */
-export function DomainRegions() {
+export function DomainRegions({ preview }: { preview?: DomainDragPreview | null }) {
   const nodes = useTopologyStore((state) => state.nodes)
   const edges = useTopologyStore((state) => state.edges)
   const domains = nodes.filter(
@@ -43,9 +52,33 @@ export function DomainRegions() {
       >
         {domains.map((dc) => {
           const center = nodeCenter(dc)
-          const radius = domainRadius(dc, nodes, edges)
+          const activePreview = preview?.dcId === dc.id ? preview : null
+          const previewEdges =
+            activePreview?.allowed &&
+            !edges.some(
+              (edge) =>
+                edge.source === activePreview.nodeId &&
+                edge.target === dc.id &&
+                edge.data?.edgeType === EDGE_TYPE.domainJoin,
+            )
+              ? [
+                  ...edges.filter(
+                    (edge) =>
+                      !(
+                        edge.source === activePreview.nodeId &&
+                        edge.data?.edgeType === EDGE_TYPE.domainJoin
+                      ),
+                  ),
+                  domainJoinEdge(activePreview.nodeId, dc.id, true),
+                ]
+              : edges
+          const radius = domainRadius(dc, nodes, previewEdges)
           const summary = domainRegionSummary(dc, edges)
-          const rimColor = HEALTH_COLOR[summary.domainHealth]
+          const rimColor = activePreview
+            ? activePreview.allowed
+              ? HEALTH_COLOR[CONNECTION_HEALTH.verified]
+              : HEALTH_COLOR[CONNECTION_HEALTH.broken]
+            : HEALTH_COLOR[summary.domainHealth]
           const pending =
             dc.data.lifecycle === LIFECYCLE.staged ||
             dc.data.lifecycle === LIFECYCLE.provisioning
@@ -60,7 +93,15 @@ export function DomainRegions() {
           return (
             <div
               key={dc.id}
-              className={summary.memberCount === 0 ? "domain-region-empty" : undefined}
+              className={
+                activePreview
+                  ? activePreview.allowed
+                    ? "domain-region-accepting"
+                    : "domain-region-rejecting"
+                  : summary.memberCount === 0
+                    ? "domain-region-empty"
+                    : undefined
+              }
               style={{
                 position: "absolute",
                 left: center.x,
@@ -120,8 +161,32 @@ export function DomainRegions() {
                 style={{ color: rimColor, borderColor: `${rimColor}70` }}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: rimColor }} />
-                {domainLabel(dc)} · {summary.domainHealth}
+                {activePreview
+                  ? activePreview.allowed
+                    ? `Join ${domainLabel(dc)}?`
+                    : "Domain rejects this node"
+                  : `${domainLabel(dc)} · ${summary.domainHealth}`}
               </div>
+
+              {activePreview && (
+                <div
+                  className="absolute left-5 top-1/2 w-56 -translate-y-1/2 rounded-lg border bg-background/95 p-2.5 text-[9px] shadow-lg"
+                  style={{ color: rimColor, borderColor: `${rimColor}70` }}
+                >
+                  {activePreview.allowed ? (
+                    <>
+                      <p className="mb-1 font-semibold text-foreground">Domain join preview</p>
+                      <ol className="space-y-0.5 font-mono">
+                        {activePreview.operations.map((operation, index) => (
+                          <li key={operation}>{index + 1}. {operation}</li>
+                        ))}
+                      </ol>
+                    </>
+                  ) : (
+                    <p className="font-medium leading-snug">{activePreview.reason}</p>
+                  )}
+                </div>
+              )}
 
               <div className="absolute bottom-0 left-1/2 flex -translate-x-1/2 translate-y-1/2 items-center gap-1.5 whitespace-nowrap">
                 <span className="rounded-full border bg-background/95 px-2 py-1 text-[9px] font-medium text-foreground shadow-sm">

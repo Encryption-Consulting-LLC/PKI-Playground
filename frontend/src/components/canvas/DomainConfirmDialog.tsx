@@ -11,10 +11,12 @@ import type { DomainSyncChange } from "@/store/topology"
  */
 export function DomainConfirmDialog({
   changes,
+  operations = [],
   onConfirm,
   onCancel,
 }: {
   changes: DomainSyncChange[] | null
+  operations?: string[]
   onConfirm: () => void
   onCancel: () => void
 }) {
@@ -38,6 +40,18 @@ export function DomainConfirmDialog({
           <AlertDialog.Description className="mt-2 text-xs text-muted-foreground">
             {body}
           </AlertDialog.Description>
+          {operations.length > 0 && (
+            <div className="mt-3 rounded-lg border bg-muted/40 p-2.5">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Generated operations
+              </p>
+              <ol className="space-y-1 font-mono text-[10px] text-foreground">
+                {operations.map((operation, index) => (
+                  <li key={operation}>{index + 1}. {operation}</li>
+                ))}
+              </ol>
+            </div>
+          )}
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={onCancel}>
               Cancel
