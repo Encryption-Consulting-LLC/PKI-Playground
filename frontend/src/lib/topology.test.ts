@@ -243,9 +243,9 @@ describe("PKI trust gravity", () => {
     const position = (id: string) => settled.find((node) => node.id === id)!.position
 
     expect(position("root")).toEqual({ x: 500, y: 80 })
-    expect(position("issuing-a")).toEqual({ x: 370, y: 300 })
-    expect(position("issuing-b")).toEqual({ x: 630, y: 300 })
-    expect(position("web")).toEqual({ x: 500, y: 520 })
+    expect(position("issuing-a")).toEqual({ x: 328, y: 388 })
+    expect(position("issuing-b")).toEqual({ x: 672, y: 388 })
+    expect(position("web")).toEqual({ x: 500, y: 696 })
     expect(position("dc")).toEqual({ x: 40, y: 40 })
   })
 

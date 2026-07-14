@@ -597,8 +597,8 @@ export function caDepth(nodeId: string, edges: Edge[]): number {
 // PKI trust gravity
 // ---------------------------------------------------------------------------
 
-export const TRUST_TIER_GAP = 220
-export const TRUST_ORBIT_GAP = 260
+export const TRUST_TIER_GAP = 308
+export const TRUST_ORBIT_GAP = 344
 
 /**
  * Settles one CA trust tree into deterministic visual tiers. The root remains

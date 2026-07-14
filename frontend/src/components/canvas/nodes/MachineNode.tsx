@@ -42,8 +42,8 @@ import type { MachineData } from "@/store/topology"
 import { Badge } from "@/components/ui/badge"
 import { ProgressBar } from "./ProgressBar"
 
-const MACHINE_NODE_WIDTH = 192
-const MACHINE_NODE_HEIGHT = 164
+const MACHINE_NODE_WIDTH = 304
+const MACHINE_NODE_HEIGHT = 268
 
 const SOCKET_APPEARANCE: Record<
   ServiceSocket,
@@ -76,33 +76,33 @@ function socketPlacement(socket: ServiceSocket, type: "source" | "target") {
     return type === "source"
       ? {
           position: Position.Bottom,
-          handleStyle: { left: "52%" },
-          labelStyle: { bottom: 8, left: "52%", transform: "translateX(-50%)" },
+          handleStyle: { left: "50%" },
+          labelStyle: { bottom: 12, left: "50%", transform: "translateX(-50%)" },
           labelClassName: "justify-center",
         }
       : {
           position: Position.Left,
-          handleStyle: { top: "42%" },
-          labelStyle: { left: 9, top: "42%", transform: "translateY(-50%)" },
+          handleStyle: { top: "27%" },
+          labelStyle: { left: 16, top: "27%", transform: "translateY(-50%)" },
           labelClassName: "justify-start",
         }
   }
   const top = socket === SERVICE_SOCKET.publication
-    ? "42%"
+    ? "27%"
     : socket === SERVICE_SOCKET.ocsp
-      ? "60%"
-      : "78%"
+      ? "36%"
+      : "45%"
   return type === "source"
     ? {
         position: Position.Right,
         handleStyle: { top },
-        labelStyle: { right: 9, top, transform: "translateY(-50%)" },
+        labelStyle: { right: 16, top, transform: "translateY(-50%)" },
         labelClassName: "flex-row-reverse justify-start text-right",
       }
     : {
         position: Position.Left,
         handleStyle: { top },
-        labelStyle: { left: 9, top, transform: "translateY(-50%)" },
+        labelStyle: { left: 16, top, transform: "translateY(-50%)" },
         labelClassName: "justify-start",
       }
 }
@@ -393,11 +393,9 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
               aria-hidden="true"
               style={placement.labelStyle}
               className={cn(
-                "pointer-events-none absolute z-10 flex max-w-[168px] items-center gap-1 rounded bg-card/95 px-1 py-0.5",
-                "text-[9px] font-medium leading-none text-muted-foreground opacity-0 transition-opacity duration-150",
-                "group-hover/node:opacity-100 group-focus-within/node:opacity-100",
-                selected && "opacity-100",
-                gesture && visible && "opacity-100",
+                "pointer-events-none absolute z-10 flex max-w-[132px] items-center gap-1.5 rounded bg-card/95 px-1.5 py-1",
+                "text-[10px] font-medium leading-none text-muted-foreground transition-opacity duration-150",
+                !gesture || visible ? "opacity-100" : "opacity-0",
                 placement.labelClassName,
               )}
             >
@@ -411,7 +409,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
       {/* Header */}
       <div
         className={cn(
-          "flex h-11 items-center gap-2 rounded-t-xl border-b px-3 py-2",
+          "flex h-13 items-center gap-3 rounded-t-xl border-b px-5 py-3",
           "bg-muted/40",
         )}
       >
@@ -426,7 +424,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
       </div>
 
       {/* Body */}
-      <div className="flex h-[120px] flex-col gap-2 px-3 py-2">
+      <div className="flex h-[216px] flex-col gap-1.5 px-5 pb-7 pt-[84px]">
         <LifecycleBadge lifecycle={data.lifecycle} />
 
         <div className="h-7 min-w-0">
@@ -464,7 +462,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           )}
         </div>
 
-        <dl className="grid grid-cols-2 gap-2 border-t pt-2">
+        <dl className="grid grid-cols-2 gap-4 border-t pt-3">
           {facts.map((fact) => (
             <div key={fact.label} className="min-w-0">
               <dt className="truncate text-[9px] uppercase tracking-wide text-muted-foreground">
