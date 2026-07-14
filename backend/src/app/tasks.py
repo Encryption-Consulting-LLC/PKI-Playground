@@ -847,7 +847,7 @@ def _run_sequence_op(
 
     op_started = time.monotonic()
     try:
-        run_op_sequence(
+        sequence_results = run_op_sequence(
             db, steps, ctx,
             plan_job_id=job_id, op_id=op.id, role=owner_role,
             on_step_complete=on_step_complete,
@@ -867,8 +867,11 @@ def _run_sequence_op(
         "op %s: %s sequence (%d steps) completed in %.1fs",
         op.id, op.kind.value, total, time.monotonic() - op_started,
     )
+    result = {"steps": total}
+    if "lab-health" in sequence_results:
+        result["health"] = sequence_results["lab-health"]
     state[op.id] = OpRunState(
-        status="done", percent=100.0, phase="Done", result={"steps": total}
+        status="done", percent=100.0, phase="Done", result=result
     )
     push()
     return True

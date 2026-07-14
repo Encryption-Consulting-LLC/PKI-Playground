@@ -14,6 +14,10 @@ step can reference another node's real guest-namespaced hostname
 
 import json
 
+from app.core.sequences.health import (
+    ML_DSA_87_SIGNATURE_OID,
+    aggregate_lab_health,
+)
 from app.core.sequences.model import DnsRecordContext, RunContext, Step, StepRuntime
 
 #: Context alias keys (mirror app.core.sequences.context).
@@ -478,7 +482,9 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
     usefully once this web host exists.
     """
     ca = ctx.nodes.get(CA)
+    root = ctx.nodes.get(ROOT)
     issuing_cn = ca.template_config.get("commonName", "Issuing CA") if ca else "Issuing CA"
+    root_cn = root.template_config.get("commonName", "EC-Root-CA") if root else "EC-Root-CA"
     ca_config = (
         f"{ca.hostname}.{ctx.domain_name}\\{issuing_cn}"
         if ca and ctx.domain_name
@@ -569,6 +575,81 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
             timeout_s=900,
         )
     )
+
+    if not all(alias in ctx.nodes for alias in (DC, ROOT, CA, WEB)):
+        raise KeyError("final lab health gate requires dc, root, ca, and web nodes")
+
+    root_cert_name = f"{root.hostname}_{_sanitized_cn_file(root_cn)}.crt"
+    issuing_cert_name = f"{ca.hostname}_{_sanitized_cn_file(issuing_cn)}.crt"
+    http_root = f"http://{pki}/CertEnroll/"
+    artifact_urls = [
+        f"{http_root}{root.hostname}_{_crl_url_name(root_cn)}.crt",
+        f"{http_root}{_crl_url_name(root_cn)}.crl",
+        f"{http_root}{ca.hostname}_{_crl_url_name(issuing_cn)}.crt",
+        f"{http_root}{_crl_url_name(issuing_cn)}.crl",
+        f"{http_root}{_crl_url_name(issuing_cn)}+.crl",
+    ]
+    all_dns_records = tuple(ctx.dns_records)
+    if not all_dns_records:
+        raise ValueError("final lab health gate requires planned DNS resources")
+    dns_params = lambda rt: _dns_params(  # noqa: E731 - declarative resolver
+        ctx,
+        all_dns_records,
+        require_ad_srv=True,
+        http_url=http_root,
+    )
+
+    steps += [
+        Step(
+            id="certificate-health",
+            command="cert.verify",
+            target=WEB,
+            params={
+                "path": "C:\\Transfer\\lab-health-probe.cer",
+                "rootPath": f"{_WEB_CERTENROLL}\\{root_cert_name}",
+                "issuingPath": f"{_WEB_CERTENROLL}\\{issuing_cert_name}",
+                "expectedSignatureOid": ML_DSA_87_SIGNATURE_OID,
+            },
+            timeout_s=900,
+        ),
+        Step(
+            id="enterprise-pki-health",
+            command="pki.verify",
+            target=DC,
+            params={
+                "rootCaCommonName": root_cn,
+                "issuingCaCommonName": issuing_cn,
+                "templates": "OCSPResponseSigning,Workstation",
+                "httpUrls": json.dumps(artifact_urls, separators=(",", ":")),
+            },
+            timeout_s=600,
+        ),
+        Step(id="root-ca-health", command="ca.verify", target=ROOT),
+        Step(id="issuing-ca-health", command="ca.verify", target=CA),
+        Step(id="ocsp-health", command="ocsp.verify", target=WEB),
+        Step(
+            id="dns-health-web",
+            command="dns.verify",
+            target=WEB,
+            params=dns_params,
+        ),
+        Step(
+            id="dns-health-issuing",
+            command="dns.verify",
+            target=CA,
+            params=dns_params,
+        ),
+        Step(id="identity-dc", command="system.identity", target=DC),
+        Step(id="identity-root", command="system.identity", target=ROOT),
+        Step(id="identity-issuing", command="system.identity", target=CA),
+        Step(id="identity-web", command="system.identity", target=WEB),
+        Step(
+            id="lab-health",
+            command="lab.verify",
+            target=WEB,
+            aggregate=aggregate_lab_health,
+        ),
+    ]
     return steps
 
 

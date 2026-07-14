@@ -3,12 +3,15 @@ domainJoin (pure)."""
 
 import json
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
 os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
 from app.core.sequences.definitions import op_sequence  # noqa: E402
 from app.core.sequences.model import DnsRecordContext, NodeContext, RunContext  # noqa: E402
+from app.core.sequences.model import Step  # noqa: E402
+from app.tasks import _run_sequence_op  # noqa: E402
 
 
 def _node(nid, vm, template, cfg=None, ip="192.168.1.1"):
@@ -24,10 +27,19 @@ def _web_ctx():
                 "domainAdminPassword": "Str0ng-Lab-Pass!"})
     ca = _node("ca02", "guest-abc12-ca02", "certificateAuthority",
                {"caType": "Issuing", "commonName": "EncryptionConsulting Issuing CA"})
+    root = _node("ca01", "guest-abc12-ca01", "certificateAuthority",
+                 {"caType": "Root", "commonName": "EC-Root-CA"})
     web = _node("srv1", "guest-abc12-srv1", "webServer",
                 {"certEnrollPath": "C:\\CertEnroll", "ocspRefreshMinutes": "15"})
     return RunContext(
-        nodes={"primary": web, "secondary": ca, "ca": ca, "dc": dc, "web": web},
+        nodes={
+            "primary": web,
+            "secondary": ca,
+            "ca": ca,
+            "root": root,
+            "dc": dc,
+            "web": web,
+        },
         domain_name="encon.pki",
         netbios="ENCON",
         pki_host="pki.encon.pki",
@@ -56,6 +68,18 @@ def test_web_server_cert_sequence_shape():
         "dns.verify",
         "dns.verify",
         "cert.enroll",
+        "cert.verify",
+        "pki.verify",
+        "ca.verify",
+        "ca.verify",
+        "ocsp.verify",
+        "dns.verify",
+        "dns.verify",
+        "system.identity",
+        "system.identity",
+        "system.identity",
+        "system.identity",
+        "lab.verify",
     ]
 
 
@@ -94,7 +118,7 @@ def test_cname_and_http_are_verified_from_web_and_ca():
     ctx = _web_ctx()
     verify = [
         step for step in op_sequence("webServerCert", ctx)
-        if step.command == "dns.verify"
+        if step.id.startswith("dns-cname-verify-")
     ]
     assert [step.target for step in verify] == ["primary", "ca"]
     assert all(
@@ -116,6 +140,74 @@ def test_web_sequence_enrolls_a_dedicated_health_probe():
         "exportPath": "C:\\Transfer\\lab-health-probe.cer",
         "refreshPolicy": "true",
     }
+
+
+def test_final_health_gate_targets_all_four_machines():
+    ctx = _web_ctx()
+    steps = op_sequence("webServerCert", ctx)
+    by_id = {step.id: step for step in steps}
+
+    assert by_id["certificate-health"].target == "web"
+    cert_params = by_id["certificate-health"].resolve_params(ctx)
+    assert cert_params["expectedSignatureOid"] == "2.16.840.1.101.3.4.3.19"
+    assert cert_params["rootPath"].endswith("guest-abc12-ca01_EC-Root-CA.crt")
+    assert cert_params["issuingPath"].endswith(
+        "guest-abc12-ca02_EncryptionConsulting Issuing CA.crt"
+    )
+    assert by_id["enterprise-pki-health"].target == "dc"
+    assert by_id["root-ca-health"].target == "root"
+    assert by_id["issuing-ca-health"].target == "ca"
+    assert by_id["ocsp-health"].target == "web"
+    assert by_id["lab-health"].aggregate is not None
+    assert steps[-1].id == "lab-health"
+
+
+def test_enterprise_health_checks_every_http_artifact():
+    ctx = _web_ctx()
+    step = next(
+        item for item in op_sequence("webServerCert", ctx)
+        if item.id == "enterprise-pki-health"
+    )
+    urls = json.loads(step.resolve_params(ctx)["httpUrls"])
+
+    assert urls == [
+        "http://pki.encon.pki/CertEnroll/guest-abc12-ca01_EC-Root-CA.crt",
+        "http://pki.encon.pki/CertEnroll/EC-Root-CA.crl",
+        (
+            "http://pki.encon.pki/CertEnroll/"
+            "guest-abc12-ca02_EncryptionConsulting%20Issuing%20CA.crt"
+        ),
+        "http://pki.encon.pki/CertEnroll/EncryptionConsulting%20Issuing%20CA.crl",
+        "http://pki.encon.pki/CertEnroll/EncryptionConsulting%20Issuing%20CA+.crl",
+    ]
+
+
+def test_completed_publication_op_exposes_health_report(monkeypatch):
+    from app.core.sequences import context, definitions, worker
+    from app import tasks
+
+    ctx = _web_ctx()
+    health = {"healthy": True, "failures": [], "checks": {}}
+    monkeypatch.setattr(context, "build_run_context", lambda *args: ctx)
+    monkeypatch.setattr(
+        definitions,
+        "op_sequence",
+        lambda *args: [Step(id="lab-health", command="lab.verify", target="web")],
+    )
+    monkeypatch.setattr(
+        worker,
+        "run_op_sequence",
+        lambda *args, **kwargs: {"lab-health": health},
+    )
+    monkeypatch.setattr(tasks, "_step_median_seconds", lambda *args: {})
+    op = SimpleNamespace(
+        id="publish",
+        kind=SimpleNamespace(value="webServerCert"),
+    )
+    state = {}
+
+    assert _run_sequence_op({}, op, [], "job", "guest", state, lambda: None) is True
+    assert state["publish"].result == {"steps": 1, "health": health}
 
 
 def _client_ctx(with_ca=True):
