@@ -10,6 +10,7 @@ from app.core.topology import (
     TopologyEdgeKind,
     TopologyNode,
     TopologyPortKind,
+    TopologyResourceState,
     TopologyRole,
     TopologyValidationError,
     validate_topology,
@@ -59,6 +60,17 @@ def _codes(exc: TopologyValidationError) -> set[str]:
 
 def test_complete_two_tier_topology_is_valid():
     validate_topology(_full_topology())
+
+
+def test_resources_default_to_planned_for_legacy_clients():
+    topology = _full_topology()
+
+    assert all(
+        node.state is TopologyResourceState.planned for node in topology.nodes
+    )
+    assert all(
+        edge.state is TopologyResourceState.planned for edge in topology.edges
+    )
 
 
 def test_legacy_edges_infer_their_capability_ports():

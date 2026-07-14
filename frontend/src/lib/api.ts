@@ -319,6 +319,7 @@ export interface TopologyPayload {
     id: string
     name: string
     role: TopologyRole
+    state: "planned" | "realized"
     config: Record<string, string>
   }>
   edges: Array<{
@@ -326,6 +327,7 @@ export interface TopologyPayload {
     kind: "domainMembership" | "caParent" | "caPublication"
     source: string
     target: string
+    state: "planned" | "realized"
     ports: Array<
       | "caParent"
       | "caPublication"

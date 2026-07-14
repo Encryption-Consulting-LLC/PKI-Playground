@@ -77,21 +77,24 @@ describe("supplied PKI project template", () => {
     const topology = buildDeployTopology(nodes, edges)
     const names = new Map(topology.nodes.map((node) => [node.id, node.name]))
 
+    expect(topology.nodes.every((node) => node.state === "planned")).toBe(true)
     expect(
       topology.edges.map((edge) => ({
         kind: edge.kind,
         source: names.get(edge.source),
         target: names.get(edge.target),
+        state: edge.state,
         ports: edge.ports,
       })),
     ).toEqual([
-      { kind: "domainMembership", source: "CA02", target: "DC01", ports: ["domainBoundary"] },
-      { kind: "domainMembership", source: "SRV1", target: "DC01", ports: ["domainBoundary"] },
-      { kind: "caParent", source: "CA01", target: "CA02", ports: ["caParent"] },
+      { kind: "domainMembership", source: "CA02", target: "DC01", state: "planned", ports: ["domainBoundary"] },
+      { kind: "domainMembership", source: "SRV1", target: "DC01", state: "planned", ports: ["domainBoundary"] },
+      { kind: "caParent", source: "CA01", target: "CA02", state: "planned", ports: ["caParent"] },
       {
         kind: "caPublication",
         source: "CA02",
         target: "SRV1",
+        state: "planned",
         ports: ["caPublication", "webHost", "probeCertificate"],
       },
     ])

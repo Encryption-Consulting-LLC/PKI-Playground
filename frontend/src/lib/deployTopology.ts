@@ -2,10 +2,10 @@
 
 import type { Edge, Node } from "@xyflow/react"
 
-import { EDGE_TYPE } from "@/constants/topology"
+import { EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
 import type { EdgeType } from "@/constants/topology"
 import type { TopologyPayload, TopologyRole } from "@/lib/api"
-import { connectionPorts } from "@/lib/topology"
+import { connectionPorts, isDeployed } from "@/lib/topology"
 import type { MachineData } from "@/store/topology"
 
 function topologyRole(data: MachineData): TopologyRole {
@@ -89,6 +89,10 @@ export function buildDeployTopology(
       id: node.id,
       name: node.data.name,
       role: topologyRole(node.data),
+      state:
+        isDeployed(node.data) || node.data.lifecycle === LIFECYCLE.provisioning
+          ? "realized"
+          : "planned",
       config: node.data.config ?? {},
     })),
     edges: edges.flatMap((edge) => {
@@ -107,6 +111,7 @@ export function buildDeployTopology(
             kind,
             source: edge.source,
             target: edge.target,
+            state: edge.data?.staged === true ? "planned" : "realized",
             ports: connectionPorts(edgeType),
           }]
         : []

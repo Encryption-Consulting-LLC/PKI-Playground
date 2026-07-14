@@ -38,6 +38,11 @@ class TopologyPortKind(str, Enum):
     probe_certificate = "probeCertificate"
 
 
+class TopologyResourceState(str, Enum):
+    planned = "planned"
+    realized = "realized"
+
+
 _PORTS_BY_EDGE_KIND = {
     TopologyEdgeKind.domain_membership: (TopologyPortKind.domain_boundary,),
     TopologyEdgeKind.ca_parent: (TopologyPortKind.ca_parent,),
@@ -59,6 +64,7 @@ class TopologyNode(BaseModel):
     id: str = Field(min_length=1, max_length=200)
     name: str = Field(min_length=1, max_length=120)
     role: TopologyRole
+    state: TopologyResourceState = TopologyResourceState.planned
     config: dict[str, str] = Field(default_factory=dict)
 
 
@@ -67,6 +73,7 @@ class TopologyEdge(BaseModel):
     kind: TopologyEdgeKind
     source: str = Field(min_length=1, max_length=200)
     target: str = Field(min_length=1, max_length=200)
+    state: TopologyResourceState = TopologyResourceState.planned
     ports: list[TopologyPortKind] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
