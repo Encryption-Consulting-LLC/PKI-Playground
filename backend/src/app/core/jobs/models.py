@@ -39,6 +39,15 @@ class ProgressMsg(BaseModel):
     unit: str = "%"
 
 
+class StepRunState(BaseModel):
+    """Current state of one visible execution-manifest child step."""
+
+    status: Literal["pending", "running", "done", "error", "cancelled"]
+    percent: float | None = None
+    phase: str | None = None
+    detail: str | None = None
+
+
 class OpRunState(BaseModel):
     """Current run state of one op within a deploy plan."""
 
@@ -47,6 +56,7 @@ class OpRunState(BaseModel):
     phase: str | None = None
     detail: str | None = None
     result: dict[str, Any] | None = None
+    steps: dict[str, StepRunState] = Field(default_factory=dict)
 
 
 class PlanStateMsg(BaseModel):

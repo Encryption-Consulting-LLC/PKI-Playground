@@ -68,6 +68,7 @@ from app.core.jobs.models import (
     ErrorMsg,
     JobStatus,
     OpRunState,
+    StepRunState,
     PlanStateMsg,
     ProgressMsg,
     RunningMsg,
@@ -444,26 +445,35 @@ def _provision_cloned_vm(
                 pki_host=f"pki.{domain_name}" if domain_name else None,
                 dns_records=dns_records,
             )
-            on_step_complete, on_step_progress, on_step_tick = _sequence_progress(
+            callbacks = _sequence_progress(
                 op.id, len(steps), state, push, result=partial,
                 medians=_step_median_seconds(conn_db, steps),
             )
+            on_step_complete, on_step_progress, on_step_tick = callbacks
             run_op_sequence(
                 conn_db, steps, ctx, plan_job_id=job_id, op_id=op.id, role=owner_role,
                 on_step_complete=on_step_complete,
                 on_step_progress=on_step_progress,
                 on_step_tick=on_step_tick,
+                on_step_start=callbacks.start,
+                on_verify_start=callbacks.verify_start,
+                on_verify_done=callbacks.verify_done,
                 should_stop=lambda: transport.cancel_mode(job_id) == "step",
             )
     except SequenceCancelled as exc:
         _set_provision_state(conn_db, vm_name, "failed")
-        state[op.id] = OpRunState(status="cancelled", detail=str(exc))
+        state[op.id] = OpRunState(
+            status="cancelled", detail=str(exc), steps=state[op.id].steps
+        )
         push()
         return False
     except (SequenceError, agentbus.AgentUnreachableError, agentbus.DispatchError,
             agentbus.ReconnectTimeoutError) as exc:
         _set_provision_state(conn_db, vm_name, "failed")
-        state[op.id] = OpRunState(status="error", detail=f"provisioning failed: {exc}")
+        state[op.id] = OpRunState(
+            status="error", detail=f"provisioning failed: {exc}",
+            steps=state[op.id].steps,
+        )
         push()
         return False
 
@@ -754,6 +764,21 @@ def _step_median_seconds(db, steps) -> dict[str, float]:
     }
 
 
+class _SequenceCallbacks:
+    """Three legacy callbacks plus explicit step lifecycle callbacks."""
+
+    def __init__(self, complete, progress, tick, start, verify_start, verify_done):
+        self.complete = complete
+        self.progress = progress
+        self.tick = tick
+        self.start = start
+        self.verify_start = verify_start
+        self.verify_done = verify_done
+
+    def __iter__(self):
+        return iter((self.complete, self.progress, self.tick))
+
+
 def _sequence_progress(
     op_id: str,
     total: int,
@@ -776,17 +801,32 @@ def _sequence_progress(
     last_tick_push: dict[str, float] = {}
     medians = medians or {}
 
-    def _push_running(percent: float, phase: str) -> None:
+    def _steps() -> dict[str, StepRunState]:
+        current = state.get(op_id)
+        return dict(current.steps) if current else {}
+
+    def _push_running(
+        percent: float, phase: str, steps: dict[str, StepRunState] | None = None
+    ) -> None:
         state[op_id] = OpRunState(
-            status="running", percent=percent, phase=phase, result=result
+            status="running", percent=percent, phase=phase, result=result,
+            steps=steps if steps is not None else _steps(),
         )
         push()
 
-    def on_step_complete(_step_id: str) -> None:
+    def on_step_start(step_id: str) -> None:
+        steps = _steps()
+        steps[step_id] = StepRunState(status="running", percent=0.0)
+        _push_running(round(100.0 * done_count["n"] / total, 1), step_id, steps)
+
+    def on_step_complete(step_id: str) -> None:
         done_count["n"] += 1
+        steps = _steps()
+        steps[step_id] = StepRunState(status="done", percent=100.0)
         _push_running(
             round(100.0 * done_count["n"] / total, 1),
             f"Step {done_count['n']}/{total}",
+            steps,
         )
 
     def on_step_progress(step_id: str, phase: str | None, percent: float | None) -> None:
@@ -796,7 +836,9 @@ def _sequence_progress(
         if phase:
             label += f": {phase}"
         overall = round(100.0 * (n + (percent or 0.0) / 100.0) / total, 1)
-        _push_running(overall, label)
+        steps = _steps()
+        steps[step_id] = StepRunState(status="running", percent=percent, phase=phase)
+        _push_running(overall, label, steps)
 
     def on_step_tick(step_id: str, elapsed_s: float) -> None:
         if elapsed_s - last_tick_push.get(step_id, 0.0) < _STEP_TICK_PUSH_GAP_S:
@@ -815,9 +857,28 @@ def _sequence_progress(
             pct = max(pct, est)
             label += f" (~{est:.0f}%, est. {_fmt_duration(median_s)})"
         overall = round(100.0 * (n + pct / 100.0) / total, 1)
-        _push_running(overall, label)
+        steps = _steps()
+        steps[step_id] = StepRunState(status="running", percent=pct, phase=label)
+        _push_running(overall, label, steps)
 
-    return on_step_complete, on_step_progress, on_step_tick
+    def on_verify_start(step_id: str) -> None:
+        steps = _steps()
+        steps[step_id] = StepRunState(status="running", percent=0.0)
+        _push_running(round(100.0 * done_count["n"] / total, 1), step_id, steps)
+
+    def on_verify_done(step_id: str) -> None:
+        steps = _steps()
+        steps[step_id] = StepRunState(status="done", percent=100.0)
+        _push_running(round(100.0 * done_count["n"] / total, 1), step_id, steps)
+
+    return _SequenceCallbacks(
+        on_step_complete,
+        on_step_progress,
+        on_step_tick,
+        on_step_start,
+        on_verify_start,
+        on_verify_done,
+    )
 
 
 def _run_sequence_op(
@@ -865,9 +926,10 @@ def _run_sequence_op(
         return None  # nothing to do for this topology — let the caller simulate
 
     total = len(steps)
-    on_step_complete, on_step_progress, on_step_tick = _sequence_progress(
+    callbacks = _sequence_progress(
         op.id, total, state, push, medians=_step_median_seconds(db, steps)
     )
+    on_step_complete, on_step_progress, on_step_tick = callbacks
 
     op_started = time.monotonic()
     try:
@@ -877,10 +939,15 @@ def _run_sequence_op(
             on_step_complete=on_step_complete,
             on_step_progress=on_step_progress,
             on_step_tick=on_step_tick,
+            on_step_start=callbacks.start,
+            on_verify_start=callbacks.verify_start,
+            on_verify_done=callbacks.verify_done,
             should_stop=lambda: transport.cancel_mode(job_id) == "step",
         )
     except SequenceCancelled as exc:
-        state[op.id] = OpRunState(status="cancelled", detail=str(exc))
+        state[op.id] = OpRunState(
+            status="cancelled", detail=str(exc), steps=state[op.id].steps
+        )
         push()
         return False
     except HealthGateError as exc:
@@ -893,15 +960,20 @@ def _run_sequence_op(
                 "health": exc.health,
                 "certificateJourney": build_certificate_journey(ctx, exc.results),
             },
+            steps=state[op.id].steps,
         )
         push()
         return False
     except SequenceError as exc:
-        state[op.id] = OpRunState(status="error", detail=str(exc))
+        state[op.id] = OpRunState(
+            status="error", detail=str(exc), steps=state[op.id].steps
+        )
         push()
         return False
     except Exception as exc:  # noqa: BLE001 — surface as an op-level failure
-        state[op.id] = OpRunState(status="error", detail=str(exc))
+        state[op.id] = OpRunState(
+            status="error", detail=str(exc), steps=state[op.id].steps
+        )
         push()
         return False
 
@@ -916,7 +988,8 @@ def _run_sequence_op(
 
         result["certificateJourney"] = build_certificate_journey(ctx, sequence_results)
     state[op.id] = OpRunState(
-        status="done", percent=100.0, phase="Done", result=result
+        status="done", percent=100.0, phase="Done", result=result,
+        steps=state[op.id].steps,
     )
     push()
     return True

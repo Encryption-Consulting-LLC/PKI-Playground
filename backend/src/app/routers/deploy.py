@@ -145,13 +145,18 @@ def _compile_or_422(req: DeployRequest) -> CompiledPlan:
         ) from exc
 
 
-def _compiled_response(req: DeployRequest, compiled: CompiledPlan) -> dict:
+def _compiled_response(
+    req: DeployRequest, compiled: CompiledPlan, settings_doc: dict | None = None
+) -> dict:
+    from app.core.execution_manifest import build_execution_groups
+
     return {
         "topologyVersion": req.topology.version,
         "operations": [op.model_dump(by_alias=True) for op in compiled.operations],
         "criticalPath": compiled.critical_path,
         "estimatedDurationSeconds": compiled.estimated_duration_seconds,
         "criticalPathDurationSeconds": compiled.critical_path_duration_seconds,
+        "groups": build_execution_groups(req.topology, compiled.operations, settings_doc),
         "resources": {
             "nodes": len(req.topology.nodes),
             "relationships": len(req.topology.edges),
@@ -428,7 +433,13 @@ async def compile_deploy(
         guest_network_configured=True,
         project_id=req.project_id,
     )
-    return _compiled_response(req, compiled)
+    try:
+        settings_doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
+    except RuntimeError:
+        # Pure unit callers do not enter the FastAPI lifespan/Mongo setup;
+        # infrastructure_profiles_from_doc(None) supplies configured defaults.
+        settings_doc = None
+    return _compiled_response(req, compiled, settings_doc)
 
 
 @router.post(

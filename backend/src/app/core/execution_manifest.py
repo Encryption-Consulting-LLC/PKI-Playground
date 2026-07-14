@@ -1,0 +1,205 @@
+"""Pure, secret-free execution manifests for deploy review and progress UI."""
+
+from typing import Any
+
+from app.core.infrastructure import infrastructure_profiles_from_doc, role_for_template
+from app.core.sequences.context import dns_records_for_context
+from app.core.sequences.definitions import CA, DC, PRIMARY, ROOT, SECONDARY, WEB, op_sequence, provision_steps
+from app.core.sequences.model import DnsRecordContext, NodeContext, RunContext, Step
+from app.core.topology import TopologyDocument, TopologyRole
+
+
+_COMMAND_LABELS = {
+    "dc.install_forest": "Install Active Directory forest",
+    "system.reboot": "Reboot and reconnect",
+    "dns.set_client": "Configure DNS client",
+    "domain.join": "Join Active Directory domain",
+    "domain.leave": "Leave Active Directory domain",
+    "file.read": "Read relay artifact",
+    "file.write": "Copy relay artifact",
+    "ca.install": "Install Certificate Authority",
+    "ca.install_cert": "Install issued CA certificate",
+    "ca.sign_request": "Sign issuing CA request",
+    "ca.configure_settings": "Configure CA policy",
+    "ca.configure_cdp_aia": "Configure CDP and AIA",
+    "ca.publish_crl": "Publish certificate and CRLs",
+    "ca.publish_template": "Publish certificate templates",
+    "cert.enroll": "Enroll certificate",
+    "cert.verify": "Verify certificate chain and revocation",
+    "iis.setup_certenroll": "Configure CertEnroll publication",
+    "ocsp.install": "Install Online Responder",
+    "ocsp.configure_revocation": "Configure OCSP revocation",
+    "lab.verify": "Aggregate PKI health evidence",
+}
+
+
+def _label(command: str) -> str:
+    return _COMMAND_LABELS.get(command, command.replace(".", " ").replace("_", " ").title())
+
+
+def _preview_context(topology: TopologyDocument, op) -> RunContext:
+    by_id = {}
+    role_aliases = {
+        TopologyRole.domain_controller: DC,
+        TopologyRole.root_ca: ROOT,
+        TopologyRole.issuing_ca: CA,
+        TopologyRole.web_server: WEB,
+    }
+    aliases = {}
+    for node in topology.nodes:
+        template = {
+            TopologyRole.domain_controller: "domainController",
+            TopologyRole.root_ca: "certificateAuthority",
+            TopologyRole.issuing_ca: "certificateAuthority",
+            TopologyRole.web_server: "webServer",
+            TopologyRole.client: "client",
+            TopologyRole.standalone: "standalone",
+        }[node.role]
+        context = NodeContext(
+            node_id=node.id,
+            vm_name=node.name,
+            hostname=node.name.lower(),
+            template_id=template,
+            template_config=node.config,
+        )
+        by_id[node.id] = context
+        if node.role in role_aliases:
+            aliases[role_aliases[node.role]] = context
+
+    kind = str(getattr(op.kind, "value", op.kind))
+    primary_id = op.secondary if kind == "webServerCert" else op.target
+    secondary_id = op.target if kind == "webServerCert" else op.secondary
+    aliases[PRIMARY] = by_id[primary_id]
+    if secondary_id:
+        aliases[SECONDARY] = by_id[secondary_id]
+    dc = aliases.get(DC)
+    domain = dc.template_config.get("domainName") if dc else None
+    dns_records = dns_records_for_context(topology)
+    if not dns_records and dc and WEB in aliases:
+        dns_records = (
+            DnsRecordContext(
+                id="preview-a",
+                kind="A",
+                server=dc.node_id,
+                subject=aliases[WEB].node_id,
+                zone=domain or "preview.local",
+            ),
+        )
+    return RunContext(
+        nodes=aliases,
+        domain_name=domain,
+        netbios=dc.template_config.get("netbiosName") if dc else None,
+        pki_host=f"pki.{domain}" if domain else "pki.local",
+        dns_records=dns_records,
+        artifacts={
+            "root_crt": "preview",
+            "root_crl": "preview",
+            "issuing_csr": "preview",
+            "issuing_crt": "preview",
+            "root_cert_filename": "root-ca.crt",
+            "root_crl_filename": "root-ca.crl",
+            "issuing_cert_filename": "issuing-ca.crt",
+            "issuing_crl_filename": "issuing-ca.crl",
+            "issuing_delta_crl_filename": "issuing-ca+.crl",
+        },
+    )
+
+
+def _step_kind(step: Step, *, verify: bool = False) -> str:
+    if verify:
+        return "verify"
+    if step.aggregate is not None:
+        return "backend"
+    if step.command == "system.reboot":
+        return "wait"
+    if step.command.startswith("file."):
+        return "relay"
+    return "agent"
+
+
+def _manifest_steps(steps: list[Step], aliases: dict[str, NodeContext]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    previous: str | None = None
+    for step in steps:
+        item_id = step.id
+        result.append({
+            "id": item_id,
+            "label": _label(step.command),
+            "command": step.command,
+            "kind": _step_kind(step),
+            "targetNodeId": aliases[step.target].node_id,
+            "dependsOn": [previous] if previous else [],
+        })
+        previous = item_id
+        if step.verify is not None:
+            verify_id = f"{step.id}.verify"
+            result.append({
+                "id": verify_id,
+                "label": _label(step.verify.command),
+                "command": step.verify.command,
+                "kind": _step_kind(step.verify, verify=True),
+                "targetNodeId": aliases[step.verify.target].node_id,
+                "dependsOn": [item_id],
+            })
+            previous = verify_id
+    return result
+
+
+def build_execution_groups(
+    topology: TopologyDocument,
+    operations: list,
+    settings_doc: dict | None,
+) -> list[dict[str, Any]]:
+    """Expand compiled operations into stable, redacted UI groups."""
+
+    topology_nodes = {node.id: node for node in topology.nodes}
+    profiles = infrastructure_profiles_from_doc(settings_doc)
+    groups = []
+    for op in operations:
+        kind = str(getattr(op.kind, "value", op.kind))
+        target = topology_nodes[op.target]
+        secondary = topology_nodes.get(op.secondary) if op.secondary else None
+        source_base = None
+        if kind == "createVm":
+            context = _preview_context(topology, op)
+            steps = [
+                {"id": "prepare", "label": "Prepare guest IP and first-boot media", "kind": "backend", "dependsOn": []},
+                {"id": "clone", "label": "Clone and power on virtual machine", "kind": "clone", "dependsOn": ["prepare"]},
+                {"id": "agent-ready", "label": "Wait for orchestrator agent", "kind": "wait", "dependsOn": ["clone"]},
+                {"id": "boot-settle", "label": "Wait for first boot to settle", "kind": "wait", "dependsOn": ["agent-ready"]},
+            ]
+            for item in steps:
+                item["targetNodeId"] = op.target
+            provision = provision_steps(
+                op.params.get("template", ""),
+                ca_type=op.params.get("caType"),
+                node_id=op.target,
+                dns_records=context.dns_records,
+            )
+            tail = _manifest_steps(provision, context.nodes)
+            if tail:
+                tail[0]["dependsOn"] = ["boot-settle"]
+            steps.extend(tail)
+            profile_role = role_for_template(op.params["template"], op.params.get("caType"))
+            source_base = profiles[profile_role].base
+            label = "Clone VM"
+        else:
+            context = _preview_context(topology, op)
+            steps = _manifest_steps(op_sequence(kind, context), context.nodes)
+            label = {
+                "domainJoin": f"Join {target.name} to the domain",
+                "domainLeave": f"Remove {target.name} from the domain",
+                "caConnect": f"Issue {target.name} from {secondary.name if secondary else 'parent CA'}",
+                "webServerCert": f"Configure PKI services on {secondary.name if secondary else target.name}",
+            }.get(kind, kind)
+        groups.append({
+            "id": op.id,
+            "kind": kind,
+            "label": label,
+            "target": op.target,
+            "secondary": op.secondary,
+            "dependsOn": list(op.depends_on),
+            "sourceBase": source_base,
+            "steps": steps,
+        })
+    return groups

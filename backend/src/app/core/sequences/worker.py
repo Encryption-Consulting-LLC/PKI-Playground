@@ -159,6 +159,9 @@ def run_op_sequence(
     on_step_complete=None,
     on_step_progress=None,
     on_step_tick=None,
+    on_step_start=None,
+    on_verify_start=None,
+    on_verify_done=None,
     should_stop=None,
 ) -> dict[str, dict]:
     """Run one op's step sequence to completion (or raise
@@ -234,6 +237,9 @@ def run_op_sequence(
         completed=completed,
         resumed_results=resumed_results,
         on_step_done=on_step_done,
+        on_step_start=on_step_start,
+        on_verify_start=on_verify_start,
+        on_verify_done=on_verify_done,
         should_stop=should_stop,
     )
     try:

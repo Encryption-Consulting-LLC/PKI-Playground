@@ -76,6 +76,9 @@ class SequenceEngine:
         completed: set[str] | None = None,
         resumed_results: dict[str, dict] | None = None,
         on_step_done: Callable[[str, dict], None] | None = None,
+        on_step_start: Callable[[str], None] | None = None,
+        on_verify_start: Callable[[str], None] | None = None,
+        on_verify_done: Callable[[str], None] | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> None:
         self._dispatch = dispatch
@@ -89,6 +92,9 @@ class SequenceEngine:
         self._completed = completed if completed is not None else set()
         self._resumed_results = resumed_results if resumed_results is not None else {}
         self._on_step_done = on_step_done or (lambda _s, _r: None)
+        self._on_step_start = on_step_start or (lambda _s: None)
+        self._on_verify_start = on_verify_start or (lambda _s: None)
+        self._on_verify_done = on_verify_done or (lambda _s: None)
         self._should_stop = should_stop or (lambda: False)
 
     def run(self, steps: Iterable[Step], ctx: RunContext) -> dict[str, dict]:
@@ -101,6 +107,7 @@ class SequenceEngine:
                 raise SequenceCancelled(
                     f"deployment cancellation requested before step '{step.id}'"
                 )
+            self._on_step_start(step.id)
             results[step.id] = self._run_one(step, ctx, results)
         return results
 
@@ -206,6 +213,8 @@ class SequenceEngine:
         predicate = step.verify_predicate or (lambda _r: True)
         deadline = self._now_ms() + step.verify_window_s * 1000
         attempt = 0
+        verify_id = f"{step.id}.verify"
+        self._on_verify_start(verify_id)
         last_detail = "no probe ran"
         while True:
             try:
@@ -223,6 +232,7 @@ class SequenceEngine:
                     timeout_s=probe.timeout_s,
                 )
                 if predicate(result):
+                    self._on_verify_done(verify_id)
                     return
                 last_detail = f"{probe.command} not ready yet"
             except SequenceError as exc:

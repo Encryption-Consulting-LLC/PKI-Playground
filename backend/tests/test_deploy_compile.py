@@ -71,6 +71,17 @@ def test_dry_run_returns_compiled_operations_and_estimates():
         "relationships": 4,
         "dnsRecords": [],
     }
+    clone = next(group for group in response["groups"] if group["kind"] == "createVm")
+    assert clone["label"] == "Clone VM"
+    assert clone["sourceBase"] == "ws-2025-base"
+    assert [step["id"] for step in clone["steps"][:4]] == [
+        "prepare", "clone", "agent-ready", "boot-settle"
+    ]
+    assert all(
+        "params" not in step
+        for group in response["groups"]
+        for step in group["steps"]
+    )
 
 
 def test_compile_failure_returns_structured_diagnostics():
