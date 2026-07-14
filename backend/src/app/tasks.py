@@ -1172,3 +1172,80 @@ def run_plan_task(
         transport.publish(
             job_id, ErrorMsg(status=500, detail=str(exc)), status=JobStatus.error, terminal=True
         )
+
+
+@celery_app.task(name="reconcile_plan")
+def reconcile_plan_task(
+    job_id: str,
+    source_job_id: str,
+    owner_role: str = "guest",
+    owner: str | None = None,
+) -> None:
+    """Reapply convergent non-clone operations from a persisted plan snapshot."""
+
+    from app.core.topology import TopologyDocument
+    from app.routers.deploy import PlanOp, PlanOpKind
+
+    transport.publish(job_id, RunningMsg(), status=JobStatus.running)
+    try:
+        with worker_db() as db:
+            source = db["plan_runs"].find_one({"jobId": source_job_id})
+            if source is None:
+                raise RuntimeError(f"source deployment '{source_job_id}' was not found")
+            topology = TopologyDocument(**(source.get("topology") or {}))
+            ops = [
+                PlanOp(**raw)
+                for raw in source.get("operations") or []
+                if raw.get("kind") not in ("createVm", "domainLeave")
+            ]
+            state = {
+                op.id: OpRunState(status="pending")
+                for op in ops
+            }
+
+            def push() -> None:
+                transport.publish(
+                    job_id, PlanStateMsg(ops=dict(state)), status=JobStatus.running
+                )
+
+            push()
+            stopped = False
+            for op in ops:
+                if transport.cancel_mode(job_id):
+                    state[op.id] = OpRunState(
+                        status="cancelled", detail="Reconcile cancellation requested."
+                    )
+                    stopped = True
+                    push()
+                    continue
+                result = _run_sequence_op(
+                    db, op, ops, job_id, owner_role, state, push, topology
+                )
+                if result is not True:
+                    stopped = True
+                    # Continue independent operations so the evidence bundle
+                    # captures all drift, not only the first failed service.
+
+            db["plan_runs"].update_one(
+                {"jobId": job_id},
+                {"$set": {
+                    "updatedAt": now_ms(),
+                    "reconcileComplete": not stopped,
+                    "owner": owner,
+                }},
+            )
+            transport.publish(
+                job_id,
+                DoneMsg(result={
+                    "sourceJobId": source_job_id,
+                    "reconciled": not stopped,
+                    "ops": {key: value.model_dump() for key, value in state.items()},
+                }),
+                status=JobStatus.done,
+                terminal=True,
+            )
+    except Exception as exc:  # noqa: BLE001
+        transport.publish(
+            job_id, ErrorMsg(status=500, detail=str(exc)),
+            status=JobStatus.error, terminal=True,
+        )

@@ -624,3 +624,47 @@ async def cancel_deployment(
         raise HTTPException(403, detail="This deployment belongs to another user.")
     transport.request_cancel(job_id, body.mode)
     return {"job_id": job_id, "mode": body.mode, "status": "stop-requested"}
+
+
+@router.post(
+    "/{job_id}/reconcile",
+    status_code=202,
+    dependencies=[Depends(require_capability(Capability.DEPLOY))],
+)
+async def reconcile_deployment(
+    job_id: str,
+    user: AuthedUser = Depends(get_current_user),
+) -> dict:
+    """Reapply the persisted desired state to existing live lab machines."""
+
+    from app.tasks import reconcile_plan_task
+
+    source = await plan_runs_col().find_one({"jobId": job_id})
+    if source is None:
+        raise HTTPException(404, detail=f"Deployment job '{job_id}' was not found.")
+    if user.role is not Role.OPERATOR and source.get("owner") != user.username:
+        raise HTTPException(403, detail="This deployment belongs to another user.")
+
+    reconcile_job_id = uuid.uuid4().hex
+    now = datetime.datetime.now(datetime.UTC)
+    await plan_runs_col().insert_one(
+        {
+            "jobId": reconcile_job_id,
+            "sourceJobId": job_id,
+            "runKind": "reconcile",
+            "owner": user.username,
+            "ownerRole": user.role.value,
+            "topology": source.get("topology") or {},
+            "operations": source.get("operations") or [],
+            "preflight": source.get("preflight"),
+            "artifacts": source.get("artifacts") or {},
+            "createdAt": int(now.timestamp() * 1000),
+            "updatedAt": int(now.timestamp() * 1000),
+            "ttlAt": now + datetime.timedelta(days=7),
+        }
+    )
+    transport.publish(reconcile_job_id, QueuedMsg(), status=JobStatus.queued)
+    reconcile_plan_task.delay(
+        reconcile_job_id, job_id, user.role.value, user.username
+    )
+    return {"job_id": reconcile_job_id, "source_job_id": job_id}
