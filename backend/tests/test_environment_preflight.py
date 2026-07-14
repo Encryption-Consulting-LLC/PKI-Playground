@@ -41,6 +41,7 @@ def test_control_plane_requires_callback_agent_broker_and_worker(monkeypatch, tm
     result = subject.preflight_control_plane(profiles, mongo_ready=True)
 
     assert result.ready is True
+    assert result.agent_sha256 == digest
     assert {check.key for check in result.checks} == {
         "mongo", "valkey", "backendCallback", "agentBinary", "worker"
     }
@@ -59,4 +60,36 @@ def test_control_plane_reports_every_missing_prerequisite(monkeypatch):
     result = subject.preflight_control_plane(profiles, mongo_ready=False)
 
     assert result.ready is False
+    assert result.agent_sha256 is None
     assert all(not check.ok for check in result.checks)
+    agent = next(check for check in result.checks if check.key == "agentBinary")
+    assert agent.detail == "ORCHESTRATOR_AGENT_PATH is not configured on the API host."
+
+
+def test_control_plane_reports_actual_digest_and_mismatched_roles(monkeypatch, tmp_path):
+    agent = tmp_path / "agent.exe"
+    agent.write_bytes(b"current agent")
+    digest = subject._agent_digest(agent)
+    profiles = infrastructure_profiles_from_doc({})
+    for role, profile in profiles.items():
+        profile.qualification = ImageQualification(
+            baseChangeVersion="1", windowsBuild=26100,
+            runnerVersion="2", agentSha256=("a" * 64 if role == "rootCa" else digest),
+            validatedAt=1, mlDsa87Available=True, systemContextValidated=True,
+            timeSynchronized=True, windowsUpdatesCurrent=True,
+            backendCallbackReachable=True,
+        )
+    monkeypatch.setattr(subject.settings, "orchestrator_agent_path", str(agent))
+    monkeypatch.setattr(subject.settings, "backend_public_url", "https://pki.example")
+    monkeypatch.setattr(subject.transport._client, "ping", lambda: True)
+
+    result = subject.preflight_control_plane(
+        profiles, mongo_ready=True, check_worker=False
+    )
+
+    check = next(item for item in result.checks if item.key == "agentBinary")
+    assert check.ok is False
+    assert result.agent_sha256 == digest
+    assert f"Bundled agent SHA-256 is {digest}" in check.detail
+    assert f"rootCa={'a' * 64}" in check.detail
+    assert "domainController" not in check.detail

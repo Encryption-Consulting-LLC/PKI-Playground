@@ -24,6 +24,7 @@ class EnvironmentPreflight(BaseModel):
 
     ready: bool
     checked_at: int = Field(alias="checkedAt")
+    agent_sha256: str | None = Field(default=None, alias="agentSha256")
     checks: list[EnvironmentCheck]
 
 
@@ -33,6 +34,101 @@ def _agent_digest(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _agent_binary_check(
+    profiles: dict[PkiRole, InfrastructureProfile],
+) -> tuple[EnvironmentCheck, str | None]:
+    """Compare the deploy-time agent with every saved image qualification.
+
+    Keep the failure detail actionable.  Previously an unset path, a missing
+    file, no qualifications, and a real digest mismatch all collapsed into the
+    same message, which left an operator with no way to tell what to repair.
+    """
+
+    configured_path = settings.orchestrator_agent_path
+    if not configured_path:
+        return (
+            EnvironmentCheck(
+                key="agentBinary",
+                ok=False,
+                detail="ORCHESTRATOR_AGENT_PATH is not configured on the API host.",
+            ),
+            None,
+        )
+
+    path = Path(configured_path)
+    if not path.is_file():
+        return (
+            EnvironmentCheck(
+                key="agentBinary",
+                ok=False,
+                detail="ORCHESTRATOR_AGENT_PATH does not point to a readable file on the API host.",
+            ),
+            None,
+        )
+
+    try:
+        digest = _agent_digest(path).lower()
+    except OSError as exc:
+        return (
+            EnvironmentCheck(
+                key="agentBinary",
+                ok=False,
+                detail=f"Could not hash the bundled orchestrator agent: {exc}",
+            ),
+            None,
+        )
+
+    qualified = {
+        role: profile.qualification.agent_sha256.lower()
+        for role, profile in profiles.items()
+        if profile.qualification is not None
+    }
+    if not qualified:
+        return (
+            EnvironmentCheck(
+                key="agentBinary",
+                ok=False,
+                detail=(
+                    f"Bundled agent SHA-256 is {digest}, but no image profile has "
+                    "an agent qualification."
+                ),
+            ),
+            digest,
+        )
+
+    mismatches = {
+        role: expected for role, expected in qualified.items() if expected != digest
+    }
+    if mismatches:
+        expected_by_role = ", ".join(
+            f"{role}={expected}" for role, expected in sorted(mismatches.items())
+        )
+        return (
+            EnvironmentCheck(
+                key="agentBinary",
+                ok=False,
+                detail=(
+                    f"Bundled agent SHA-256 is {digest}; mismatched qualified "
+                    f"profile(s): {expected_by_role}. Requalify those image "
+                    "revisions with this exact agent before deploying."
+                ),
+            ),
+            digest,
+        )
+
+    return (
+        EnvironmentCheck(
+            key="agentBinary",
+            ok=True,
+            detail=(
+                f"Bundled agent SHA-256 is {digest} and matches "
+                f"{len(qualified)} qualified image profile(s)."
+            ),
+        ),
+        digest,
+    )
 
 
 def preflight_control_plane(
@@ -69,30 +165,8 @@ def preflight_control_plane(
         )
     )
 
-    path = Path(settings.orchestrator_agent_path or "")
-    agent_ok = False
-    try:
-        digest = _agent_digest(path) if path.is_file() else None
-    except OSError as exc:
-        digest = None
-        agent_detail = f"Could not hash orchestrator agent: {exc}"
-    else:
-        expected = {
-            profile.qualification.agent_sha256.lower()
-            for profile in profiles.values()
-            if profile.qualification is not None
-        }
-        agent_ok = bool(digest and expected and expected == {digest.lower()})
-        agent_detail = (
-            f"Bundled agent SHA-256 is {digest}."
-            if agent_ok else "Bundled agent does not match every qualified image profile."
-        )
-    checks.append(
-        EnvironmentCheck(
-            key="agentBinary", ok=agent_ok,
-            detail=agent_detail,
-        )
-    )
+    agent_check, agent_digest = _agent_binary_check(profiles)
+    checks.append(agent_check)
 
     if check_worker:
         try:
@@ -110,5 +184,8 @@ def preflight_control_plane(
                 )
             )
     return EnvironmentPreflight(
-        ready=all(check.ok for check in checks), checkedAt=now_ms(), checks=checks
+        ready=all(check.ok for check in checks),
+        checkedAt=now_ms(),
+        agentSha256=agent_digest,
+        checks=checks,
     )

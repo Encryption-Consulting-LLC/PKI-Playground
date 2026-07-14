@@ -241,7 +241,7 @@ export function SettingsDialog() {
                 baseChangeVersion: "",
                 windowsBuild: 26100,
                 runnerVersion: "",
-                agentSha256: "",
+                agentSha256: environment?.agentSha256 ?? "",
                 validatedAt: Date.now(),
                 mlDsa87Available: false,
                 systemContextValidated: false,
@@ -258,6 +258,29 @@ export function SettingsDialog() {
     }))
     setPreflight(null)
     setEnvironment(null)
+  }
+
+  function useBundledAgentDigest() {
+    const digest = environment?.agentSha256
+    if (!digest) return
+    setForm((current) => ({
+      ...current,
+      profiles: current.profiles.map((profile) =>
+        profile.qualification
+          ? {
+              ...profile,
+              qualification: {
+                ...profile.qualification,
+                agentSha256: digest,
+                validatedAt: Date.now(),
+              },
+            }
+          : profile,
+      ),
+    }))
+    setPreflight(null)
+    setEnvironment(null)
+    toast.success("Bundled agent digest applied. Save and validate again.")
   }
 
   function payload(): OperatorSettingsUpdate {
@@ -523,6 +546,16 @@ export function SettingsDialog() {
                       </li>
                     ))}
                   </ul>
+                  {environment.agentSha256 && environment.checks.some((check) => check.key === "agentBinary" && !check.ok) && (
+                    <div className="mt-3 border-t pt-3">
+                      <p className="text-xs text-muted-foreground">
+                        The agent is injected into each clone&apos;s first-boot ISO; it does not belong in the base VM. If this binary has already passed your image canary, apply its digest to the existing role qualifications.
+                      </p>
+                      <Button className="mt-2" variant="outline" size="sm" onClick={useBundledAgentDigest}>
+                        Use bundled agent digest
+                      </Button>
+                    </div>
+                  )}
                 </section>
               )}
             </div>

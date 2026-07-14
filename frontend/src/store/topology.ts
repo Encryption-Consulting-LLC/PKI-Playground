@@ -42,7 +42,6 @@ import {
   inferEdgeType,
   isDomainEligible,
   serviceSocketEdgeType,
-  trustGravityLayout,
 } from "@/lib/topology"
 import { OP_KIND, findStagedOp } from "@/lib/staging"
 import { useAuthStore } from "@/store/auth"
@@ -464,13 +463,9 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       style: { ...style.style, strokeDasharray: "6 4", opacity: 0.6 },
     }
 
-    set((s) => {
-      const nextEdges = addEdge(newEdge, s.edges)
-      return {
-        edges: nextEdges,
-        nodes: trustGravityLayout(s.nodes, nextEdges, sourceNode.id),
-      }
-    })
+    // A connection is a relationship edit, not a layout command. Keep every
+    // authored coordinate byte-for-byte stable when the edge is added.
+    set((s) => ({ edges: addEdge(newEdge, s.edges) }))
 
     // A CA-hierarchy op belongs to the child being issued to; a web-server
     // publish op belongs to the issuing CA — see lib/staging.ts's

@@ -17,12 +17,42 @@ import { useAuthStore } from "@/store/auth"
 
 export class ApiError extends Error {
   status: number
+  detail: unknown
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail?: unknown) {
     super(message)
     this.name = "ApiError"
     this.status = status
+    this.detail = detail
   }
+}
+
+interface StructuredErrorDetail {
+  message?: unknown
+  preflight?: {
+    checks?: Array<{ ok?: unknown; detail?: unknown }>
+  }
+}
+
+/** Turn nested FastAPI preflight failures into a useful one-line UI error. */
+export function formatApiErrorDetail(detail: unknown): string | null {
+  if (typeof detail === "string") return detail
+  if (!detail || typeof detail !== "object") return null
+
+  const structured = detail as StructuredErrorDetail
+  const summary = typeof structured.message === "string"
+    ? structured.message
+    : null
+  const failedChecks = Array.isArray(structured.preflight?.checks)
+    ? structured.preflight.checks
+        .filter((check) => check?.ok === false && typeof check.detail === "string")
+        .map((check) => check.detail as string)
+    : []
+
+  if (summary && failedChecks.length > 0) {
+    return `${summary} ${failedChecks.join(" ")}`
+  }
+  return summary
 }
 
 async function request<T>(
@@ -50,18 +80,17 @@ async function request<T>(
 
     // FastAPI/Pydantic errors come back as JSON `{ detail: ... }`.
     let message = `${res.status} ${res.statusText}`
+    let detail: unknown
     try {
       const body = await res.json()
       if (body?.detail) {
-        message =
-          typeof body.detail === "string"
-            ? body.detail
-            : JSON.stringify(body.detail)
+        detail = body.detail
+        message = formatApiErrorDetail(detail) ?? JSON.stringify(detail)
       }
     } catch {
       // non-JSON body — keep the status line.
     }
-    throw new ApiError(res.status, message)
+    throw new ApiError(res.status, message, detail)
   }
 
   return (asText ? res.text() : res.json()) as Promise<T>
@@ -286,6 +315,7 @@ export const validateInfrastructure = () =>
 export interface EnvironmentPreflight {
   ready: boolean
   checkedAt: number
+  agentSha256: string | null
   checks: Array<{ key: string; ok: boolean; detail: string }>
 }
 

@@ -181,6 +181,21 @@ The settings API and visible Settings dialog now provide a complete setup flow f
 Deploy should begin with a fast immutable preflight snapshot. If any prerequisite
 changes after preflight, the job should fail before the first clone.
 
+### Resolving an `agentBinary` preflight failure
+
+The deploy-time agent is an immutable part of image qualification, not merely
+a file-presence check. `ORCHESTRATOR_AGENT_PATH` must resolve to the same binary
+on the API and worker hosts, and its SHA-256 must equal `agentSha256` on every
+role image qualification used by the plan. The environment validation result
+reports the computed digest and each mismatched role. Re-run the canary against
+those exact golden-image revisions with that binary, then save the resulting
+qualification; do not update the digest field without repeating the canary.
+For an agent already proven with the selected images, Settings → Validate
+infrastructure exposes **Use bundled agent digest**, which records the current
+deploy-time digest across the existing role qualifications. The agent itself
+continues to be injected into each clone's first-boot ISO; it is not installed
+in the golden image.
+
 ## Phased Delivery
 
 ### Phase 0 - Stabilize staging and visual semantics [complete]

@@ -709,7 +709,7 @@ export function domainMembership(
 // radius is expressed in flow units (== node-pixel units at zoom 1), so the
 // rendered circle and the geometry test below stay in lock-step at any zoom.
 
-export const DOMAIN_RADIUS = 260
+export const DOMAIN_RADIUS = 520
 
 /** Extra clearance kept between a domain's farthest member and its circle edge. */
 const DOMAIN_MEMBER_PADDING = 90

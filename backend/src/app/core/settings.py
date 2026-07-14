@@ -101,8 +101,9 @@ class Settings(BaseSettings):
     # Orchestrator agent bundling. Both must be set to enable it (a
     # deploy-environment toggle, so env vars like the broker/Mongo config, not
     # the org-wide settings document):
-    #   ``ORCHESTRATOR_AGENT_PATH`` — filesystem path on the *worker host* to the
-    #     pki-orchestrator agent binary embedded into each firstboot ISO.
+    #   ``ORCHESTRATOR_AGENT_PATH`` — filesystem path on both the API and worker
+    #     hosts to the same pki-orchestrator agent binary embedded into each
+    #     firstboot ISO. The API hashes it during preflight; the worker bundles it.
     #   ``BACKEND_PUBLIC_URL`` — the base URL a booted guest VM dials home to
     #     (``http(s)://host:port``), baked into the agent's orchestrator.toml.
     # Unset → the default firstboot ISO carries no agent, so it is safe on

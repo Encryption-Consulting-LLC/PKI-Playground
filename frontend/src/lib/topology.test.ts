@@ -17,6 +17,7 @@ import {
   domainJoinBlockReason,
   domainJoinEdge,
   domainJoinOperations,
+  domainRadius,
   domainRegionSummary,
   isConnectable,
   lintTopologyRelationships,
@@ -195,6 +196,10 @@ describe("living domain model", () => {
       "CA01 is an offline root CA and must remain outside Active Directory.",
     )
     expect(domainJoinBlockReason(machine("web", "SRV1", "webServer"), dc, [])).toBeNull()
+  })
+
+  it("starts with a large domain boundary before members expand it", () => {
+    expect(domainRadius(dc, [dc], [])).toBe(520)
   })
 
   it("previews the exact role-specific domain join command sequence", () => {

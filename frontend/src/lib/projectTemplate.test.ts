@@ -41,6 +41,19 @@ describe("supplied PKI project template", () => {
     })
   })
 
+  it("preserves authored node positions while relationships are connected", () => {
+    const positions = Object.fromEntries(
+      useTopologyStore.getState().nodes.map((node) => [node.data.name, node.position]),
+    )
+
+    expect(positions).toEqual({
+      CA01: { x: 180, y: 100 },
+      CA02: { x: 500, y: 140 },
+      DC01: { x: 500, y: 340 },
+      SRV1: { x: 740, y: 340 },
+    })
+  })
+
   it("stages domain membership before dependent PKI services", () => {
     const { ops } = useStagingStore.getState()
 

@@ -191,22 +191,35 @@ function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {
 }
 
 /**
- * Live orchestrator link status for a node with a minted agent identity —
- * green while the agent's phone-home socket is up, red the instant it drops
- * (pushed over the presence WebSocket, so no polling lag). Only rendered once
- * a real VM exists — `orchestratorVmId` rides on the createVm op's running
- * pushes (partial result), so the dot appears while provisioning is underway.
+ * Orchestrator status across the node's whole lifecycle: grey before a real
+ * VM exists, then green/red from the live agent-presence feed. `vmName` is the
+ * durable signal that deployment produced a VM, including authored-ISO VMs
+ * that do not have an orchestrator identity to query.
  */
-function AgentStatusDot({ vmId }: { vmId: string }) {
+function AgentStatusDot({
+  vmId,
+  deployed,
+}: {
+  vmId?: string
+  deployed: boolean
+}) {
   const connected = useAgentConnected(vmId)
+  const title = !deployed
+    ? "Not yet deployed"
+    : connected
+      ? "Orchestrator connected"
+      : "Orchestrator offline"
   return (
     <span
-      title={connected ? "Orchestrator connected" : "Orchestrator offline"}
+      title={title}
+      aria-label={title}
       className={cn(
         "h-2 w-2 shrink-0 rounded-full",
-        connected
-          ? "bg-emerald-500 shadow-[0_0_6px_1px_rgba(16,185,129,0.7)]"
-          : "bg-red-500 shadow-[0_0_6px_1px_rgba(239,68,68,0.6)]",
+        !deployed
+          ? "bg-slate-400"
+          : connected
+            ? "bg-emerald-500 shadow-[0_0_6px_1px_rgba(16,185,129,0.7)]"
+            : "bg-red-500 shadow-[0_0_6px_1px_rgba(239,68,68,0.6)]",
       )}
     />
   )
@@ -429,23 +442,41 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
             {def?.label ?? data.typeId}
           </span>
         </span>
-        {data.orchestratorVmId && <AgentStatusDot vmId={data.orchestratorVmId} />}
+        <LifecycleBadge lifecycle={data.lifecycle} />
+        {!activePhase && (
+          warning ? (
+            <span
+              className="flex shrink-0"
+              title={warning}
+              aria-label={warning}
+            >
+              <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-red-500" />
+            </span>
+          ) : (
+            <span
+              className="flex shrink-0"
+              title="No active warnings"
+              aria-label="No active warnings"
+            >
+              <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 text-emerald-500" />
+            </span>
+          )
+        )}
+        <AgentStatusDot
+          vmId={data.orchestratorVmId}
+          deployed={Boolean(data.vmName || data.orchestratorVmId)}
+        />
       </div>
 
       {isDraft ? (
-        <div className="flex h-10 items-center px-5">
-          <LifecycleBadge lifecycle={data.lifecycle} />
-        </div>
+        <div aria-hidden="true" className="h-10" />
       ) : (
         <>
-          {/* Status rows mirror the service rows on the opposite edge. */}
+          {/* Keep the service-socket lanes clear. Lifecycle and warning state
+              live in the header; only active deployment progress uses them. */}
           <div className="machine-node-reveal px-5 pt-2">
-            <div className="flex h-6 items-center">
-              <LifecycleBadge lifecycle={data.lifecycle} />
-            </div>
-
-            <div className="flex h-6 min-w-0 items-center">
-              {activePhase ? (
+            <div className="flex h-12 min-w-0 items-center">
+              {activePhase && (
                 <div className="group/phase relative min-w-0">
                   <span
                     className="block min-w-0 truncate text-[10px] text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -463,19 +494,6 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
                   </div>
                   <ProgressBar pct={data.progress ?? 0} />
                 </div>
-              ) : warning ? (
-                <span
-                  className="flex min-w-0 items-center gap-1 text-[10px] text-red-500"
-                  title={warning}
-                >
-                  <AlertTriangle className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{warning}</span>
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-[10px] text-emerald-500">
-                  <CheckCircle2 className="h-3 w-3 shrink-0" />
-                  No active warning
-                </span>
               )}
             </div>
 
