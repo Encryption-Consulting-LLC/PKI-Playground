@@ -108,16 +108,7 @@ class SequenceEngine:
         # Capture *before* dispatch so a fast reboot that reconnects immediately
         # still registers as "after" the dispatch (timestamp compare).
         dispatched_at = self._now_ms()
-        result = self._dispatch(
-            step.id,
-            node.agent_vm_id,
-            step.command,
-            params,
-            role=self._role,
-            secret_keys=step.secret_keys,
-            timeout_s=step.timeout_s,
-            expect_disconnect=step.expects_disconnect,
-        )
+        result = self._dispatch_with_retry(step, node.agent_vm_id, params)
 
         for key in step.produces:
             content = result.get("contentB64")
@@ -135,6 +126,39 @@ class SequenceEngine:
         self._completed.add(step.id)
         self._on_step_done(step.id, result)
         return result
+
+    def _dispatch_with_retry(
+        self, step: Step, vm_id: str, params: dict[str, str]
+    ) -> dict:
+        """Dispatch a convergent step with its bounded transient retry policy."""
+
+        attempt = 0
+        while True:
+            job_key = step.id if attempt == 0 else f"{step.id}.retry.{attempt}"
+            try:
+                return self._dispatch(
+                    job_key,
+                    vm_id,
+                    step.command,
+                    params,
+                    role=self._role,
+                    secret_keys=step.secret_keys,
+                    timeout_s=step.timeout_s,
+                    expect_disconnect=step.expects_disconnect,
+                )
+            except Exception:  # noqa: BLE001 - transport/agent transient boundary
+                if attempt >= len(step.retry_delays_s):
+                    raise
+                delay = step.retry_delays_s[attempt]
+                attempt += 1
+                logger.warning(
+                    "sequence step %s (%s) failed; retrying attempt %d after %ds",
+                    step.id,
+                    step.command,
+                    attempt + 1,
+                    delay,
+                )
+                self._sleep(delay)
 
     def _run_verify(self, step: Step, vm_id: str, ctx: RunContext) -> None:
         probe = step.verify

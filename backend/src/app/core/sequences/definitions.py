@@ -46,6 +46,15 @@ _A_ROOT_CRL = "root_crl"
 _A_ISSUING_CSR = "issuing_csr"
 _A_ISSUING_CRT = "issuing_crt"
 
+# Service-specific transient retry windows. Side-effecting commands carrying
+# these schedules are required to verify desired state before changing it.
+_AD_RETRY = (10, 20, 40, 60, 90)
+_DNS_RETRY = (5, 10, 20, 30, 60)
+_TEMPLATE_RETRY = (15, 30, 60, 90, 120)
+_ENROLL_RETRY = (10, 20, 40, 60, 90)
+_CRL_RETRY = (10, 20, 40, 60)
+_OCSP_RETRY = (10, 20, 40, 60, 90)
+
 
 def _admin_username(netbios: str | None) -> str:
     return f"{netbios}\\Administrator" if netbios else "Administrator"
@@ -255,7 +264,8 @@ def _root_ca_provision() -> list[Step]:
         ),
         Step(id="ca-settings", command="ca.configure_settings", target=PRIMARY, params=settings_params),
         Step(id="ca-cdp-aia", command="ca.configure_cdp_aia", target=PRIMARY, params=cdp_aia_params),
-        Step(id="ca-crl", command="ca.publish_crl", target=PRIMARY),
+        Step(id="ca-crl", command="ca.publish_crl", target=PRIMARY,
+             retry_delays_s=_CRL_RETRY),
         Step(id="read-root-crt", command="file.read", target=PRIMARY, params=root_crt_path, produces=(_A_ROOT_CRT,)),
         Step(id="read-root-crl", command="file.read", target=PRIMARY, params=root_crl_path, produces=(_A_ROOT_CRL,)),
     ]
@@ -313,6 +323,7 @@ def _domain_controller_provision(*, include_dns: bool = False) -> list[Step]:
                     command="dns.apply_resources",
                     target=PRIMARY,
                     params=lambda rt: _dns_params(rt.ctx, records(rt)),
+                    retry_delays_s=_DNS_RETRY,
                 ),
                 Step(
                     id="dns-verify",
@@ -321,6 +332,7 @@ def _domain_controller_provision(*, include_dns: bool = False) -> list[Step]:
                     params=lambda rt: _dns_params(
                         rt.ctx, records(rt), require_ad_srv=True
                     ),
+                    retry_delays_s=_DNS_RETRY,
                 ),
             ]
         )
@@ -395,6 +407,7 @@ def _domain_join_sequence(ctx: RunContext) -> list[Step]:
             target=PRIMARY,
             params=join_params,
             secret_keys=("password",),
+            retry_delays_s=_AD_RETRY,
         ),
         # The join reboots (Add-Computer without -Restart, then a reboot step);
         # domain.verify — retried post-reboot until PartOfDomain — is its gate.
@@ -419,6 +432,7 @@ def _domain_join_sequence(ctx: RunContext) -> list[Step]:
                     command="dns.apply_resources",
                     target=DC,
                     params=lambda rt: _dns_params(ctx, dns_records),
+                    retry_delays_s=_DNS_RETRY,
                 ),
                 Step(
                     id="dns-verify",
@@ -426,6 +440,7 @@ def _domain_join_sequence(ctx: RunContext) -> list[Step]:
                     target=PRIMARY,
                     params=lambda rt: _dns_params(ctx, dns_records),
                     timeout_s=300,
+                    retry_delays_s=_DNS_RETRY,
                 ),
             ]
         )
@@ -465,6 +480,7 @@ def _domain_join_sequence(ctx: RunContext) -> list[Step]:
                             params={"path": "C:\\win11.cer"}),
                 verify_predicate=lambda r: r.get("chain_ok") is True,
                 verify_window_s=900,
+                retry_delays_s=_ENROLL_RETRY,
             )
         )
     return steps
@@ -503,7 +519,8 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
                 "path": rt.node.template_config.get("certEnrollPath", "C:\\CertEnroll"),
             },
         ),
-        Step(id="ocsp-install", command="ocsp.install", target=PRIMARY, timeout_s=900),
+        Step(id="ocsp-install", command="ocsp.install", target=PRIMARY,
+             timeout_s=900, retry_delays_s=_OCSP_RETRY),
         Step(
             id="enroll-ocsp",
             command="cert.enroll",
@@ -513,6 +530,7 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
                 "refreshPolicy": "true",
             },
             verify_window_s=900,
+            retry_delays_s=_ENROLL_RETRY,
         ),
         Step(
             id="ocsp-config",
@@ -532,6 +550,7 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
             verify=Step(id="ocsp-verify", command="ocsp.verify", target=PRIMARY),
             verify_predicate=lambda r: r.get("configured") is True,
             verify_window_s=600,
+            retry_delays_s=_OCSP_RETRY,
         ),
     ]
 
@@ -545,6 +564,7 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
                 command="dns.apply_resources",
                 target=DC,
                 params=lambda rt: _dns_params(ctx, cname_records),
+                retry_delays_s=_DNS_RETRY,
             )
         )
         http_url = f"http://{ctx.pki_host}/CertEnroll/"
@@ -560,6 +580,7 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
                         ctx, cname_records, http_url=url
                     ),
                     timeout_s=300,
+                    retry_delays_s=_DNS_RETRY,
                 )
             )
     steps.append(
@@ -573,6 +594,7 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
                 "refreshPolicy": "true",
             },
             timeout_s=900,
+            retry_delays_s=_ENROLL_RETRY,
         )
     )
 
@@ -632,12 +654,14 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
             command="dns.verify",
             target=WEB,
             params=dns_params,
+            retry_delays_s=_DNS_RETRY,
         ),
         Step(
             id="dns-health-issuing",
             command="dns.verify",
             target=CA,
             params=dns_params,
+            retry_delays_s=_DNS_RETRY,
         ),
         Step(id="identity-dc", command="system.identity", target=DC),
         Step(id="identity-root", command="system.identity", target=ROOT),
@@ -749,11 +773,13 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
             Step(id="root-to-dc", command="file.write", target=DC,
                  params={"path": _ROOT_CRT}, consumes=(_A_ROOT_CRT,)),
             Step(id="dspublish-root", command="cert.dspublish", target=DC,
-                 params={"path": _ROOT_CRT, "attribute": "RootCA"}),
+                 params={"path": _ROOT_CRT, "attribute": "RootCA"},
+                 retry_delays_s=_AD_RETRY),
             Step(id="rootcrl-to-dc", command="file.write", target=DC,
                  params={"path": _ROOT_CRL}, consumes=(_A_ROOT_CRL,)),
             Step(id="dspublish-rootcrl", command="cert.dspublish", target=DC,
-                 params=lambda rt: {"path": _ROOT_CRL, "attribute": root.hostname}),
+                 params=lambda rt: {"path": _ROOT_CRL, "attribute": root.hostname},
+                 retry_delays_s=_AD_RETRY),
         ]
 
     # 3) Copy the root cert to the web host's served CertEnroll (HTTP CDP/AIA).
@@ -801,7 +827,8 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
              params=issuing_settings_params),
         Step(id="issuing-cdp-aia", command="ca.configure_cdp_aia", target=PRIMARY,
              params=issuing_cdp_aia_params),
-        Step(id="issuing-crl", command="ca.publish_crl", target=PRIMARY),
+        Step(id="issuing-crl", command="ca.publish_crl", target=PRIMARY,
+             retry_delays_s=_CRL_RETRY),
     ]
     if has_web:
         steps += [
@@ -812,7 +839,8 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
         ]
     steps.append(
         Step(id="publish-templates", command="ca.publish_template", target=PRIMARY,
-             params={"templates": "OCSPResponseSigning,Workstation"})
+             params={"templates": "OCSPResponseSigning,Workstation"},
+             retry_delays_s=_TEMPLATE_RETRY)
     )
     if has_web and has_dc:
         steps += [
@@ -820,12 +848,12 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
                  params=lambda rt: {
                      "template": "OCSPResponseSigning",
                      "computer": ctx.node(WEB).hostname,
-                 }),
+                 }, retry_delays_s=_TEMPLATE_RETRY),
             Step(id="grant-health-probe", command="template.grant_access", target=DC,
                  params=lambda rt: {
                      "template": "Workstation",
                      "computer": ctx.node(WEB).hostname,
-                 }),
+                 }, retry_delays_s=_TEMPLATE_RETRY),
         ]
     return steps
 

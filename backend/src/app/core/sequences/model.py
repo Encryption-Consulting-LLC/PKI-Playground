@@ -124,6 +124,9 @@ class Step:
     #: Param keys to redact from every progress/error frame (passwords, blobs).
     secret_keys: tuple[str, ...] = ()
     timeout_s: int = 300
+    #: Delays before bounded redispatch attempts for transient service failures.
+    #: Empty means one attempt. Mutating commands using this must be convergent.
+    retry_delays_s: tuple[int, ...] = ()
 
     def resolve_params(self, ctx: RunContext) -> dict[str, str]:
         node = ctx.node(self.target)

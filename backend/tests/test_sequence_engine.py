@@ -325,3 +325,51 @@ def test_deterministic_step_job_id_is_stable():
 def test_redact_params_masks_secrets():
     out = redact_params({"username": "admin", "password": "hunter2"}, ["password"])
     assert out == {"username": "admin", "password": "***"}
+
+
+def test_transient_dispatch_failures_use_bounded_retry_schedule():
+    clock = FakeClock()
+    keys = []
+
+    def dispatch(job_key, *_args, **_kwargs):
+        keys.append(job_key)
+        if len(keys) < 3:
+            raise SequenceError("service is still replicating")
+        return {"ready": True}
+
+    engine = SequenceEngine(
+        dispatch=dispatch,
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+    result = engine.run(
+        [
+            Step(
+                id="publish", command="ca.publish_template", target="primary",
+                retry_delays_s=(10, 20),
+            )
+        ],
+        _ctx(),
+    )
+
+    assert result["publish"] == {"ready": True}
+    assert keys == ["publish", "publish.retry.1", "publish.retry.2"]
+    assert clock.t == 30_000
+
+
+def test_retry_policy_reraises_after_final_attempt():
+    clock = FakeClock()
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: (_ for _ in ()).throw(SequenceError("still down")),
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+
+    with pytest.raises(SequenceError, match="still down"):
+        engine.run(
+            [Step(id="dns", command="dns.verify", target="primary", retry_delays_s=(5,))],
+            _ctx(),
+        )
+    assert clock.t == 5_000
