@@ -136,3 +136,39 @@
   background: transparent;
   border: none;
 }
+
+@keyframes domain-breathe {
+  0%, 100% {
+    filter: saturate(0.92);
+    opacity: 0.78;
+  }
+  50% {
+    filter: saturate(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes domain-well-drift {
+  0%, 100% { transform: translate(-50%, -50%) scale(0.94); }
+  50% { transform: translate(-50%, -50%) scale(1.06); }
+}
+
+.domain-region-empty {
+  animation: domain-breathe 4.8s ease-in-out infinite;
+}
+
+.domain-member-well {
+  position: absolute;
+  width: 190px;
+  height: 150px;
+  border-radius: 9999px;
+  transform: translate(-50%, -50%);
+  animation: domain-well-drift 5.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .domain-region-empty,
+  .domain-member-well {
+    animation: none;
+  }
+}
