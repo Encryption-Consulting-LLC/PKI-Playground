@@ -197,6 +197,21 @@ def test_caconnect_handshake_relays_root_csr_and_signed_cert():
     assert {"issuing_csr", "issuing_crt"} <= produced
 
 
+def test_caconnect_preserves_http_publication_filenames():
+    ctx = _full_lab_ctx()
+    by_id = {step.id: step for step in op_sequence("caConnect", ctx)}
+
+    assert by_id["root-to-web"].resolve_params(ctx)["path"].endswith(
+        "guest-abc12-ca01_EC-Root-CA.crt"
+    )
+    assert by_id["rootcrl-to-web"].resolve_params(ctx)["path"].endswith(
+        "EC-Root-CA.crl"
+    )
+    assert by_id["issuing-to-web"].resolve_params(ctx)["path"].endswith(
+        "guest-abc12-ca02_EncryptionConsulting Issuing CA.crt"
+    )
+
+
 def test_caconnect_issuing_install_is_credentialed_and_secret():
     ctx = _full_lab_ctx()
     install = next(s for s in op_sequence("caConnect", ctx) if s.id == "install-issuing")

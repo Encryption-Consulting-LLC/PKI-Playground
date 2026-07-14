@@ -619,6 +619,25 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
         cn = rt.node.template_config.get("commonName", "Issuing CA")
         return {"path": f"{_CERT_ENROLL_DIR}\\{rt.node.hostname}_{_sanitized_cn_file(cn)}.crt"}
 
+    def root_web_crt_path(rt: StepRuntime) -> dict[str, str]:
+        cn = root.template_config.get("commonName", "EC-Root-CA")
+        return {
+            "path": f"{_WEB_CERTENROLL}\\{root.hostname}_{_sanitized_cn_file(cn)}.crt"
+        }
+
+    def root_web_crl_path(rt: StepRuntime) -> dict[str, str]:
+        cn = root.template_config.get("commonName", "EC-Root-CA")
+        return {"path": f"{_WEB_CERTENROLL}\\{_sanitized_cn_file(cn)}.crl"}
+
+    def issuing_web_crt_path(rt: StepRuntime) -> dict[str, str]:
+        cn = rt.ctx.node(PRIMARY).template_config.get("commonName", "Issuing CA")
+        return {
+            "path": (
+                f"{_WEB_CERTENROLL}\\{rt.ctx.node(PRIMARY).hostname}_"
+                f"{_sanitized_cn_file(cn)}.crt"
+            )
+        }
+
     steps: list[Step] = []
 
     # 1) Trust the offline root on CA02 (carried from the relay).
@@ -645,10 +664,22 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
 
     # 3) Copy the root cert to the web host's served CertEnroll (HTTP CDP/AIA).
     if has_web:
-        steps.append(
-            Step(id="root-to-web", command="file.write", target=WEB,
-                 params={"path": f"{_WEB_CERTENROLL}\\root-ca.crt"}, consumes=(_A_ROOT_CRT,))
-        )
+        steps += [
+            Step(
+                id="root-to-web",
+                command="file.write",
+                target=WEB,
+                params=root_web_crt_path,
+                consumes=(_A_ROOT_CRT,),
+            ),
+            Step(
+                id="rootcrl-to-web",
+                command="file.write",
+                target=WEB,
+                params=root_web_crl_path,
+                consumes=(_A_ROOT_CRL,),
+            ),
+        ]
 
     # 4) Stand up the issuing CA (Enterprise Admin via -Credential) and relay
     #    its CSR out to the offline root, signed cert back.
@@ -683,7 +714,7 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
             Step(id="read-issuing-crt", command="file.read", target=PRIMARY,
                  params=issuing_pub_crt_path, produces=("issuing_pub_crt",)),
             Step(id="issuing-to-web", command="file.write", target=WEB,
-                 params={"path": f"{_WEB_CERTENROLL}\\issuing-ca.crt"}, consumes=("issuing_pub_crt",)),
+                 params=issuing_web_crt_path, consumes=("issuing_pub_crt",)),
         ]
     steps.append(
         Step(id="publish-templates", command="ca.publish_template", target=PRIMARY,
