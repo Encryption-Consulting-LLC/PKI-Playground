@@ -1,4 +1,4 @@
-import { Fragment } from "react"
+import { Fragment, useEffect } from "react"
 import {
   AlertTriangle,
   BadgeCheck,
@@ -10,7 +10,13 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react"
-import { Handle, Position, useEdges, useNodes } from "@xyflow/react"
+import {
+  Handle,
+  Position,
+  useEdges,
+  useNodes,
+  useUpdateNodeInternals,
+} from "@xyflow/react"
 import type { NodeProps, Node } from "@xyflow/react"
 import { cn } from "@/lib/utils"
 import { TEMPLATE_BY_ID } from "@/constants/templates"
@@ -254,6 +260,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
   const isOverlapping = useTopologyStore((s) => s.overlapNodeId === id)
   const gesture = useConnectionGestureStore((s) => s.gesture)
   const hoverTarget = useConnectionGestureStore((s) => s.hoverTarget)
+  const updateNodeInternals = useUpdateNodeInternals()
 
   // Derived chips — only meaningful once a node can carry real edges.
   const showDerived = isConnectable(data)
@@ -285,6 +292,12 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
     { id, data, position: { x: 0, y: 0 } },
     edges,
   )
+  const socketLayoutKey = socketSpecs
+    .map((spec) => serviceSocketHandleId(spec.socket, spec.type))
+    .join("|")
+  useEffect(() => {
+    updateNodeInternals(id)
+  }, [id, socketLayoutKey, updateNodeInternals])
   const socketCompatibility = (socket: ServiceSocket) => {
     if (!gesture) return null
     return canConnectServiceSockets({
@@ -369,11 +382,11 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
               }}
               className={cn(
                 "service-socket !z-20 !h-3 !w-3 !rounded-full !border-0 !shadow-sm",
-                "transition-all duration-150 focus-visible:!outline-none focus-visible:!ring-2 focus-visible:!ring-ring",
+                "transition-opacity duration-150 focus-visible:!outline-none focus-visible:!ring-2 focus-visible:!ring-ring",
                 appearance.dotClassName,
                 visible
-                  ? "!scale-100 !opacity-100"
-                  : "pointer-events-none !scale-75 !opacity-0",
+                  ? "!opacity-100"
+                  : "pointer-events-none !opacity-0",
               )}
             />
             <span
