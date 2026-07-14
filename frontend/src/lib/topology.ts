@@ -134,6 +134,102 @@ export function connectionPorts(type: EdgeType): ConnectionPort[] {
   }
 }
 
+export interface ConnectionPortGuidance {
+  label: string
+  capabilities: string[]
+}
+
+export const CONNECTION_PORT_GUIDANCE: Record<
+  ConnectionPort,
+  ConnectionPortGuidance
+> = {
+  [CONNECTION_PORT.caParent]: {
+    label: "CA parent",
+    capabilities: ["Issues CA certificate"],
+  },
+  [CONNECTION_PORT.caPublication]: {
+    label: "CA publication",
+    capabilities: ["HTTP CDP", "HTTP AIA", "OCSP URL"],
+  },
+  [CONNECTION_PORT.domainBoundary]: {
+    label: "Domain boundary",
+    capabilities: ["AD membership", "DNS resolver", "LDAP publication"],
+  },
+  [CONNECTION_PORT.webHost]: {
+    label: "Web host",
+    capabilities: ["CertEnroll share", "HTTP CertEnroll", "Online Responder"],
+  },
+  [CONNECTION_PORT.probeCertificate]: {
+    label: "Probe certificate",
+    capabilities: ["Enrollment", "Chain validation", "Revocation validation"],
+  },
+}
+
+export interface ConnectionGuidance {
+  intent: string
+  requirements: string[]
+  operations: string[]
+  ports: ConnectionPort[]
+}
+
+/** Operator-facing meaning of a connection before it is deployed. */
+export function connectionGuidance(
+  type: EdgeType,
+  opts?: EdgeStyleOptions,
+): ConnectionGuidance {
+  const ports = connectionPorts(type)
+  switch (type) {
+    case EDGE_TYPE.caHierarchy:
+      return {
+        intent: opts?.rootIssuer
+          ? "Issues CA certificate via offline relay"
+          : "Issues CA certificate",
+        requirements: [
+          "Configured parent and issuing CA",
+          "Issuing CA has no other parent",
+          "Hierarchy remains acyclic",
+        ],
+        operations: [
+          "caConnect: request, sign, install, configure, and verify the issuing CA",
+        ],
+        ports,
+      }
+    case EDGE_TYPE.webServerCert:
+      return {
+        intent: "Publishes PKI services and verifies a probe certificate",
+        requirements: [
+          "Issuing CA has a root parent",
+          "Issuing CA and web host share an AD domain",
+          "Web host has Online Responder enabled",
+        ],
+        operations: [
+          "webServerCert: publish CertEnroll, configure OCSP, enroll a probe, and verify PKI health",
+        ],
+        ports,
+      }
+    case EDGE_TYPE.domainJoin:
+      return {
+        intent: "Provides AD membership, DNS, and LDAP publication",
+        requirements: [
+          "Configured domain controller and member",
+          "Member is not an offline root CA",
+          "Member belongs to no other domain",
+        ],
+        operations: [
+          "domainJoin: join the member, reboot, and verify domain membership",
+        ],
+        ports,
+      }
+    case EDGE_TYPE.network:
+      return {
+        intent: "Unsupported generic connection",
+        requirements: ["Choose a typed PKI relationship"],
+        operations: [],
+        ports,
+      }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CA tier and hierarchy helpers
 // ---------------------------------------------------------------------------
