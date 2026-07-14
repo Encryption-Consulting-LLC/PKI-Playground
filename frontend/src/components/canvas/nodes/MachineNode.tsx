@@ -43,7 +43,7 @@ import { Badge } from "@/components/ui/badge"
 import { ProgressBar } from "./ProgressBar"
 
 const MACHINE_NODE_WIDTH = 304
-const MACHINE_NODE_HEIGHT = 304
+const MACHINE_NODE_HEIGHT = 216
 
 const SOCKET_APPEARANCE: Record<
   ServiceSocket,
@@ -77,7 +77,7 @@ function socketPlacement(socket: ServiceSocket, type: "source" | "target") {
       ? {
           position: Position.Bottom,
           handleStyle: { left: "50%" },
-          labelStyle: { bottom: 12, left: "50%", transform: "translateX(-50%)" },
+          labelStyle: { bottom: 8, left: "50%", transform: "translateX(-50%)" },
           labelClassName: "justify-center",
         }
       : {
@@ -426,11 +426,13 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         {data.orchestratorVmId && <AgentStatusDot vmId={data.orchestratorVmId} />}
       </div>
 
-      {/* Body */}
-      <div className="flex h-[216px] flex-col gap-1.5 px-5 pb-7 pt-[84px]">
-        <LifecycleBadge lifecycle={data.lifecycle} />
+      {/* Status rows mirror the service rows on the opposite edge. */}
+      <div className="px-5 pt-2">
+        <div className="flex h-6 items-center">
+          <LifecycleBadge lifecycle={data.lifecycle} />
+        </div>
 
-        <div className="h-7 min-w-0">
+        <div className="flex h-6 min-w-0 items-center">
           {activePhase ? (
             <div className="group/phase relative min-w-0">
               <span
@@ -465,7 +467,9 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           )}
         </div>
 
-        <dl className="grid grid-cols-2 gap-4 border-t pt-3">
+        <div aria-hidden="true" className="h-6" />
+
+        <dl className="grid h-12 grid-cols-2 gap-4 border-t pt-2">
           {facts.map((fact) => (
             <div key={fact.label} className="min-w-0">
               <dt className="truncate text-[9px] uppercase tracking-wide text-muted-foreground">
@@ -479,9 +483,9 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         </dl>
       </div>
 
-      {/* Every role keeps the same footer band; bottom service outputs such as
-          CA Issue sit below this divider instead of crowding the fact grid. */}
-      <div aria-hidden="true" className="absolute inset-x-5 bottom-[52px] border-t" />
+      {/* Every role keeps the same compact footer band; bottom service outputs
+          such as CA Issue sit below this divider. */}
+      <div aria-hidden="true" className="absolute inset-x-5 bottom-9 border-t" />
     </div>
   )
 }
