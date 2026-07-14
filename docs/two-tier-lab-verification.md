@@ -23,8 +23,11 @@ AIA all verified.
 | 11 | `feat(deploy): execute forest promotion and CA cross-signing for real` | DC + root-CA createVm tails; the `caConnect` cross-sign handshake |
 | 12 | `feat(deploy): execute web host, OCSP and client enrollment for real` | `webServerCert`; client-enrollment tail on `domainJoin`; deferred PKI CNAME |
 | 13 | `feat(canvas): lab-complete template config and offline root presentation` | `cpsUrl`/`ocspRefreshMinutes` fields, offline-root air-gap UI, stub removal, enroll-cert row |
+| 14 | `feat(topology): model explicit DNS record resources` | Backend-validated A/PTR/CNAME resources derived from the final canvas topology |
+| 15 | `feat(deploy): apply and verify planned DNS resources` | Conflict-safe DNS application; A/PTR/SRV/CNAME and HTTP verification |
 
-The agent command surface grew from 8 to 28 (`pki-orchestrator/src/commands/`),
+The agent command surface includes `dns.apply_resources` and `dns.verify`
+(`pki-orchestrator/src/commands/`),
 each `param()`-block PowerShell (never string-interpolated), `MockPowerShell`-
 tested, and mirrored in the backend's `_COMMAND_CAPABILITIES` under a shared
 parity fixture.
@@ -55,22 +58,24 @@ guest-namespaced identity + domain facts), walked by `core/sequences/engine.py`,
 and wired to the agentbus + `plan_runs` in `core/sequences/worker.py`.
 
 - **createVm(DC)**: `dc.install_forest` → `system.reboot` → `dc.verify` (retry) →
-  `dns.set_client(self)`. The `pki` CNAME is deferred to `webServerCert`.
+  `dns.set_client(self)` → apply the DC A/PTR resources → verify them and the
+  forest's AD SRV records.
 - **createVm(root CA)**: `ca.install(Root)` → `ca.configure_settings`
   (52w CRL / 10y issued / DSConfigDN / AuditFilter 127) → `ca.configure_cdp_aia`
   (3 AIA / 3 CDP) → `ca.publish_crl` → `file.read` root crt + crl into the relay.
 - **createVm(issuing CA)**: empty tail — it can't stand up until the handshake.
 - **domainJoin**: `dns.set_client(DC)` → `domain.join` → `system.reboot` →
-  `domain.verify` (retry). Web target adds the CertEnroll share/ACL half; client
-  target (with an issuing CA present) adds `cert.enroll(Workstation)` +
-  `cert.verify`.
+  `domain.verify` (retry) → apply and verify the member's planned A/PTR records.
+  Web target adds the CertEnroll share/ACL half; client target (with an issuing
+  CA present) adds `cert.enroll(Workstation)` + `cert.verify`.
 - **caConnect**: relay root crt/crl to CA02 + AD (`cert.dspublish` ×2) + web;
   `ca.install(Issuing)` → `file.read` CSR → CA01 `ca.sign_request` → `file.read`
   cert → CA02 `ca.install_cert` → settings → CDP/AIA (+OCSP) → CRL → publish
   templates → DC `template.grant_access(OCSPResponseSigning → SRV1$)`.
 - **webServerCert**: `iis.setup_certenroll(web)` → `ocsp.install` →
   `cert.enroll(OCSPResponseSigning)` → `ocsp.configure_revocation` →
-  `ocsp.verify` → deferred `dns.create_record(pki CNAME)` on the DC.
+  `ocsp.verify` → apply the planned PKI CNAME on the DC → verify DNS and HTTP
+  CertEnroll reachability from SRV1 and CA02.
 - **domainLeave**: no plan sequence — retains the timed simulation stub.
 
 ## Canaries — must be validated on a real golden image before production

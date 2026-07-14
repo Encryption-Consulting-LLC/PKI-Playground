@@ -113,22 +113,17 @@ services, DNS records, HTTP artifacts, OCSP configuration, template publication,
 agent health, and expected VM/OS identities. Deploy is green only if this gate
 passes; CRL-only success is not sufficient for the target lab.
 
-### P1: DNS as an explicit resource
+### Completed: DNS as an explicit resource
 
-DNS is partly handled today: the DC points to itself, members point to the DC,
-and `pki.<domain>` is created as a CNAME. One-shot reliability still needs:
+The semantic topology now carries symbolic A/PTR/CNAME resources owned by an
+authoritative DC. The canvas derives A records for DC01, CA02, and SRV1 plus
+the PKI CNAME, and exposes an optional reverse-zone override that enables PTR
+resources. Runtime resolution uses the allocated IPs and real guest hostnames.
 
-- authoritative A records for DC01, CA02, and SRV1;
-- reverse lookup zone and PTR records when configured;
-- verified AD SRV records after promotion;
-- dynamic-registration verification after every domain join;
-- CNAME target and HTTP reachability checks from CA02 and SRV1;
-- conflict detection against pre-existing records;
-- cleanup or retention policy during teardown.
-
-Represent DNS records in the plan rather than hiding all of them inside role
-sequences. The canvas may derive the normal records automatically, while the
-Inspector exposes advanced overrides.
+Deployment verifies AD SRV records after promotion, A/PTR registration after
+each join, and the CNAME plus HTTP CertEnroll path from CA02 and SRV1. Matching
+pre-existing records are retained; conflicting values fail instead of being
+overwritten. DNS cleanup/retention remains part of dependency-aware teardown.
 
 ### P1: Connection meaning and missing-service guidance
 
@@ -204,7 +199,7 @@ without deployment and has no unexplained line or warning.
 ### Phase 2 - Infrastructure and DNS resources
 
 - Add template-specific golden images and ESXi/network mappings.
-- Implement explicit A/PTR/CNAME resources and DNS verification.
+- [x] Implement explicit A/PTR/CNAME resources and DNS verification.
 - Complete operator settings and environmental preflight.
 - Add VM hardware sizing and datastore-capacity reservations.
 
@@ -335,10 +330,10 @@ Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layo
 
 ## Recommended Next Work Order
 
-1. Backend semantic compiler and topology validator.
-2. Fix the supplied template's compiled dependency order and add regression tests.
-3. Windows Server golden-image validation and preflight.
-4. Explicit DNS A/PTR/CNAME resources and verification.
+1. ~~Backend semantic compiler and topology validator.~~
+2. ~~Fix the supplied template's compiled dependency order and add regression tests.~~
+3. ~~Windows Server golden-image validation and preflight.~~
+4. ~~Explicit DNS A/PTR/CNAME resources and verification.~~
 5. Structured ML-DSA/OCSP/CDP/AIA final health gate.
 6. Real operator settings/preflight UI.
 7. Real-ESXi canary matrix, then three-run soak acceptance.
