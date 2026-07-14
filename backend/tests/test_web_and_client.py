@@ -221,6 +221,42 @@ def test_completed_publication_op_exposes_health_report(monkeypatch):
     assert state["publish"].result["certificateJourney"]["schemaVersion"] == 1
 
 
+def test_failed_publication_op_exposes_health_report(monkeypatch):
+    from app.core.sequences import context, definitions, worker
+    from app.core.sequences.engine import HealthGateError
+    from app import tasks
+
+    ctx = _web_ctx()
+    health = {"healthy": False, "failures": ["OCSP failed"], "checks": {}}
+    results = {"lab-health": health}
+    monkeypatch.setattr(context, "build_run_context", lambda *args: ctx)
+    monkeypatch.setattr(
+        definitions,
+        "op_sequence",
+        lambda *args: [Step(id="lab-health", command="lab.verify", target="web")],
+    )
+    monkeypatch.setattr(
+        worker,
+        "run_op_sequence",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            HealthGateError(
+                "health gate 'lab.verify' failed: OCSP failed",
+                step_id="lab-health",
+                health=health,
+                results=results,
+            )
+        ),
+    )
+    monkeypatch.setattr(tasks, "_step_median_seconds", lambda *args: {})
+    op = SimpleNamespace(id="publish", kind=SimpleNamespace(value="webServerCert"))
+    state = {}
+
+    assert _run_sequence_op({}, op, [], "job", "guest", state, lambda: None) is False
+    assert state["publish"].status == "error"
+    assert state["publish"].result["health"] == health
+    assert state["publish"].result["certificateJourney"]["healthy"] is False
+
+
 def _client_ctx(with_ca=True):
     dc = _node("dc01", "guest-abc12-dc01", "domainController",
                {"domainName": "encon.pki", "netbiosName": "ENCON",

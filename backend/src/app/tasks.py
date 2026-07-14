@@ -837,7 +837,7 @@ def _run_sequence_op(
     which is also how an op whose expansion is empty for the current topology
     degrades. A resolution/sequence failure fails the op (dependents cancel).
     """
-    from app.core.sequences import SequenceCancelled, SequenceError
+    from app.core.sequences import HealthGateError, SequenceCancelled, SequenceError
     from app.core.sequences.context import ContextError, build_run_context
     from app.core.sequences.definitions import op_sequence
     from app.core.sequences.worker import run_op_sequence
@@ -881,6 +881,19 @@ def _run_sequence_op(
         )
     except SequenceCancelled as exc:
         state[op.id] = OpRunState(status="cancelled", detail=str(exc))
+        push()
+        return False
+    except HealthGateError as exc:
+        from app.core.sequences.journey import build_certificate_journey
+
+        state[op.id] = OpRunState(
+            status="error",
+            detail=str(exc),
+            result={
+                "health": exc.health,
+                "certificateJourney": build_certificate_journey(ctx, exc.results),
+            },
+        )
         push()
         return False
     except SequenceError as exc:

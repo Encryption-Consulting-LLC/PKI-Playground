@@ -8,6 +8,7 @@ to the agentbus dispatch bridge and ``plan_runs`` persistence in
 """
 
 from app.core.sequences.engine import (
+    HealthGateError,
     SequenceCancelled,
     SequenceEngine,
     SequenceError,
@@ -16,6 +17,7 @@ from app.core.sequences.engine import (
 from app.core.sequences.model import NodeContext, RunContext, Step, StepRuntime
 
 __all__ = [
+    "HealthGateError",
     "SequenceCancelled",
     "SequenceEngine",
     "SequenceError",

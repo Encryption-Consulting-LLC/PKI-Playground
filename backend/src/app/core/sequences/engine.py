@@ -37,6 +37,23 @@ class SequenceError(Exception):
     probe that never reached its target state within the window)."""
 
 
+class HealthGateError(SequenceError):
+    """A terminal aggregate failure that retains its structured evidence."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        step_id: str,
+        health: dict[str, Any],
+        results: dict[str, dict],
+    ) -> None:
+        super().__init__(message)
+        self.step_id = step_id
+        self.health = health
+        self.results = results
+
+
 class SequenceCancelled(SequenceError):
     """A cooperative cancellation was observed between sequence steps."""
 
@@ -109,7 +126,12 @@ class SequenceEngine:
             if result.get("healthy") is not True:
                 failures = result.get("failures") or ["aggregate health check failed"]
                 detail = "; ".join(str(item) for item in failures)
-                raise SequenceError(f"health gate '{step.command}' failed: {detail}")
+                raise HealthGateError(
+                    f"health gate '{step.command}' failed: {detail}",
+                    step_id=step.id,
+                    health=result,
+                    results={**prior_results, step.id: result},
+                )
             self._completed.add(step.id)
             self._on_step_done(step.id, result)
             return result

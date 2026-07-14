@@ -4,6 +4,7 @@ artifact relay, and resume-skip, all with injected effects (no redis/Mongo)."""
 import pytest
 
 from app.core.sequences.engine import (
+    HealthGateError,
     SequenceCancelled,
     SequenceEngine,
     SequenceError,
@@ -266,8 +267,12 @@ def test_unhealthy_aggregate_fails_sequence_with_reasons():
         },
     )
 
-    with pytest.raises(SequenceError, match="OCSP response was not verified"):
+    with pytest.raises(HealthGateError, match="OCSP response was not verified") as error:
         engine.run([gate], _ctx())
+
+    assert error.value.step_id == "gate"
+    assert error.value.health["healthy"] is False
+    assert error.value.results["gate"] == error.value.health
 
 
 def test_produces_and_consumes_relay_artifacts():

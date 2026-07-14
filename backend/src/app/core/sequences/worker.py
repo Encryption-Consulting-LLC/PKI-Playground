@@ -15,6 +15,7 @@ import time
 from app.core import agentbus
 from app.core.db.models import now_ms
 from app.core.sequences.engine import (
+    HealthGateError,
     SequenceEngine,
     deterministic_step_job_id,
 )
@@ -122,6 +123,31 @@ def _persist_step(
     )
 
 
+def _persist_failed_health(
+    db,
+    plan_job_id: str,
+    op_id: str,
+    step_id: str,
+    result: dict,
+) -> None:
+    """Retain a failed aggregate without advancing the resumable cursor."""
+    ttl_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
+        days=_PLAN_RUN_TTL_DAYS
+    )
+    db["plan_runs"].update_one(
+        {"jobId": plan_job_id},
+        {
+            "$set": {
+                f"results.{op_id}.{step_id}": result,
+                "updatedAt": now_ms(),
+                "ttlAt": ttl_at,
+            },
+            "$setOnInsert": {"jobId": plan_job_id, "createdAt": now_ms()},
+        },
+        upsert=True,
+    )
+
+
 def run_op_sequence(
     db,
     steps: list[Step],
@@ -210,4 +236,10 @@ def run_op_sequence(
         on_step_done=on_step_done,
         should_stop=should_stop,
     )
-    return engine.run(steps, ctx)
+    try:
+        return engine.run(steps, ctx)
+    except HealthGateError as exc:
+        _persist_failed_health(
+            db, plan_job_id, op_id, exc.step_id, exc.health
+        )
+        raise
