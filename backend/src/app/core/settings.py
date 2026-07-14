@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     clone_base: str = "ws-2025-base"
     clone_datastore: str = "datastore1"
     clone_guest_os: str = "windows2022srvNext-64"
+    clone_network: str = "VM Network"
     clone_max_usage_pct: float = 80.0
 
     # Clone job queue: Valkey is the Celery broker, a per-job pub/sub bus, and the

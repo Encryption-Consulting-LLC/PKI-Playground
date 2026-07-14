@@ -126,7 +126,11 @@ class SettingsDoc(BaseModel):
     clone_guest_os: str = Field(
         default="windows2022srvNext-64", alias="cloneGuestOs"
     )
+    clone_network: str = Field(default="VM Network", alias="cloneNetwork")
     clone_max_usage_pct: float = Field(default=80.0, alias="cloneMaxUsagePct")
+    infrastructure_profiles: list[dict] = Field(
+        default_factory=list, alias="infrastructureProfiles"
+    )
     # Guest subnet — an inclusive start/end range (not a CIDR, so it
     # can never include the network/broadcast/gateway addresses) that the IP
     # pool (``core/ippool.py``) is seeded from. All four of start/end/gateway/
@@ -140,7 +144,7 @@ class SettingsDoc(BaseModel):
     guest_dns2: str | None = Field(default=None, alias="guestDns2")
     guest_dns_suffix: str | None = Field(default=None, alias="guestDnsSuffix")
     feature_flags: dict[str, bool] = Field(default_factory=dict, alias="featureFlags")
-    schema_version: int = Field(default=4, alias="schemaVersion")
+    schema_version: int = Field(default=5, alias="schemaVersion")
     updated_at: int = Field(alias="updatedAt")
 
 

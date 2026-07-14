@@ -27,6 +27,7 @@ from app.core.golden_image import (
     preflight_golden_image,
 )
 from app.core.ippool import guest_network_from_doc, sync_pool_async, validate_network
+from app.core.infrastructure import InfrastructureProfile
 from app.core.secrets import encrypt_secret
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -50,8 +51,14 @@ class SettingsUpdate(BaseModel):
     clone_guest_os: str | None = Field(
         default=None, min_length=1, max_length=80, alias="cloneGuestOs"
     )
+    clone_network: str | None = Field(
+        default=None, min_length=1, max_length=80, alias="cloneNetwork"
+    )
     clone_max_usage_pct: float | None = Field(
         default=None, gt=0, le=100, alias="cloneMaxUsagePct"
+    )
+    infrastructure_profiles: list[InfrastructureProfile] | None = Field(
+        default=None, min_length=4, max_length=4, alias="infrastructureProfiles"
     )
     guest_ip_start: str | None = Field(default=None, alias="guestIpStart")
     guest_ip_end: str | None = Field(default=None, alias="guestIpEnd")
@@ -112,6 +119,14 @@ async def validate_golden_image(
 @router.put("", dependencies=[Depends(require_capability(Capability.SETTINGS_WRITE))])
 async def update_settings(body: SettingsUpdate) -> dict:
     fields = body.model_dump(by_alias=True, exclude_unset=True)
+    profiles = fields.get("infrastructureProfiles")
+    if profiles is not None and {profile["role"] for profile in profiles} != {
+        "domainController", "rootCa", "issuingCa", "webServer"
+    }:
+        raise HTTPException(
+            status_code=422,
+            detail="Infrastructure profiles must contain each guided PKI role exactly once.",
+        )
     if "esxiPassword" in fields:
         password = fields.pop("esxiPassword")
         fields["esxiPasswordEnc"] = encrypt_secret(password) if password else None

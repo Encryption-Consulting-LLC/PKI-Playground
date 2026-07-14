@@ -169,6 +169,7 @@ async def _seed_settings_doc() -> None:
         clone_base=settings.clone_base,
         clone_datastore=settings.clone_datastore,
         clone_guest_os=settings.clone_guest_os,
+        clone_network=settings.clone_network,
         clone_max_usage_pct=settings.clone_max_usage_pct,
         guest_ip_start=settings.guest_ip_start,
         guest_ip_end=settings.guest_ip_end,
@@ -196,12 +197,13 @@ async def _seed_settings_doc() -> None:
     # operator's later choices.
     await settings_col().update_one(
         {"_id": SETTINGS_DOC_ID},
-        {"$set": {"schemaVersion": 4}},
+        {"$set": {"schemaVersion": 5}},
     )
     for field, value in (
         ("cloneBase", settings.clone_base),
         ("cloneDatastore", settings.clone_datastore),
         ("cloneGuestOs", settings.clone_guest_os),
+        ("cloneNetwork", settings.clone_network),
         ("cloneMaxUsagePct", settings.clone_max_usage_pct),
     ):
         await settings_col().update_one(

@@ -11,6 +11,10 @@ os.environ.setdefault(
 )
 
 from app.core.db.models import SettingsDoc  # noqa: E402
+from app.core.infrastructure import (  # noqa: E402
+    infrastructure_profiles_from_doc,
+    role_for_template,
+)
 from app.routers.settings import SettingsUpdate  # noqa: E402
 
 
@@ -43,3 +47,46 @@ def test_settings_document_has_safe_golden_image_defaults():
     assert doc.clone_datastore == "datastore1"
     assert doc.clone_guest_os == "windows2022srvNext-64"
     assert doc.clone_max_usage_pct == 80.0
+
+
+def test_legacy_settings_expand_to_all_guided_pki_roles():
+    profiles = infrastructure_profiles_from_doc(
+        {"cloneBase": "patched", "cloneDatastore": "fast", "cloneNetwork": "PKI"}
+    )
+
+    assert set(profiles) == {"domainController", "rootCa", "issuingCa", "webServer"}
+    assert all(profile.base == "patched" for profile in profiles.values())
+    assert all(profile.network == "PKI" for profile in profiles.values())
+    assert profiles["issuingCa"].memory_mb == 8192
+
+
+def test_role_specific_profile_overrides_legacy_image():
+    profiles = infrastructure_profiles_from_doc(
+        {
+            "cloneBase": "legacy",
+            "infrastructureProfiles": [
+                {
+                    "role": "rootCa",
+                    "base": "offline-root-image",
+                    "datastore": "secure",
+                    "expectedGuestOs": "windows2022srvNext-64",
+                    "network": "Offline",
+                    "cpus": 2,
+                    "memoryMb": 4096,
+                    "systemDiskGb": 60,
+                    "maxUsagePct": 70,
+                }
+            ],
+        }
+    )
+
+    assert profiles["rootCa"].base == "offline-root-image"
+    assert profiles["rootCa"].network == "Offline"
+    assert profiles["webServer"].base == "legacy"
+
+
+def test_template_configuration_selects_infrastructure_role():
+    assert role_for_template("domainController") == "domainController"
+    assert role_for_template("certificateAuthority", "Root") == "rootCa"
+    assert role_for_template("certificateAuthority", "Issuing") == "issuingCa"
+    assert role_for_template("webServer") == "webServer"
