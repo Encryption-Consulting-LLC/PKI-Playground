@@ -27,3 +27,14 @@ export const EDGE_TYPE = {
 } as const
 
 export type EdgeType = (typeof EDGE_TYPE)[keyof typeof EDGE_TYPE]
+
+export const CONNECTION_PORT = {
+  caParent: "caParent",
+  caPublication: "caPublication",
+  domainBoundary: "domainBoundary",
+  webHost: "webHost",
+  probeCertificate: "probeCertificate",
+} as const
+
+export type ConnectionPort =
+  (typeof CONNECTION_PORT)[keyof typeof CONNECTION_PORT]

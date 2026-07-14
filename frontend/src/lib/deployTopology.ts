@@ -3,7 +3,9 @@
 import type { Edge, Node } from "@xyflow/react"
 
 import { EDGE_TYPE } from "@/constants/topology"
+import type { EdgeType } from "@/constants/topology"
 import type { TopologyPayload, TopologyRole } from "@/lib/api"
+import { connectionPorts } from "@/lib/topology"
 import type { MachineData } from "@/store/topology"
 
 function topologyRole(data: MachineData): TopologyRole {
@@ -90,7 +92,7 @@ export function buildDeployTopology(
       config: node.data.config ?? {},
     })),
     edges: edges.flatMap((edge) => {
-      const edgeType = edge.data?.edgeType
+      const edgeType = edge.data?.edgeType as EdgeType | undefined
       const kind =
         edgeType === EDGE_TYPE.domainJoin
           ? "domainMembership"
@@ -99,8 +101,14 @@ export function buildDeployTopology(
             : edgeType === EDGE_TYPE.webServerCert
               ? "caPublication"
               : null
-      return kind
-        ? [{ id: edge.id, kind, source: edge.source, target: edge.target }]
+      return kind && edgeType
+        ? [{
+            id: edge.id,
+            kind,
+            source: edge.source,
+            target: edge.target,
+            ports: connectionPorts(edgeType),
+          }]
         : []
     }),
     dnsRecords,

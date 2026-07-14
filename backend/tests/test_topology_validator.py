@@ -9,6 +9,7 @@ from app.core.topology import (
     TopologyEdge,
     TopologyEdgeKind,
     TopologyNode,
+    TopologyPortKind,
     TopologyRole,
     TopologyValidationError,
     validate_topology,
@@ -58,6 +59,27 @@ def _codes(exc: TopologyValidationError) -> set[str]:
 
 def test_complete_two_tier_topology_is_valid():
     validate_topology(_full_topology())
+
+
+def test_legacy_edges_infer_their_capability_ports():
+    topology = _full_topology()
+
+    assert topology.edges[0].ports == [TopologyPortKind.ca_parent]
+    assert topology.edges[-1].ports == [
+        TopologyPortKind.ca_publication,
+        TopologyPortKind.web_host,
+        TopologyPortKind.probe_certificate,
+    ]
+
+
+def test_connection_rejects_capability_ports_for_another_relationship():
+    topology = _full_topology()
+    topology.edges[-1].ports = [TopologyPortKind.ca_parent]
+
+    with pytest.raises(TopologyValidationError) as caught:
+        validate_topology(topology)
+
+    assert "connection-port-mismatch" in _codes(caught.value)
 
 
 def test_missing_relationships_are_reported_together():

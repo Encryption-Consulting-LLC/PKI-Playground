@@ -4,8 +4,8 @@
  */
 
 import type { Edge, Node } from "@xyflow/react"
-import { EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
-import type { EdgeType } from "@/constants/topology"
+import { CONNECTION_PORT, EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
+import type { ConnectionPort, EdgeType } from "@/constants/topology"
 import type { IsoAuthoring, MachineData } from "@/store/topology"
 
 // ---------------------------------------------------------------------------
@@ -114,6 +114,24 @@ export function inferEdgeType(
   )
     return EDGE_TYPE.webServerCert
   return EDGE_TYPE.network
+}
+
+/** Capability ports carried by each deployable relationship. */
+export function connectionPorts(type: EdgeType): ConnectionPort[] {
+  switch (type) {
+    case EDGE_TYPE.caHierarchy:
+      return [CONNECTION_PORT.caParent]
+    case EDGE_TYPE.webServerCert:
+      return [
+        CONNECTION_PORT.caPublication,
+        CONNECTION_PORT.webHost,
+        CONNECTION_PORT.probeCertificate,
+      ]
+    case EDGE_TYPE.domainJoin:
+      return [CONNECTION_PORT.domainBoundary]
+    case EDGE_TYPE.network:
+      return []
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -373,14 +391,18 @@ export function findDomainForNode(
  * `domainJoin` edgeType so existing derived logic (badges, member counts)
  * continues to work unchanged.
  */
-export function domainJoinEdge(source: string, target: string): Edge {
+export function domainJoinEdge(source: string, target: string, staged = false): Edge {
   return {
     id: `e-domain-${source}-${target}`,
     source,
     target,
     type: "smoothstep",
     hidden: true,
-    data: { edgeType: EDGE_TYPE.domainJoin },
+    data: {
+      edgeType: EDGE_TYPE.domainJoin,
+      ports: connectionPorts(EDGE_TYPE.domainJoin),
+      staged,
+    },
   }
 }
 

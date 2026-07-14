@@ -326,6 +326,13 @@ export interface TopologyPayload {
     kind: "domainMembership" | "caParent" | "caPublication"
     source: string
     target: string
+    ports: Array<
+      | "caParent"
+      | "caPublication"
+      | "domainBoundary"
+      | "webHost"
+      | "probeCertificate"
+    >
   }>
   dnsRecords: Array<{
     id: string

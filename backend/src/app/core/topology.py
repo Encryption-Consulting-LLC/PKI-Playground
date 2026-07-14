@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal, Protocol, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TopologyRole(str, Enum):
@@ -28,6 +28,25 @@ class TopologyEdgeKind(str, Enum):
     domain_membership = "domainMembership"
     ca_parent = "caParent"
     ca_publication = "caPublication"
+
+
+class TopologyPortKind(str, Enum):
+    ca_parent = "caParent"
+    ca_publication = "caPublication"
+    domain_boundary = "domainBoundary"
+    web_host = "webHost"
+    probe_certificate = "probeCertificate"
+
+
+_PORTS_BY_EDGE_KIND = {
+    TopologyEdgeKind.domain_membership: (TopologyPortKind.domain_boundary,),
+    TopologyEdgeKind.ca_parent: (TopologyPortKind.ca_parent,),
+    TopologyEdgeKind.ca_publication: (
+        TopologyPortKind.ca_publication,
+        TopologyPortKind.web_host,
+        TopologyPortKind.probe_certificate,
+    ),
+}
 
 
 class DnsRecordKind(str, Enum):
@@ -48,6 +67,15 @@ class TopologyEdge(BaseModel):
     kind: TopologyEdgeKind
     source: str = Field(min_length=1, max_length=200)
     target: str = Field(min_length=1, max_length=200)
+    ports: list[TopologyPortKind] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="after")
+    def infer_legacy_ports(self) -> "TopologyEdge":
+        """Upgrade topology-v1 edges saved before capability ports existed."""
+
+        if not self.ports:
+            self.ports = list(_PORTS_BY_EDGE_KIND[self.kind])
+        return self
 
 
 class DnsRecordResource(BaseModel):
@@ -252,6 +280,20 @@ def validate_topology(topology: TopologyDocument) -> None:
                 )
             )
         edge_keys.add(key)
+        expected_ports = set(_PORTS_BY_EDGE_KIND[edge.kind])
+        actual_ports = set(edge.ports)
+        if actual_ports != expected_ports:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="connection-port-mismatch",
+                    message=(
+                        f"Relationship '{edge.id}' must expose "
+                        f"{', '.join(port.value for port in _PORTS_BY_EDGE_KIND[edge.kind])}."
+                    ),
+                    node_ids=[edge.source, edge.target],
+                    edge_ids=[edge.id],
+                )
+            )
         missing = [node_id for node_id in (edge.source, edge.target) if node_id not in nodes]
         if missing:
             diagnostics.append(

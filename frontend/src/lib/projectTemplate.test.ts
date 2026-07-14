@@ -63,12 +63,18 @@ describe("supplied PKI project template", () => {
         kind: edge.kind,
         source: names.get(edge.source),
         target: names.get(edge.target),
+        ports: edge.ports,
       })),
     ).toEqual([
-      { kind: "domainMembership", source: "CA02", target: "DC01" },
-      { kind: "domainMembership", source: "SRV1", target: "DC01" },
-      { kind: "caParent", source: "CA01", target: "CA02" },
-      { kind: "caPublication", source: "CA02", target: "SRV1" },
+      { kind: "domainMembership", source: "CA02", target: "DC01", ports: ["domainBoundary"] },
+      { kind: "domainMembership", source: "SRV1", target: "DC01", ports: ["domainBoundary"] },
+      { kind: "caParent", source: "CA01", target: "CA02", ports: ["caParent"] },
+      {
+        kind: "caPublication",
+        source: "CA02",
+        target: "SRV1",
+        ports: ["caPublication", "webHost", "probeCertificate"],
+      },
     ])
 
     expect(

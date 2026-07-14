@@ -31,6 +31,7 @@ import { ApiError, deleteIso, deleteVm } from "@/lib/api"
 import { openJobSocket } from "@/lib/ws"
 import {
   canConnect,
+  connectionPorts,
   domainJoinEdge,
   domainLabel,
   edgeStyle,
@@ -429,7 +430,12 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       // and other edges keep the existing orthogonal routing.
       type: type === EDGE_TYPE.webServerCert ? "default" : "smoothstep",
       markerEnd: { type: "arrowclosed" as const },
-      data: { edgeType: type, staged: true, rootIssuer },
+      data: {
+        edgeType: type,
+        ports: connectionPorts(type),
+        staged: true,
+        rootIssuer,
+      },
       ...style,
       // Ghost styling until this op is deployed — commitEdge (M4) clears it.
       style: { ...style.style, strokeDasharray: "6 4", opacity: 0.6 },
@@ -530,7 +536,7 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       }
 
       if (c.dcId) {
-        const newEdge = domainJoinEdge(c.nodeId, c.dcId)
+        const newEdge = domainJoinEdge(c.nodeId, c.dcId, true)
         set((s) => ({ edges: [...s.edges, newEdge] }))
         useStagingStore.getState().stageOp({
           kind: OP_KIND.domainJoin,
