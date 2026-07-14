@@ -184,12 +184,12 @@ export interface ServiceSocketGuidance {
 
 export const SERVICE_SOCKET_GUIDANCE: Record<ServiceSocket, ServiceSocketGuidance> = {
   [SERVICE_SOCKET.issuance]: {
-    label: "CA issuance",
+    label: "CA Issue",
     intent: "Issue a subordinate CA certificate",
     operation: "caConnect · request, relay, sign, install, and verify",
   },
   [SERVICE_SOCKET.publication]: {
-    label: "CDP/AIA publication",
+    label: "CDP/AIA",
     intent: "Publish certificates and revocation artifacts",
     operation: "webServerCert · publish CertEnroll and verify HTTP artifacts",
   },
@@ -199,7 +199,7 @@ export const SERVICE_SOCKET_GUIDANCE: Record<ServiceSocket, ServiceSocketGuidanc
     operation: "webServerCert · configure, enroll, and verify OCSP",
   },
   [SERVICE_SOCKET.enrollment]: {
-    label: "Certificate enrollment",
+    label: "Cert Enroll",
     intent: "Enroll and validate a workload certificate",
     operation: "webServerCert · enroll and verify the probe certificate",
   },
