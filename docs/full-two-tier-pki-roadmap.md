@@ -23,7 +23,7 @@ OCSP, CDP, and AIA as verified, and CA02's enterprise PKI containers are healthy
 |---|---|---:|
 | Canvas and local staging | Role catalog, CA hierarchy, growing domain circle, staged operations, persistence, one Deploy action | 75% |
 | Guide command coverage | Forest, joins, CA install/config, relay, IIS, OCSP, templates, enrollment, CNAME, and verification commands exist | 80% |
-| Correct orchestration | Real sequences exist, but the semantic dependency graph is not safely compiled from the final topology | 50% |
+| Correct orchestration | The backend validates planned/realized resources and compiles a canonical dependency DAG from the final topology | 80% |
 | Exact scoped parity | Incomplete DNS lifecycle, weak final assertions, and simulated domain leave | 60% |
 | ESXi one-shot confidence | Clone and agent paths exist, but ML-DSA, OCSP COM, SYSTEM credential use, timing, and filenames remain hardware canaries | 35% |
 
@@ -53,20 +53,20 @@ image problems can extend the calendar even when the code is complete.
 
 ## Blocking Bugs And Gaps
 
-### P0: Plan correctness
+### Completed: Authoritative plan correctness
 
-The current staged list is append-ordered and accepts client-supplied
-`dependsOn` values. It does not compile the final topology into the guide's
-semantic dependency graph. A fully staged canvas can therefore run:
+The backend ignores client-supplied `dependsOn` values for known operations and
+compiles the final topology into the guide's semantic dependency graph. It also
+rejects missing operations for planned resources and replayed operations for
+resources already marked realized. A fully staged canvas can no longer run:
 
 - `caConnect` before CA02 is domain joined;
 - `caConnect` before SRV1 has joined and created the CertEnroll share;
 - SRV1 probe enrollment before CA02 publishes its required template;
 - final verification before SRV1's HTTP and OCSP services are healthy.
 
-The backend must become authoritative. It should ignore dependency claims for
-known operation kinds, derive dependencies from node roles and relationships,
-reject incomplete topologies, and return the compiled plan for preview.
+The dry-run endpoint returns the authoritative operations, semantic diagnostics,
+resource summary, duration estimates, and critical path for preview.
 
 Required critical path:
 
@@ -82,9 +82,9 @@ clone SRV1 ------------------------------------+-> join CA02 and SRV1
                                                    -> final lab health gate
 ```
 
-Add regression tests for arbitrary staging order, persisted projects, retries
-with completed create operations removed, missing relationships, and cycle
-diagnostics.
+Regression tests cover arbitrary staging order, persisted projects, retries
+with realized create operations removed, missing relationships and operations,
+replayed realized operations, and cycle diagnostics.
 
 ### P0: Golden image readiness
 
@@ -190,12 +190,12 @@ changes after preflight, the job should fail before the first clone.
 **Exit:** the complete intended topology can be built in any interaction order
 without deployment and has no unexplained line or warning.
 
-### Phase 1 - Authoritative topology compiler
+### Phase 1 - Authoritative topology compiler [complete]
 
-- Introduce a versioned topology document separate from executable operations.
-- Compile topology -> resources -> operations -> dependency DAG on the backend.
-- Add semantic validation, critical-path output, duration estimates, and a dry run.
-- Preserve operation IDs across recompilation so resume and metrics remain useful.
+- [x] Introduce a versioned topology document separate from executable operations.
+- [x] Compile topology -> resources -> operations -> dependency DAG on the backend.
+- [x] Add semantic validation, critical-path output, duration estimates, and a dry run.
+- [x] Preserve operation IDs across recompilation so resume and metrics remain useful.
 
 **Exit:** arbitrary staging order produces the same safe guide order.
 
