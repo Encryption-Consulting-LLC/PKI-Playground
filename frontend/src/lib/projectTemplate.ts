@@ -20,7 +20,8 @@
 
 import { DEFAULT_VIEWPORT, useTopologyStore } from "@/store/topology"
 import { useStagingStore } from "@/store/staging"
-import { domainLabel } from "@/lib/topology"
+import { domainLabel, serviceSocketHandleId } from "@/lib/topology"
+import { SERVICE_SOCKET } from "@/constants/topology"
 import { projectNetbiosPrefix } from "@/lib/projectNaming"
 import type { DomainSyncChange } from "@/store/topology"
 
@@ -143,8 +144,8 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
     useTopologyStore.getState().connect({
       source: rootId,
       target: issuingId,
-      sourceHandle: "hierarchy",
-      targetHandle: "hierarchy-in",
+      sourceHandle: serviceSocketHandleId(SERVICE_SOCKET.issuance, "source"),
+      targetHandle: serviceSocketHandleId(SERVICE_SOCKET.issuance, "target"),
     })
   }
   // Issuing CA publishes its CRL/AIA to the web server.
@@ -152,8 +153,8 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
     useTopologyStore.getState().connect({
       source: issuingId,
       target: webId,
-      sourceHandle: "server",
-      targetHandle: null,
+      sourceHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "source"),
+      targetHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "target"),
     })
   }
 }

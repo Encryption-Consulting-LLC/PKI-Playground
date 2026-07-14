@@ -30,7 +30,7 @@ import { toast } from "sonner"
 import { ApiError, deleteIso, deleteVm } from "@/lib/api"
 import { openJobSocket } from "@/lib/ws"
 import {
-  canConnect,
+  canConnectServiceSockets,
   connectionPorts,
   domainJoinEdge,
   domainLabel,
@@ -38,6 +38,7 @@ import {
   findDomainForNode,
   inferEdgeType,
   isDomainEligible,
+  serviceSocketEdgeType,
   trustGravityLayout,
 } from "@/lib/topology"
 import { OP_KIND, findStagedOp } from "@/lib/staging"
@@ -413,12 +414,23 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     if (useStagingStore.getState().deploying) return "Canvas is locked while deploying."
     const { nodes, edges } = get()
     const { source, target, sourceHandle, targetHandle } = connection
-    const result = canConnect(source, target, nodes, edges)
+    const result = canConnectServiceSockets(connection, nodes, edges)
     if (!result.ok) return result.reason ?? "Connection blocked."
 
     const sourceNode = nodes.find((n) => n.id === source)!
     const targetNode = nodes.find((n) => n.id === target)!
-    const type = inferEdgeType(sourceNode.data.typeId, targetNode.data.typeId)
+    const type = serviceSocketEdgeType(connection, nodes) ??
+      inferEdgeType(sourceNode.data.typeId, targetNode.data.typeId)
+
+    if (type === EDGE_TYPE.domainJoin) {
+      get().applyDomainChanges([{
+        nodeId: sourceNode.id,
+        nodeName: sourceNode.data.name,
+        dcId: targetNode.id,
+        domainName: domainLabel(targetNode),
+      }])
+      return null
+    }
     const rootIssuer = sourceNode.data.config?.caType === "Root"
     const style = edgeStyle(type, { rootIssuer })
 

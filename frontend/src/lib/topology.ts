@@ -3,7 +3,7 @@
  * All inputs are plain arrays of Node/Edge data so these are trivially testable.
  */
 
-import type { Connection, Edge, Node } from "@xyflow/react"
+import type { Edge, Node } from "@xyflow/react"
 import {
   CONNECTION_HEALTH,
   CONNECTION_PORT,
@@ -212,6 +212,13 @@ export const SERVICE_SOCKET_GUIDANCE: Record<ServiceSocket, ServiceSocketGuidanc
 
 export type ServiceSocketHandleType = "source" | "target"
 
+export interface ServiceSocketConnection {
+  source: string
+  target: string
+  sourceHandle?: string | null
+  targetHandle?: string | null
+}
+
 export function serviceSocketHandleId(
   socket: ServiceSocket,
   type: ServiceSocketHandleType,
@@ -237,7 +244,7 @@ export function parseServiceSocketHandle(
 
 /** Resolves a matching socket pair to the one relationship it can create. */
 export function serviceSocketEdgeType(
-  connection: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">,
+  connection: ServiceSocketConnection,
   nodes: Node<MachineData>[],
 ): EdgeType | null {
   const sourceHandle = parseServiceSocketHandle(connection.sourceHandle)
@@ -275,6 +282,42 @@ export function serviceSocketEdgeType(
         ? EDGE_TYPE.domainJoin
         : null
   }
+}
+
+export interface NodeServiceSocket {
+  socket: ServiceSocket
+  type: ServiceSocketHandleType
+}
+
+/** Service sockets exposed by a configured machine in the current topology. */
+export function serviceSocketsForNode(
+  node: Node<MachineData>,
+  edges: Edge[],
+): NodeServiceSocket[] {
+  if (!isConnectable(node.data)) return []
+  if (node.data.typeId === "domainController") {
+    return [{ socket: SERVICE_SOCKET.domain, type: "target" }]
+  }
+  if (node.data.typeId === "certificateAuthority") {
+    const root = node.data.config?.caType === "Root" || caTier(node.id, edges) === "root"
+    return [
+      ...(!root ? [{ socket: SERVICE_SOCKET.issuance, type: "target" } as const] : []),
+      { socket: SERVICE_SOCKET.issuance, type: "source" },
+      { socket: SERVICE_SOCKET.publication, type: "source" },
+      { socket: SERVICE_SOCKET.ocsp, type: "source" },
+      { socket: SERVICE_SOCKET.enrollment, type: "source" },
+      ...(!root ? [{ socket: SERVICE_SOCKET.domain, type: "source" } as const] : []),
+    ]
+  }
+  if (node.data.typeId === "webServer") {
+    return [
+      { socket: SERVICE_SOCKET.publication, type: "target" },
+      { socket: SERVICE_SOCKET.ocsp, type: "target" },
+      { socket: SERVICE_SOCKET.enrollment, type: "target" },
+      { socket: SERVICE_SOCKET.domain, type: "source" },
+    ]
+  }
+  return [{ socket: SERVICE_SOCKET.domain, type: "source" }]
 }
 
 export interface ConnectionGuidance {
@@ -1194,7 +1237,7 @@ export function canConnect(
  * parents resist the gesture before a drop can create an edge.
  */
 export function canConnectServiceSockets(
-  connection: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">,
+  connection: ServiceSocketConnection,
   nodes: Node<MachineData>[],
   edges: Edge[],
 ): CanConnectResult {

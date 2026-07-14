@@ -9,6 +9,8 @@ import {
   type EdgeChange,
   type Connection,
   type OnConnect,
+  type OnConnectStart,
+  type IsValidConnection,
   type OnSelectionChangeParams,
   type OnMoveEnd,
   type OnNodeDrag,
@@ -32,6 +34,7 @@ import { EDGE_TYPE } from "@/constants/topology"
 import {
   domainJoinBlockReason,
   domainJoinOperations,
+  canConnectServiceSockets,
   findDomainForNode,
   findOverlappingId,
   isDeployed,
@@ -42,6 +45,8 @@ import { useResolvedTheme } from "@/hooks/useTheme"
 import { ConnectionLegend } from "./ConnectionLegend"
 import { CapabilityEdge } from "./edges/CapabilityEdge"
 import { TopologyGuidance } from "./TopologyGuidance"
+import { ConnectionPreview } from "./ConnectionPreview"
+import { useConnectionGestureStore } from "@/store/connectionGesture"
 
 const DRAG_TYPE = "application/reactflow"
 
@@ -77,6 +82,8 @@ export function Canvas() {
   const removeNode = useTopologyStore((s) => s.removeNode)
   const setViewport = useTopologyStore((s) => s.setViewport)
   const setOverlapNode = useTopologyStore((s) => s.setOverlapNode)
+  const startConnectionGesture = useConnectionGestureStore((s) => s.start)
+  const endConnectionGesture = useConnectionGestureStore((s) => s.end)
   const { screenToFlowPosition, setViewport: rfSetViewport } = useReactFlow()
   const wrapperRef = useRef<HTMLDivElement>(null)
   const resolvedTheme = useResolvedTheme()
@@ -176,6 +183,24 @@ export function Canvas() {
       if (error) toast.error(error)
     },
     [connect],
+  )
+
+  const onConnectStart: OnConnectStart = useCallback(
+    (_, params) => {
+      if (params.nodeId && params.handleId && params.handleType === "source") {
+        startConnectionGesture(params.nodeId, params.handleId)
+      }
+    },
+    [startConnectionGesture],
+  )
+
+  const onConnectEnd = useCallback(() => {
+    endConnectionGesture()
+  }, [endConnectionGesture])
+
+  const isValidConnection: IsValidConnection = useCallback(
+    (connection) => canConnectServiceSockets(connection, nodes, edges).ok,
+    [nodes, edges],
   )
 
   const onSelectionChange = useCallback(
@@ -466,6 +491,9 @@ export function Canvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        isValidConnection={isValidConnection}
         onSelectionChange={onSelectionChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
@@ -492,6 +520,9 @@ export function Canvas() {
         </Panel>
         <Panel position="top-left">
           <TopologyGuidance />
+        </Panel>
+        <Panel position="top-center">
+          <ConnectionPreview />
         </Panel>
         <Panel position="bottom-center">
           <DomainJoinAction onRequest={requestAccessibleDomainJoin} />

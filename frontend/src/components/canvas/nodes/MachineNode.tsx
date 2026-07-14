@@ -1,27 +1,90 @@
-import { AlertTriangle, Clock, Loader2, RefreshCw } from "lucide-react"
+import {
+  AlertTriangle,
+  BadgeCheck,
+  Clock,
+  FileText,
+  Loader2,
+  Network,
+  Radio,
+  RefreshCw,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react"
 import { Handle, Position, useEdges, useNodes } from "@xyflow/react"
 import type { NodeProps, Node } from "@xyflow/react"
 import { cn } from "@/lib/utils"
 import { TEMPLATE_BY_ID } from "@/constants/templates"
 import type { TemplateDef } from "@/constants/templates"
-import { EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
-import type { Lifecycle } from "@/constants/topology"
+import { EDGE_TYPE, LIFECYCLE, SERVICE_SOCKET } from "@/constants/topology"
+import type { Lifecycle, ServiceSocket } from "@/constants/topology"
 import {
+  SERVICE_SOCKET_GUIDANCE,
+  canConnectServiceSockets,
   caTier,
   caDepth,
   domainMembership,
   driftedFields,
   isConnectable,
   isDeployed,
+  serviceSocketHandleId,
+  serviceSocketsForNode,
   truncateLabel,
 } from "@/lib/topology"
 import { useAgentConnected } from "@/hooks/useAgentConnected"
 import { useTopologyStore } from "@/store/topology"
+import { useConnectionGestureStore } from "@/store/connectionGesture"
 import type { MachineData } from "@/store/topology"
 import { Badge } from "@/components/ui/badge"
 import { ProgressBar } from "./ProgressBar"
 
 const MACHINE_NODE_WIDTH = 192
+
+const SOCKET_APPEARANCE: Record<
+  ServiceSocket,
+  { icon: LucideIcon; className: string }
+> = {
+  [SERVICE_SOCKET.issuance]: {
+    icon: ShieldCheck,
+    className: "!border-amber-200 !bg-amber-500 text-stone-950",
+  },
+  [SERVICE_SOCKET.publication]: {
+    icon: FileText,
+    className: "!border-emerald-200 !bg-emerald-500 text-emerald-950",
+  },
+  [SERVICE_SOCKET.ocsp]: {
+    icon: Radio,
+    className: "!border-violet-200 !bg-violet-500 text-violet-950",
+  },
+  [SERVICE_SOCKET.domain]: {
+    icon: Network,
+    className: "!border-sky-200 !bg-sky-500 text-sky-950",
+  },
+  [SERVICE_SOCKET.enrollment]: {
+    icon: BadgeCheck,
+    className: "!border-slate-400 !bg-slate-100 text-slate-900",
+  },
+}
+
+function socketPlacement(socket: ServiceSocket, type: "source" | "target") {
+  if (socket === SERVICE_SOCKET.issuance) {
+    return type === "source"
+      ? { position: Position.Bottom, style: { left: "52%" } }
+      : { position: Position.Top, style: { left: "52%" } }
+  }
+  if (socket === SERVICE_SOCKET.domain) {
+    return type === "source"
+      ? { position: Position.Bottom, style: { left: "24%" } }
+      : { position: Position.Top, style: { left: "24%" } }
+  }
+  const top = socket === SERVICE_SOCKET.publication
+    ? "32%"
+    : socket === SERVICE_SOCKET.ocsp
+      ? "53%"
+      : "74%"
+  return type === "source"
+    ? { position: Position.Right, style: { top } }
+    : { position: Position.Left, style: { top } }
+}
 
 function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {
   if (lifecycle === LIFECYCLE.draft)
@@ -131,6 +194,8 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
   const nodes = useNodes<Node<MachineData>>()
   const edges = useEdges()
   const isOverlapping = useTopologyStore((s) => s.overlapNodeId === id)
+  const gesture = useConnectionGestureStore((s) => s.gesture)
+  const hoverTarget = useConnectionGestureStore((s) => s.hoverTarget)
 
   // Derived chips — only meaningful once a node can carry real edges.
   const showDerived = isConnectable(data)
@@ -146,6 +211,22 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
     : null
 
   const Icon = def?.icon ?? AlertTriangle
+  const socketSpecs = serviceSocketsForNode(
+    { id, data, position: { x: 0, y: 0 } },
+    edges,
+  )
+  const socketCompatibility = (socket: ServiceSocket) => {
+    if (!gesture) return null
+    return canConnectServiceSockets({
+      source: gesture.sourceNodeId,
+      sourceHandle: gesture.sourceHandleId,
+      target: id,
+      targetHandle: serviceSocketHandleId(socket, "target"),
+    }, nodes, edges)
+  }
+  const compatibleDestination = gesture && gesture.sourceNodeId !== id &&
+    socketSpecs.some((spec) => spec.type === "target" && socketCompatibility(spec.socket)?.ok)
+  const dimmedByGesture = gesture && gesture.sourceNodeId !== id && !compatibleDestination
 
   return (
     <div
@@ -155,11 +236,13 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         maxWidth: MACHINE_NODE_WIDTH,
       }}
       className={cn(
-        "overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm select-none",
+        "relative overflow-visible rounded-xl border bg-card text-card-foreground shadow-sm select-none",
         "transition-shadow",
         tier === "root" && "trust-body trust-body-root",
         tier === "intermediate" && "trust-body trust-body-intermediate",
         tier === "issuing" && "trust-body trust-body-issuing",
+        compatibleDestination && "ring-2 ring-emerald-400 shadow-[0_0_22px_5px_rgba(52,211,153,0.28)]",
+        dimmedByGesture && "opacity-35 saturate-50",
         selected && "ring-2 ring-primary shadow-md",
         data.lifecycle === LIFECYCLE.draft && "border-amber-500/40",
         data.lifecycle === LIFECYCLE.staged && "border-sky-500/40 border-dashed opacity-80",
@@ -179,48 +262,49 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         isOverlapping && "border-red-500 bg-red-500/40 opacity-70 ring-2 ring-red-500/40",
       )}
     >
-      {data.typeId === "certificateAuthority" &&
-        isConnectable(data) && (
-        <>
-          {data.config?.caType !== "Root" && (
-            <Handle
-              id="hierarchy-in"
-              title="CA parent · receives CA certificate"
-              aria-label="CA parent port: receives CA certificate"
-              type="target"
-              position={Position.Left}
-              className="!h-3 !w-3 !bg-muted-foreground/50 !border-border"
-            />
-          )}
+      {socketSpecs.map((spec) => {
+        const handleId = serviceSocketHandleId(spec.socket, spec.type)
+        const placement = socketPlacement(spec.socket, spec.type)
+        const compatibility = spec.type === "target"
+          ? socketCompatibility(spec.socket)
+          : null
+        const visible = gesture
+          ? gesture.sourceNodeId === id
+            ? spec.type === "source"
+            : spec.type === "target" && compatibility?.ok === true
+          : selected
+        const appearance = SOCKET_APPEARANCE[spec.socket]
+        const SocketIcon = appearance.icon
+        const guidance = SERVICE_SOCKET_GUIDANCE[spec.socket]
+        return (
           <Handle
-            id="hierarchy"
-            title="CA parent · issues CA certificate"
-            aria-label="CA parent port: issues CA certificate"
-            type="source"
-            position={Position.Bottom}
-            className="!h-3 !w-3 !bg-muted-foreground/50 !border-border"
-          />
-          <Handle
-            id="server"
-            title="CA publication · HTTP CDP, HTTP AIA, and OCSP URL"
-            aria-label="CA publication port: HTTP CDP, HTTP AIA, and OCSP URL"
-            type="source"
-            position={Position.Right}
-            className="!h-3 !w-3 !bg-emerald-500/60 !border-border"
-          />
-        </>
-      )}
-
-      {data.typeId === "webServer" &&
-        isConnectable(data) && (
-        <Handle
-          title="Web host · CertEnroll share, HTTP CertEnroll, Online Responder, and probe validation"
-          aria-label="Web host port: CertEnroll, Online Responder, and probe validation"
-          type="target"
-          position={Position.Left}
-          className="!h-3 !w-3 !bg-emerald-500/60 !border-border"
-        />
-      )}
+            key={handleId}
+            id={handleId}
+            type={spec.type}
+            position={placement.position}
+            style={placement.style}
+            title={`${guidance.label} · ${guidance.intent}`}
+            aria-label={`${guidance.label} socket: ${guidance.intent}`}
+            tabIndex={visible ? 0 : -1}
+            onMouseEnter={() => {
+              if (gesture && spec.type === "target") hoverTarget(id, handleId)
+            }}
+            onMouseLeave={() => {
+              if (gesture && spec.type === "target") hoverTarget()
+            }}
+            className={cn(
+              "service-socket !z-20 !flex !h-6 !w-6 !items-center !justify-center !rounded-md !border-2 !shadow-md",
+              "transition-all duration-150 focus-visible:!outline-none focus-visible:!ring-2 focus-visible:!ring-ring",
+              appearance.className,
+              visible
+                ? "!scale-100 !opacity-100"
+                : "pointer-events-none !scale-75 !opacity-0",
+            )}
+          >
+            <SocketIcon className="pointer-events-none h-3.5 w-3.5" />
+          </Handle>
+        )
+      })}
 
       {/* Header */}
       <div

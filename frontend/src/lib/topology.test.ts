@@ -20,6 +20,7 @@ import {
   isConnectable,
   lintTopologyRelationships,
   serviceSocketHandleId,
+  serviceSocketsForNode,
   trustGravityLayout,
 } from "@/lib/topology"
 import type { Edge, Node } from "@xyflow/react"
@@ -282,6 +283,43 @@ describe("service socket compatibility", () => {
       [root, issuing, web],
       [],
     ).ok).toBe(false)
+  })
+
+  it("exposes all five discoverable sockets on their supported roles", () => {
+    const root = machine("root", "CA01", "certificateAuthority", { caType: "Root" })
+    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const web = machine("web", "SRV1", "webServer")
+    const dc = machine("dc", "DC01", "domainController")
+
+    expect(serviceSocketsForNode(root, []).map(({ socket, type }) => `${socket}:${type}`)).toEqual([
+      "issuance:source",
+      "publication:source",
+      "ocsp:source",
+      "enrollment:source",
+    ])
+    expect(serviceSocketsForNode(issuing, [])).toContainEqual({
+      socket: SERVICE_SOCKET.domain,
+      type: "source",
+    })
+    expect(serviceSocketsForNode(web, [])).toContainEqual({
+      socket: SERVICE_SOCKET.ocsp,
+      type: "target",
+    })
+    expect(serviceSocketsForNode(dc, [])).toEqual([{
+      socket: SERVICE_SOCKET.domain,
+      type: "target",
+    }])
+  })
+
+  it("allows a blue domain socket to stage eligible membership", () => {
+    const dc = machine("dc", "DC01", "domainController")
+    const web = machine("web", "SRV1", "webServer")
+
+    expect(canConnectServiceSockets(
+      socketConnection("web", "dc", SERVICE_SOCKET.domain),
+      [dc, web],
+      [],
+    )).toEqual({ ok: true })
   })
 
   it("resists second parents and hierarchy cycles during the gesture", () => {
