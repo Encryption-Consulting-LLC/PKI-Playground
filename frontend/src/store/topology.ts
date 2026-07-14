@@ -642,14 +642,15 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       return
     }
 
-    // draft or failed — stage a fresh createVm op. The real clone (or
-    // simulation) only runs once this op is flushed by Deploy.
+    // draft or failed — stage a fresh createVm op. The wire kind retains its
+    // compatibility name, but the user-facing action is the real operation:
+    // cloning the configured golden image.
     patch({ ...(config ? { config } : {}), lifecycle: LIFECYCLE.staged })
     useStagingStore.getState().stageOp({
       kind: OP_KIND.createVm,
       targetNodeId: id,
       params: {},
-      label: "Create VM",
+      label: "Clone VM",
     })
   },
 
