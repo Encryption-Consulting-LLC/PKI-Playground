@@ -87,6 +87,23 @@ def _network_names(content) -> set[str]:
         view.Destroy()
 
 
+def _vm_network_names(vm) -> set[str]:
+    """Return port-group names backing the base VM NICs."""
+
+    devices = getattr(
+        getattr(getattr(vm, "config", None), "hardware", None), "device", []
+    ) or []
+    names: set[str] = set()
+    for device in devices:
+        backing = getattr(device, "backing", None)
+        name = getattr(backing, "deviceName", None)
+        if not name:
+            name = getattr(getattr(backing, "network", None), "name", None)
+        if name:
+            names.add(name)
+    return names
+
+
 def _snapshot_id(facts: dict) -> str:
     encoded = json.dumps(facts, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -151,6 +168,7 @@ def preflight_infrastructure(
         base_moid = None
         change_version = None
         actual_guest_os = None
+        base_networks: set[str] = set()
         base_size = None
         if base_vm is None:
             if not any(c.key == "image" and c.role == machine.role for c in checks):
@@ -170,6 +188,7 @@ def preflight_infrastructure(
             base_moid = getattr(base_vm, "_moId", None)
             vm_config = getattr(base_vm, "config", None)
             change_version = getattr(vm_config, "changeVersion", None)
+            base_networks = _vm_network_names(base_vm)
             vm_path = getattr(getattr(vm_config, "files", None), "vmPathName", "") or ""
             expected_prefix = f"[{profile.datastore}] {profile.base}/"
             image_ok = vm_path.startswith(expected_prefix)
@@ -233,17 +252,24 @@ def preflight_infrastructure(
             )
         )
 
-        network_ok = network_error is None and profile.network in networks
+        network_ok = (
+            network_error is None
+            and profile.network in networks
+            and profile.network in base_networks
+        )
         checks.append(
             InfrastructureCheck(
                 key="network", role=machine.role, ok=network_ok,
                 detail=(
-                    f"Network mapping '{profile.network}' is available."
+                    f"Network mapping '{profile.network}' exists and backs the image NIC."
                     if network_ok
                     else (
                         f"Could not inspect ESXi networks: {network_error}"
                         if network_error
-                        else f"Network mapping '{profile.network}' was not found."
+                        else (
+                            f"Network mapping '{profile.network}' must exist and back "
+                            f"the selected image NIC (observed: {sorted(base_networks)})."
+                        )
                     )
                 ),
             )

@@ -44,6 +44,10 @@ def _vm(base="ws-2025"):
         config=SimpleNamespace(
             guestId="windows2022srvNext-64", changeVersion="7",
             files=SimpleNamespace(vmPathName=f"[store] {base}/{base}.vmx"),
+            hardware=SimpleNamespace(
+                device=[SimpleNamespace(backing=SimpleNamespace(deviceName="PKI")),
+                        SimpleNamespace(backing=SimpleNamespace(deviceName="Offline"))]
+            ),
         ),
     )
 
@@ -105,6 +109,22 @@ def test_missing_role_network_is_blocking(monkeypatch):
         if check.key == "network" and check.role == "rootCa"
     )
     assert root_network.ok is False
+
+
+def test_image_nic_must_use_the_configured_port_group(monkeypatch):
+    _patch(monkeypatch, networks=("PKI", "Isolated"))
+    profile = _profile("rootCa", network="Isolated")
+    result = subject.preflight_infrastructure(
+        SimpleNamespace(
+            content=SimpleNamespace(about=SimpleNamespace(instanceUuid="esxi-1"))
+        ),
+        {"rootCa": profile},
+        [subject.PlannedMachine(role="rootCa", name="CA01")],
+    )
+
+    assert result.ready is False
+    check = next(item for item in result.checks if item.key == "network")
+    assert "selected image NIC" in check.detail
 
 
 def test_changed_image_revision_invalidates_canary_qualification(monkeypatch):
