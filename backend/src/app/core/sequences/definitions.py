@@ -543,6 +543,58 @@ def _domain_leave_sequence(ctx: RunContext) -> list[Step]:
     return steps
 
 
+def teardown_action_sequence(kind: str, ctx: RunContext) -> list[Step]:
+    """Expand one compiled teardown action into convergent agent commands."""
+
+    if kind == "domain.leave":
+        return _domain_leave_sequence(ctx)
+    if kind == "web.cleanup":
+        return [
+            Step(
+                id="ocsp-remove", command="ocsp.remove", target=PRIMARY,
+                retry_delays_s=_OCSP_RETRY,
+            ),
+            Step(
+                id="iis-remove", command="iis.remove_certenroll", target=PRIMARY,
+                retry_delays_s=_AD_RETRY,
+            ),
+        ]
+    if kind == "ca.cleanup":
+        return [
+            Step(
+                id="ca-uninstall", command="ca.uninstall", target=PRIMARY,
+                retry_delays_s=_AD_RETRY,
+            )
+        ]
+    if kind == "dns.cleanup":
+        records = tuple(ctx.dns_records)
+        if not records:
+            return []
+        return [
+            Step(
+                id="dns-remove-all", command="dns.remove_resources", target=PRIMARY,
+                params=lambda rt: _dns_params(ctx, records),
+                retry_delays_s=_DNS_RETRY,
+            ),
+            Step(
+                id="dns-verify-all-absent", command="dns.verify_absent", target=PRIMARY,
+                params=lambda rt: _dns_params(ctx, records),
+                retry_delays_s=_DNS_RETRY,
+            ),
+        ]
+    if kind == "forest.cleanup":
+        password = ctx.node(PRIMARY).template_config.get("domainAdminPassword", "")
+        return [
+            Step(
+                id="forest-remove", command="dc.remove_forest", target=PRIMARY,
+                params={"localAdminPassword": password},
+                secret_keys=("localAdminPassword",), timeout_s=1800,
+                retry_delays_s=_AD_RETRY,
+            )
+        ]
+    return []
+
+
 def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
     """Stand up the web host's HTTP CDP/AIA + Online Responder (webServerCert,
     slice 12).

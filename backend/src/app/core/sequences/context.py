@@ -211,3 +211,40 @@ def build_run_context(db, op, all_ops, topology=None) -> RunContext:
         pki_host=pki_host,
         dns_records=dns_records_for_context(topology),
     )
+
+
+def build_teardown_context(db, topology, primary_id: str) -> RunContext:
+    """Resolve all surviving topology nodes for teardown action sequences."""
+
+    from app.core.topology import TopologyRole
+
+    resolved = {}
+    for node in topology.nodes:
+        try:
+            resolved[node.id] = _resolve_node(db, node.id)
+        except ContextError:
+            continue
+    if primary_id not in resolved:
+        raise ContextError(f"no live VM registered for node '{primary_id}'")
+    primary = resolved[primary_id]
+    nodes = {PRIMARY: primary}
+    role_aliases = {
+        TopologyRole.domain_controller: DC,
+        TopologyRole.root_ca: ROOT,
+        TopologyRole.issuing_ca: CA,
+        TopologyRole.web_server: WEB,
+    }
+    for topology_node in topology.nodes:
+        if topology_node.id in resolved and topology_node.role in role_aliases:
+            nodes[role_aliases[topology_node.role]] = resolved[topology_node.id]
+    dc = nodes.get(DC)
+    return RunContext(
+        nodes=nodes,
+        domain_name=dc.template_config.get("domainName") if dc else None,
+        netbios=dc.template_config.get("netbiosName") if dc else None,
+        pki_host=(
+            f"pki.{dc.template_config.get('domainName')}"
+            if dc and dc.template_config.get("domainName") else None
+        ),
+        dns_records=dns_records_for_context(topology),
+    )

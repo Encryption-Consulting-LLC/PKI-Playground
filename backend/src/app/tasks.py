@@ -1249,3 +1249,144 @@ def reconcile_plan_task(
             job_id, ErrorMsg(status=500, detail=str(exc)),
             status=JobStatus.error, terminal=True,
         )
+
+
+@celery_app.task(name="teardown_plan")
+def teardown_plan_task(
+    job_id: str,
+    source_job_id: str,
+    owner_role: str = "guest",
+    owner: str | None = None,
+) -> None:
+    """Execute a compiled teardown while continuing past cleanup warnings."""
+
+    from app.core.sequences import SequenceCancelled
+    from app.core.sequences.context import build_teardown_context
+    from app.core.sequences.definitions import teardown_action_sequence
+    from app.core.sequences.worker import run_op_sequence
+    from app.core.teardown import compile_teardown
+    from app.core.topology import TopologyDocument
+
+    transport.publish(job_id, RunningMsg(), status=JobStatus.running)
+    conn = None
+    try:
+        with worker_db() as db:
+            source = db["plan_runs"].find_one({"jobId": source_job_id})
+            if source is None:
+                raise RuntimeError(f"source deployment '{source_job_id}' was not found")
+            topology = TopologyDocument(**(source.get("topology") or {}))
+            actions = compile_teardown(topology)
+            state = {
+                action.id: OpRunState(status="pending")
+                for action in actions
+            }
+            warnings: list[str] = []
+
+            def push() -> None:
+                transport.publish(
+                    job_id, PlanStateMsg(ops=dict(state)), status=JobStatus.running
+                )
+
+            push()
+            for position, action in enumerate(actions):
+                if transport.cancel_mode(job_id):
+                    for pending in actions[position:]:
+                        state[pending.id] = OpRunState(
+                            status="cancelled", detail="Teardown cancellation requested."
+                        )
+                    push()
+                    break
+
+                state[action.id] = OpRunState(
+                    status="running", percent=0.0, phase=action.kind
+                )
+                push()
+                if action.kind == "vm.destroy":
+                    registry = db["vm_registry"].find_one(
+                        {"appName": action.node_id, "status": {"$ne": "deleted"}}
+                    )
+                    if registry is None:
+                        state[action.id] = OpRunState(
+                            status="done", percent=100.0, phase="Already absent",
+                            result={"alreadyAbsent": True},
+                        )
+                        push()
+                        continue
+                    vm_name = registry["vmName"]
+                    try:
+                        conn = _live_worker_connection(conn)
+                        try:
+                            destroy_workflow(conn, name=vm_name)
+                        except VmNotFoundError:
+                            pass
+                        release_ip_sync(db, vm_name)
+                        _registry_upsert_sync(
+                            db, vm_name, status="deleted", powerState=None,
+                            ip=None, agent=None,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        state[action.id] = OpRunState(status="error", detail=str(exc))
+                        warnings.append(f"{action.id}: {exc}")
+                    else:
+                        state[action.id] = OpRunState(
+                            status="done", percent=100.0, phase="Destroyed",
+                            result={"vmName": vm_name},
+                        )
+                    push()
+                    continue
+
+                try:
+                    ctx = build_teardown_context(db, topology, action.node_id)
+                    steps = teardown_action_sequence(action.kind, ctx)
+                    if steps:
+                        run_op_sequence(
+                            db, steps, ctx, plan_job_id=job_id,
+                            op_id=action.id, role=owner_role,
+                            should_stop=lambda: transport.cancel_mode(job_id) == "step",
+                        )
+                except SequenceCancelled:
+                    state[action.id] = OpRunState(
+                        status="cancelled", detail="Teardown cancellation requested."
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Cleanup is best effort; VM destruction remains available
+                    # when a broken guest agent cannot uninstall its role.
+                    state[action.id] = OpRunState(status="error", detail=str(exc))
+                    warnings.append(f"{action.id}: {exc}")
+                else:
+                    state[action.id] = OpRunState(
+                        status="done", percent=100.0, phase="Removed"
+                    )
+                push()
+
+            db["plan_runs"].update_one(
+                {"jobId": job_id},
+                {"$set": {
+                    "updatedAt": now_ms(), "teardownWarnings": warnings,
+                    "owner": owner,
+                }},
+            )
+            transport.publish(
+                job_id,
+                DoneMsg(result={
+                    "sourceJobId": source_job_id,
+                    "removed": not any(
+                        item.status == "error" and action.kind == "vm.destroy"
+                        for action, item in (
+                            (action, state[action.id]) for action in actions
+                        )
+                    ),
+                    "warnings": warnings,
+                    "ops": {key: value.model_dump() for key, value in state.items()},
+                }),
+                status=JobStatus.done,
+                terminal=True,
+            )
+    except Exception as exc:  # noqa: BLE001
+        transport.publish(
+            job_id, ErrorMsg(status=500, detail=str(exc)),
+            status=JobStatus.error, terminal=True,
+        )
+    finally:
+        if conn is not None:
+            Disconnect(conn.si)

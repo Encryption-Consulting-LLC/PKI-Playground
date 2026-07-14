@@ -668,3 +668,45 @@ async def reconcile_deployment(
         reconcile_job_id, job_id, user.role.value, user.username
     )
     return {"job_id": reconcile_job_id, "source_job_id": job_id}
+
+
+@router.post(
+    "/{job_id}/teardown",
+    status_code=202,
+    dependencies=[Depends(require_capability(Capability.VM_DELETE))],
+)
+async def teardown_deployment(
+    job_id: str,
+    user: AuthedUser = Depends(get_current_user),
+) -> dict:
+    """Remove topology-owned services, memberships, DNS, leases, and VMs."""
+
+    from app.tasks import teardown_plan_task
+
+    source = await plan_runs_col().find_one({"jobId": job_id})
+    if source is None:
+        raise HTTPException(404, detail=f"Deployment job '{job_id}' was not found.")
+    if user.role is not Role.OPERATOR and source.get("owner") != user.username:
+        raise HTTPException(403, detail="This deployment belongs to another user.")
+
+    teardown_job_id = uuid.uuid4().hex
+    now = datetime.datetime.now(datetime.UTC)
+    await plan_runs_col().insert_one(
+        {
+            "jobId": teardown_job_id,
+            "sourceJobId": job_id,
+            "runKind": "teardown",
+            "owner": user.username,
+            "ownerRole": user.role.value,
+            "topology": source.get("topology") or {},
+            "operations": [],
+            "createdAt": int(now.timestamp() * 1000),
+            "updatedAt": int(now.timestamp() * 1000),
+            "ttlAt": now + datetime.timedelta(days=7),
+        }
+    )
+    transport.publish(teardown_job_id, QueuedMsg(), status=JobStatus.queued)
+    teardown_plan_task.delay(
+        teardown_job_id, job_id, user.role.value, user.username
+    )
+    return {"job_id": teardown_job_id, "source_job_id": job_id}
