@@ -32,6 +32,7 @@ import { findOverlappingId, isDeployed, nearestFreePosition } from "@/lib/topolo
 import { useResolvedTheme } from "@/hooks/useTheme"
 import { ConnectionLegend } from "./ConnectionLegend"
 import { CapabilityEdge } from "./edges/CapabilityEdge"
+import { TopologyGuidance } from "./TopologyGuidance"
 
 const DRAG_TYPE = "application/reactflow"
 
@@ -363,6 +364,9 @@ export function Canvas() {
         <MiniMap zoomable pannable nodeColor={miniMapColor} />
         <Panel position="top-right">
           <ConnectionLegend />
+        </Panel>
+        <Panel position="top-left">
+          <TopologyGuidance />
         </Panel>
       </ReactFlow>
       <DomainConfirmDialog
