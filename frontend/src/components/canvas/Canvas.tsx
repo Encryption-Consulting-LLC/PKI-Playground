@@ -42,7 +42,6 @@ import {
   nodeCenter,
 } from "@/lib/topology"
 import { useResolvedTheme } from "@/hooks/useTheme"
-import { ConnectionLegend } from "./ConnectionLegend"
 import { CapabilityEdge } from "./edges/CapabilityEdge"
 import { TopologyGuidance } from "./TopologyGuidance"
 import { ConnectionPreview } from "./ConnectionPreview"
@@ -621,7 +620,6 @@ export function Canvas() {
                 }
               }}
             />
-            {!journeyActive && !evidenceActive && <ConnectionLegend />}
           </div>
         </Panel>
         {!journeyActive && !evidenceActive && <Panel position="top-left">
