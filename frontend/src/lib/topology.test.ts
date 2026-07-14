@@ -12,6 +12,7 @@ import {
   domainRegionSummary,
   isConnectable,
   lintTopologyRelationships,
+  trustGravityLayout,
 } from "@/lib/topology"
 import type { Edge, Node } from "@xyflow/react"
 import type { MachineData } from "@/store/topology"
@@ -212,5 +213,36 @@ describe("living domain model", () => {
         authentication: CONNECTION_HEALTH.degraded,
       },
     })
+  })
+})
+
+describe("PKI trust gravity", () => {
+  it("settles CA descendants into stable hierarchy tiers", () => {
+    const root = { ...machine("root", "CA01", "certificateAuthority"), position: { x: 500, y: 80 } }
+    const issuingB = machine("issuing-b", "CA03", "certificateAuthority")
+    const issuingA = machine("issuing-a", "CA02", "certificateAuthority")
+    const web = machine("web", "SRV1", "webServer")
+    const dc = { ...machine("dc", "DC01", "domainController"), position: { x: 40, y: 40 } }
+    const edges = [
+      relationship("root-b", "root", "issuing-b", EDGE_TYPE.caHierarchy),
+      relationship("root-a", "root", "issuing-a", EDGE_TYPE.caHierarchy),
+      relationship("publish", "issuing-a", "web", EDGE_TYPE.webServerCert),
+    ]
+
+    const settled = trustGravityLayout([root, issuingB, issuingA, web, dc], edges, "issuing-a")
+    const position = (id: string) => settled.find((node) => node.id === id)!.position
+
+    expect(position("root")).toEqual({ x: 500, y: 80 })
+    expect(position("issuing-a")).toEqual({ x: 370, y: 300 })
+    expect(position("issuing-b")).toEqual({ x: 630, y: 300 })
+    expect(position("web")).toEqual({ x: 500, y: 520 })
+    expect(position("dc")).toEqual({ x: 40, y: 40 })
+  })
+
+  it("leaves unrelated standalone CAs untouched", () => {
+    const root = machine("root", "CA01", "certificateAuthority")
+    const standalone = { ...machine("other", "CA99", "certificateAuthority"), position: { x: 900, y: 700 } }
+
+    expect(trustGravityLayout([root, standalone], [], "root")).toEqual([root, standalone])
   })
 })

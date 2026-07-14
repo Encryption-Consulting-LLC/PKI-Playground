@@ -461,6 +461,95 @@ export function caDepth(nodeId: string, edges: Edge[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// PKI trust gravity
+// ---------------------------------------------------------------------------
+
+export const TRUST_TIER_GAP = 220
+export const TRUST_ORBIT_GAP = 260
+
+/**
+ * Settles one CA trust tree into deterministic visual tiers. The root remains
+ * the anchor at tier zero, subordinate CAs orbit below it by hierarchy depth,
+ * and attached publication workloads occupy the next tier downstream.
+ *
+ * Only nodes in the selected trust tree move; domain controllers and unrelated
+ * machines keep their authored positions. Stable id ordering prevents a saved
+ * project from shuffling when the same hierarchy is recompiled.
+ */
+export function trustGravityLayout(
+  nodes: Node<MachineData>[],
+  edges: Edge[],
+  memberId: string,
+): Node<MachineData>[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const member = nodeById.get(memberId)
+  if (!member || member.data.typeId !== "certificateAuthority") return nodes
+
+  let rootId = memberId
+  const visited = new Set<string>()
+  while (!visited.has(rootId)) {
+    visited.add(rootId)
+    const parent = caParent(rootId, edges)
+    if (!parent) break
+    rootId = parent
+  }
+
+  const root = nodeById.get(rootId)
+  if (!root) return nodes
+
+  const tierById = new Map<string, number>([[rootId, 0]])
+  const queue = [rootId]
+  while (queue.length > 0) {
+    const parentId = queue.shift()!
+    const parentTier = tierById.get(parentId)!
+    const children = edges
+      .filter(
+        (edge) =>
+          edge.source === parentId &&
+          edge.data?.edgeType === EDGE_TYPE.caHierarchy,
+      )
+      .map((edge) => edge.target)
+      .filter((id) => nodeById.get(id)?.data.typeId === "certificateAuthority")
+      .sort()
+    for (const childId of children) {
+      if (tierById.has(childId)) continue
+      tierById.set(childId, parentTier + 1)
+      queue.push(childId)
+    }
+  }
+
+  for (const edge of edges) {
+    if (edge.data?.edgeType !== EDGE_TYPE.webServerCert) continue
+    const sourceTier = tierById.get(edge.source)
+    if (sourceTier === undefined || !nodeById.has(edge.target)) continue
+    tierById.set(edge.target, sourceTier + 1)
+  }
+
+  const tierMembers = new Map<number, string[]>()
+  for (const [id, tier] of tierById) {
+    if (tier === 0) continue
+    const members = tierMembers.get(tier) ?? []
+    members.push(id)
+    tierMembers.set(tier, members)
+  }
+  for (const members of tierMembers.values()) members.sort()
+
+  return nodes.map((node) => {
+    const tier = tierById.get(node.id)
+    if (tier === undefined || tier === 0) return node
+    const members = tierMembers.get(tier)!
+    const index = members.indexOf(node.id)
+    return {
+      ...node,
+      position: {
+        x: root.position.x + (index - (members.length - 1) / 2) * TRUST_ORBIT_GAP,
+        y: root.position.y + tier * TRUST_TIER_GAP,
+      },
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Domain membership
 // ---------------------------------------------------------------------------
 
