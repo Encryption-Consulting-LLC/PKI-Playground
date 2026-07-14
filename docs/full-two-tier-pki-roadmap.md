@@ -23,7 +23,7 @@ OCSP, CDP, and AIA as verified, and CA02's enterprise PKI containers are healthy
 |---|---|---:|
 | Canvas and local staging | Typed CDP/AIA and OCSP paths, CA hierarchy, domain circle, staged operations, persistence, and one Deploy action | 95% |
 | Guide command coverage | Forest, joins, CA install/config, relay, IIS, OCSP, templates, enrollment, CNAME, and verification commands exist | 95% |
-| Correct orchestration | The backend validates planned/realized resources and compiles a canonical dependency DAG from the final topology | 95% |
+| Correct orchestration | The backend validates planned/realized resources, compiles a canonical dependency DAG, and fans every ready operation through Celery | 98% |
 | Exact scoped parity | DNS lifecycle, structured final assertions, domain leave, recovery, and teardown are implemented | 90% |
 | ESXi one-shot confidence | Clone and agent paths exist, but ML-DSA, OCSP COM, SYSTEM credential use, timing, and filenames remain hardware canaries | 35% |
 
@@ -49,6 +49,9 @@ can extend the calendar even when the code is complete.
 - SRV1 enrolls a dedicated health certificate and the terminal `lab.verify`
   gate reports structured ML-DSA, chain, AIA, CDP, OCSP, AD PKI, publication,
   CA service, DNS, agent, and runtime identity evidence.
+- The staging sidebar auto-compiles the backend-authored execution manifest and
+  exposes clone preparation, every orchestrator command, backend relay, wait,
+  and verification step in collapsible groups with live state and progress.
 - Operations stream phases and progress and retain enough state to retry or
   tear down failed clones.
 
@@ -86,6 +89,34 @@ clone SRV1 ------------------------------------+-> join CA02 and SRV1
 Regression tests cover arbitrary staging order, persisted projects, retries
 with realized create operations removed, missing relationships and operations,
 replayed realized operations, and cycle diagnostics.
+
+### Completed: Transparent parallel execution
+
+The compiled plan now includes a stable, redacted execution manifest for every
+broad operation. A VM configuration is presented as `Clone VM`, including its
+resolved role-specific base image and destination, then expands one-to-one into:
+
+1. guest IP and first-boot media preparation;
+2. clone and power-on;
+3. orchestrator phone-home and final-boot settling;
+4. each backend-to-agent command;
+5. backend relay/file movement; and
+6. each explicit verification command.
+
+The staging sidebar refreshes this manifest automatically as topology changes.
+Groups are keyboard-accessible and collapsible, open automatically while running
+or failed, retain the user's per-session disclosure choice, and show retries as
+part of the owning step rather than inventing extra work.
+
+Deployment performs the immutable infrastructure preflight once, persists the
+scheduler state, and atomically queues every dependency-ready operation as its
+own Celery task. Independent clones start together up to the configured worker
+concurrency; after each completion, newly ready branches fan out immediately.
+Thus DC forest promotion and offline-root configuration can proceed independently,
+and SRV1 preparation can overlap CA02 domain work when their prerequisites allow.
+Commands within one operation remain ordered. A failed branch cancels only its
+descendants, while unrelated branches continue, and broker redelivery cannot
+claim an already-running operation twice.
 
 ### Completed: Golden image readiness
 
@@ -257,7 +288,11 @@ bundles in the target environment.
 
 ### Phase 5 - Product-quality UI
 
-- Ship the visual direction below.
+- [x] Expose the backend execution manifest as a live collapsible staging tree.
+- [x] Use the node width for wrapped deployment phases and full-width progress.
+- [x] Align new web/standalone names with `srv01` / `misc01` and remove the
+  service-socket legend panel.
+- Ship the remaining visual direction below.
 - Add keyboard-accessible non-spatial alternatives for every drag interaction.
 - Add topology import/export, compare, and change review.
 - Add guided and expert modes without hiding validation truth.
@@ -340,10 +375,11 @@ parameters, certificate fingerprints, CRL/OCSP freshness, and verification outpu
 
 ### 7. Stable compact nodes [complete]
 
-Nodes keep a fixed compact width. Long phases truncate on the card and expand in
-a hover/focus popover or the deployment timeline. A node shows only identity,
+Nodes keep a fixed compact width while long phases wrap inside the available
+card width above a full-width progress bar. A node shows only identity,
 lifecycle, strongest warning, and two key facts; configuration belongs in the
-Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layout.
+Inspector. Roles without a bottom service handle no longer reserve its gutter,
+and issuing-CA facts sit closer to the handle divider.
 
 ## Acceptance Matrix
 
@@ -358,7 +394,7 @@ Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layo
 | Enrollment | SRV1 receives a dedicated health-probe certificate from CA02 |
 | Verification | OCSP, CRL/CDP, certificate/AIA, chain, and enterprise PKI checks all pass |
 | Recovery | Worker restart resumes; failed plans can retry; teardown removes owned resources |
-| UX | Plan is fully stageable locally, explains every missing dependency, and never changes node width |
+| UX | Plan is fully stageable locally, exposes every compiled internal step, explains every missing dependency, and never changes node width |
 
 ## Recommended Next Work Order
 
@@ -371,3 +407,4 @@ Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layo
 7. Real-ESXi canary matrix, then three-run soak acceptance with evidence bundles.
 8. ~~Deploy compiler, certificate journey, health heatmap, evidence mode, and
    stable compact nodes.~~
+9. ~~Transparent execution manifests and dependency-ready Celery fan-out.~~
