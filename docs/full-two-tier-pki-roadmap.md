@@ -314,14 +314,14 @@ Each hop shows its concrete URL, DNS resolution, artifact, signature algorithm,
 last verification time, and failure reason. This makes CDP/AIA/OCSP understandable
 as a user journey rather than abstract acronyms.
 
-### 6. Health heatmap and evidence mode
+### 6. Health heatmap and evidence mode [complete]
 
 After deployment, edges become live probes and nodes become compact health cards.
 Failures color the exact service segment, not the entire machine. Evidence mode
 freezes the canvas into a shareable audit snapshot containing topology, ML-DSA
 parameters, certificate fingerprints, CRL/OCSP freshness, and verification output.
 
-### 7. Stable compact nodes
+### 7. Stable compact nodes [complete]
 
 Nodes keep a fixed compact width. Long phases truncate on the card and expand in
 a hover/focus popover or the deployment timeline. A node shows only identity,
@@ -352,4 +352,5 @@ Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layo
 5. ~~Structured ML-DSA/OCSP/CDP/AIA final health gate.~~
 6. ~~Real operator settings/preflight UI.~~
 7. Real-ESXi canary matrix, then three-run soak acceptance with evidence bundles.
-8. ~~Deploy compiler and certificate journey,~~ then evidence UI.
+8. ~~Deploy compiler, certificate journey, health heatmap, evidence mode, and
+   stable compact nodes.~~
