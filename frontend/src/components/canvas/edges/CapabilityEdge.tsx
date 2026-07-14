@@ -7,9 +7,10 @@ import {
   type EdgeProps,
 } from "@xyflow/react"
 
-import { EDGE_TYPE } from "@/constants/topology"
-import type { EdgeType } from "@/constants/topology"
+import { CONNECTION_HEALTH, EDGE_TYPE } from "@/constants/topology"
+import type { ConnectionHealth, EdgeType } from "@/constants/topology"
 import {
+  CONNECTION_HEALTH_GUIDANCE,
   CONNECTION_PORT_GUIDANCE,
   connectionGuidance,
 } from "@/lib/topology"
@@ -28,6 +29,21 @@ export function CapabilityEdge(props: EdgeProps) {
       ? getBezierPath(props)
       : getSmoothStepPath(props)
   const expanded = hovered || props.selected
+  const health = (props.data?.health as ConnectionHealth | undefined) ??
+    (props.data?.staged === true
+      ? CONNECTION_HEALTH.planned
+      : CONNECTION_HEALTH.verified)
+  const healthGuidance = CONNECTION_HEALTH_GUIDANCE[health]
+  const pathStyle = {
+    ...props.style,
+    ...(health === CONNECTION_HEALTH.applying
+      ? { strokeDasharray: "7 4", opacity: 1 }
+      : health === CONNECTION_HEALTH.degraded
+        ? { stroke: "#f59e0b", strokeDasharray: "4 4", opacity: 1 }
+        : health === CONNECTION_HEALTH.broken
+          ? { stroke: "#ef4444", strokeWidth: 2.5, opacity: 1 }
+          : {}),
+  }
 
   return (
     <>
@@ -35,7 +51,7 @@ export function CapabilityEdge(props: EdgeProps) {
         id={props.id}
         path={path}
         markerEnd={props.markerEnd}
-        style={props.style}
+        style={pathStyle}
       />
       <EdgeLabelRenderer>
         <div
@@ -53,12 +69,24 @@ export function CapabilityEdge(props: EdgeProps) {
             onFocus={() => setHovered(true)}
             onBlur={() => setHovered(false)}
             className={cn(
-              "max-w-52 rounded-full border bg-background/95 px-2 py-1 text-[10px] font-semibold shadow-sm",
+              "flex max-w-64 items-center gap-1.5 rounded-full border bg-background/95 px-2 py-1 text-[10px] font-semibold shadow-sm",
               "transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               props.selected && "ring-2 ring-ring",
             )}
           >
-            {guidance.intent}
+            <span className="truncate">{guidance.intent}</span>
+            <span
+              className={cn(
+                "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide",
+                health === CONNECTION_HEALTH.planned && "bg-sky-500/15 text-sky-500",
+                health === CONNECTION_HEALTH.applying && "bg-violet-500/15 text-violet-500",
+                health === CONNECTION_HEALTH.verified && "bg-emerald-500/15 text-emerald-500",
+                health === CONNECTION_HEALTH.degraded && "bg-amber-500/15 text-amber-500",
+                health === CONNECTION_HEALTH.broken && "bg-red-500/15 text-red-500",
+              )}
+            >
+              {healthGuidance.label}
+            </span>
           </button>
 
           {expanded && (
@@ -77,6 +105,11 @@ export function CapabilityEdge(props: EdgeProps) {
                   )
                 })}
               </div>
+
+              <p className="mt-3 text-[11px] font-semibold">Health</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                {healthGuidance.label}: {healthGuidance.detail}
+              </p>
 
               <p className="mt-3 text-[11px] font-semibold">Requirements</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-muted-foreground">

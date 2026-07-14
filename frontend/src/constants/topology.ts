@@ -38,3 +38,14 @@ export const CONNECTION_PORT = {
 
 export type ConnectionPort =
   (typeof CONNECTION_PORT)[keyof typeof CONNECTION_PORT]
+
+export const CONNECTION_HEALTH = {
+  planned: "planned",
+  applying: "applying",
+  verified: "verified",
+  degraded: "degraded",
+  broken: "broken",
+} as const
+
+export type ConnectionHealth =
+  (typeof CONNECTION_HEALTH)[keyof typeof CONNECTION_HEALTH]

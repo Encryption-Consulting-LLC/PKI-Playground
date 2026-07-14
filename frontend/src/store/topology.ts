@@ -22,8 +22,8 @@ import {
 import { create } from "zustand"
 
 import { AUTO_NAME_PREFIX } from "@/constants/templates"
-import { EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
-import type { Lifecycle } from "@/constants/topology"
+import { CONNECTION_HEALTH, EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
+import type { ConnectionHealth, Lifecycle } from "@/constants/topology"
 import type { IsoMode } from "@/constants/iso"
 import { toast } from "sonner"
 
@@ -348,6 +348,8 @@ interface TopologyState {
   restoreEdge: (edge: Edge) => void
   /** Clears an edge's ghost styling once its staged op has deployed successfully. */
   commitEdge: (edgeId: string) => void
+  /** Persists deployment health on a typed connection. */
+  setEdgeHealth: (edgeId: string, health: ConnectionHealth) => void
   selectNode: (id: string | null) => void
   setViewport: (viewport: Viewport) => void
   setOverlapNode: (id: string | null) => void
@@ -432,6 +434,7 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
         edgeType: type,
         ports: connectionPorts(type),
         staged: true,
+        health: CONNECTION_HEALTH.planned,
         rootIssuer,
       },
       ...style,
@@ -776,10 +779,37 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       edges: s.edges.map((e) => {
         if (e.id !== edgeId) return e
         const edgeType = e.data?.edgeType as ReturnType<typeof inferEdgeType> | undefined
-        if (!edgeType) return { ...e, data: { ...e.data, staged: false } }
+        if (!edgeType) {
+          return {
+            ...e,
+            data: {
+              ...e.data,
+              staged: false,
+              health: CONNECTION_HEALTH.verified,
+            },
+          }
+        }
         const clean = edgeStyle(edgeType, { rootIssuer: e.data?.rootIssuer as boolean | undefined })
-        return { ...e, ...clean, data: { ...e.data, staged: false } }
+        return {
+          ...e,
+          ...clean,
+          data: {
+            ...e.data,
+            staged: false,
+            health: CONNECTION_HEALTH.verified,
+          },
+        }
       }),
+    }))
+  },
+
+  setEdgeHealth(edgeId, health) {
+    set((s) => ({
+      edges: s.edges.map((edge) =>
+        edge.id === edgeId
+          ? { ...edge, data: { ...edge.data, health } }
+          : edge,
+      ),
     }))
   },
 
@@ -808,6 +838,12 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       const rootIssuer = edge.data?.rootIssuer === true
       const visual = edgeStyle(edgeType, { rootIssuer })
       const staged = edge.data?.staged === true
+      const savedHealth = edge.data?.health as ConnectionHealth | undefined
+      const health = Object.values(CONNECTION_HEALTH).includes(savedHealth as ConnectionHealth)
+        ? savedHealth!
+        : staged
+          ? CONNECTION_HEALTH.planned
+          : CONNECTION_HEALTH.verified
       return {
         ...edge,
         type: "capability",
@@ -818,6 +854,7 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
           edgeType,
           ports: connectionPorts(edgeType),
           staged,
+          health,
           rootIssuer,
         },
         style: staged

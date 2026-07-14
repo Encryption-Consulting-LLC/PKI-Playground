@@ -18,7 +18,7 @@
 import { create } from "zustand"
 import { toast } from "sonner"
 
-import { LIFECYCLE } from "@/constants/topology"
+import { CONNECTION_HEALTH, LIFECYCLE } from "@/constants/topology"
 import { deployPlan, type PlanOpPayload } from "@/lib/api"
 import {
   OP_KIND,
@@ -29,7 +29,7 @@ import {
   type OpKind,
   type StagedOp,
 } from "@/lib/staging"
-import { domainJoinEdge } from "@/lib/topology"
+import { connectionHealthForOperation, domainJoinEdge } from "@/lib/topology"
 import { buildDeployTopology } from "@/lib/deployTopology"
 import { openJobSocket, type OpRunState } from "@/lib/ws"
 import { useAgentsStore } from "@/store/agents"
@@ -224,8 +224,12 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
 
     // Edge ops (domainJoin/caConnect/webServerCert) — clear ghost styling once
     // deployed. domainLeave has no edgeId; there's nothing left to commit.
-    if (runState.status === "done" && op.edgeId) {
-      topology.commitEdge(op.edgeId)
+    if (op.edgeId) {
+      topology.setEdgeHealth(
+        op.edgeId,
+        connectionHealthForOperation(runState.status),
+      )
+      if (runState.status === "done") topology.commitEdge(op.edgeId)
     }
   }
 }
@@ -253,6 +257,7 @@ function revertNonTerminalToStaged(): void {
         phase: undefined,
       })
     }
+    if (op.edgeId) topology.setEdgeHealth(op.edgeId, CONNECTION_HEALTH.planned)
     remaining.push({ ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined })
   }
 
@@ -426,6 +431,11 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
       ...op,
       dependsOn: op.dependsOn.filter((dep) => keptIds.has(dep)),
     }))
+
+    const topologyStore = useTopologyStore.getState()
+    for (const op of pruned) {
+      if (op.edgeId) topologyStore.setEdgeHealth(op.edgeId, CONNECTION_HEALTH.planned)
+    }
 
     const payload: PlanOpPayload[] = pruned.map((op) => {
       const { params, files } = buildOpPayload(op)

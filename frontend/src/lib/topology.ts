@@ -4,8 +4,17 @@
  */
 
 import type { Edge, Node } from "@xyflow/react"
-import { CONNECTION_PORT, EDGE_TYPE, LIFECYCLE } from "@/constants/topology"
-import type { ConnectionPort, EdgeType } from "@/constants/topology"
+import {
+  CONNECTION_HEALTH,
+  CONNECTION_PORT,
+  EDGE_TYPE,
+  LIFECYCLE,
+} from "@/constants/topology"
+import type {
+  ConnectionHealth,
+  ConnectionPort,
+  EdgeType,
+} from "@/constants/topology"
 import type { IsoAuthoring, MachineData } from "@/store/topology"
 
 // ---------------------------------------------------------------------------
@@ -170,6 +179,47 @@ export interface ConnectionGuidance {
   requirements: string[]
   operations: string[]
   ports: ConnectionPort[]
+}
+
+export const CONNECTION_HEALTH_GUIDANCE: Record<
+  ConnectionHealth,
+  { label: string; detail: string }
+> = {
+  [CONNECTION_HEALTH.planned]: {
+    label: "Planned",
+    detail: "The relationship is staged and has not been applied.",
+  },
+  [CONNECTION_HEALTH.applying]: {
+    label: "Applying",
+    detail: "The generated operation is currently running.",
+  },
+  [CONNECTION_HEALTH.verified]: {
+    label: "Verified",
+    detail: "The operation and its verification checks completed successfully.",
+  },
+  [CONNECTION_HEALTH.degraded]: {
+    label: "Degraded",
+    detail: "The relationship exists, but a dependency or verification path is incomplete.",
+  },
+  [CONNECTION_HEALTH.broken]: {
+    label: "Broken",
+    detail: "The generated operation failed and needs operator attention.",
+  },
+}
+
+export function connectionHealthForOperation(status: string): ConnectionHealth {
+  switch (status) {
+    case "running":
+      return CONNECTION_HEALTH.applying
+    case "done":
+      return CONNECTION_HEALTH.verified
+    case "cancelled":
+      return CONNECTION_HEALTH.degraded
+    case "error":
+      return CONNECTION_HEALTH.broken
+    default:
+      return CONNECTION_HEALTH.planned
+  }
 }
 
 /** Operator-facing meaning of a connection before it is deployed. */
@@ -499,6 +549,9 @@ export function domainJoinEdge(source: string, target: string, staged = false): 
       edgeType: EDGE_TYPE.domainJoin,
       ports: connectionPorts(EDGE_TYPE.domainJoin),
       staged,
+      health: staged
+        ? CONNECTION_HEALTH.planned
+        : CONNECTION_HEALTH.verified,
     },
     ...visual,
     style: staged

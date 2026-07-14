@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { CONNECTION_PORT, EDGE_TYPE } from "@/constants/topology"
+import { CONNECTION_HEALTH, CONNECTION_PORT, EDGE_TYPE } from "@/constants/topology"
 import {
   CONNECTION_PORT_GUIDANCE,
   connectionGuidance,
+  connectionHealthForOperation,
   connectionPorts,
 } from "@/lib/topology"
 
@@ -46,5 +47,13 @@ describe("connection capability guidance", () => {
       "Issuing CA and web host share an AD domain",
     )
     expect(guidance.operations[0]).toContain("webServerCert")
+  })
+
+  it("maps operation progress to the five connection health states", () => {
+    expect(connectionHealthForOperation("staged")).toBe(CONNECTION_HEALTH.planned)
+    expect(connectionHealthForOperation("running")).toBe(CONNECTION_HEALTH.applying)
+    expect(connectionHealthForOperation("done")).toBe(CONNECTION_HEALTH.verified)
+    expect(connectionHealthForOperation("cancelled")).toBe(CONNECTION_HEALTH.degraded)
+    expect(connectionHealthForOperation("error")).toBe(CONNECTION_HEALTH.broken)
   })
 })
