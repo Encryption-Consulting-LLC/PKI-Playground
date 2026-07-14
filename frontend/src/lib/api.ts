@@ -187,6 +187,18 @@ export interface InfrastructureProfile {
   memoryMb: number
   systemDiskGb: number
   maxUsagePct: number
+  qualification: ImageQualification | null
+}
+
+export interface ImageQualification {
+  baseChangeVersion: string
+  windowsBuild: number
+  runnerVersion: string
+  agentSha256: string
+  validatedAt: number
+  mlDsa87Available: boolean
+  systemContextValidated: boolean
+  ocspReferenceSha256: string | null
 }
 
 export interface GoldenImagePreflightCheck {
@@ -230,7 +242,7 @@ export const validateGoldenImage = (cloneCount = 1) =>
   })
 
 export interface InfrastructurePreflightCheck {
-  key: "vmNames" | "image" | "guestOs" | "network" | "datastore" | "capacity"
+  key: "vmNames" | "image" | "guestOs" | "network" | "datastore" | "capacity" | "qualification"
   ok: boolean
   detail: string
   role: PkiRole | null

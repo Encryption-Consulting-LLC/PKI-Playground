@@ -19,6 +19,7 @@ import {
   validateInfrastructure,
   type InfrastructurePreflight,
   type InfrastructureProfile,
+  type ImageQualification,
   type OperatorSettingsUpdate,
 } from "@/lib/api"
 
@@ -65,6 +66,7 @@ const DEFAULT_PROFILES: InfrastructureProfile[] = [
   memoryMb: memoryMb as number,
   systemDiskGb: systemDiskGb as number,
   maxUsagePct: 80,
+  qualification: null,
 }))
 
 const EMPTY_FORM: FormState = {
@@ -190,6 +192,52 @@ export function SettingsDialog() {
               [field]: ["cpus", "memoryMb", "systemDiskGb", "maxUsagePct"].includes(field)
                 ? Number(value)
                 : value,
+            }
+          : profile,
+      ),
+    }))
+    setPreflight(null)
+  }
+
+  function patchQualification(
+    role: InfrastructureProfile["role"],
+    field: keyof ImageQualification,
+    value: string | boolean | null,
+  ) {
+    setForm((current) => ({
+      ...current,
+      profiles: current.profiles.map((profile) => {
+        if (profile.role !== role || !profile.qualification) return profile
+        return {
+          ...profile,
+          qualification: {
+            ...profile.qualification,
+            [field]: field === "windowsBuild" ? Number(value) : value,
+            validatedAt: Date.now(),
+          },
+        }
+      }),
+    }))
+    setPreflight(null)
+  }
+
+  function addQualification(role: InfrastructureProfile["role"]) {
+    setForm((current) => ({
+      ...current,
+      profiles: current.profiles.map((profile) =>
+        profile.role === role
+          ? {
+              ...profile,
+              qualification: {
+                baseChangeVersion: "",
+                windowsBuild: 26100,
+                runnerVersion: "",
+                agentSha256: "",
+                validatedAt: Date.now(),
+                mlDsa87Available: false,
+                systemContextValidated: false,
+                ocspReferenceSha256: null,
+              },
             }
           : profile,
       ),
@@ -391,6 +439,25 @@ export function SettingsDialog() {
                         <div className="space-y-1.5"><Label>Disk reservation (GiB)</Label><Input type="number" min="32" value={profile.systemDiskGb} onChange={(event) => patchProfile(profile.role, "systemDiskGb", event.target.value)} /></div>
                         <div className="space-y-1.5"><Label>Usage limit (%)</Label><Input type="number" min="1" max="100" value={profile.maxUsagePct} onChange={(event) => patchProfile(profile.role, "maxUsagePct", event.target.value)} /></div>
                       </div>
+                      {profile.qualification ? (
+                        <div className="mt-3 border-t pt-3">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="space-y-1.5"><Label>Qualified image revision</Label><Input value={profile.qualification.baseChangeVersion} onChange={(event) => patchQualification(profile.role, "baseChangeVersion", event.target.value)} /></div>
+                            <div className="space-y-1.5"><Label>Windows build</Label><Input type="number" min="26100" value={profile.qualification.windowsBuild} onChange={(event) => patchQualification(profile.role, "windowsBuild", event.target.value)} /></div>
+                            <div className="space-y-1.5"><Label>Runner version</Label><Input value={profile.qualification.runnerVersion} onChange={(event) => patchQualification(profile.role, "runnerVersion", event.target.value)} /></div>
+                            <div className="space-y-1.5 sm:col-span-3"><Label>Agent SHA-256</Label><Input value={profile.qualification.agentSha256} onChange={(event) => patchQualification(profile.role, "agentSha256", event.target.value)} /></div>
+                            {profile.role === "webServer" && <div className="space-y-1.5 sm:col-span-3"><Label>OCSP reference dump SHA-256</Label><Input value={profile.qualification.ocspReferenceSha256 ?? ""} onChange={(event) => patchQualification(profile.role, "ocspReferenceSha256", event.target.value || null)} /></div>}
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                            <label className="flex items-center gap-2"><input type="checkbox" checked={profile.qualification.systemContextValidated} onChange={(event) => patchQualification(profile.role, "systemContextValidated", event.target.checked)} /> SYSTEM operations validated</label>
+                            {(profile.role === "rootCa" || profile.role === "issuingCa") && <label className="flex items-center gap-2"><input type="checkbox" checked={profile.qualification.mlDsa87Available} onChange={(event) => patchQualification(profile.role, "mlDsa87Available", event.target.checked)} /> ML-DSA-87 provider validated</label>}
+                          </div>
+                        </div>
+                      ) : (
+                        <Button className="mt-3" variant="outline" size="sm" onClick={() => addQualification(profile.role)}>
+                          Add canary qualification
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>

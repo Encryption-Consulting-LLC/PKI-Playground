@@ -21,7 +21,8 @@ class PlannedMachine(BaseModel):
 
 
 InfrastructureCheckKey = Literal[
-    "vmNames", "image", "guestOs", "network", "datastore", "capacity"
+    "vmNames", "image", "guestOs", "network", "datastore", "capacity",
+    "qualification",
 ]
 
 
@@ -145,7 +146,6 @@ def preflight_infrastructure(
                     detail=f"Could not inspect image '{profile.base}': {exc}",
                 )
             )
-
         base_moid = None
         change_version = None
         actual_guest_os = None
@@ -197,6 +197,34 @@ def preflight_infrastructure(
                     ),
                 )
             )
+
+        qualification = profile.qualification
+        qualification_ok = bool(
+            qualification
+            and qualification.base_change_version == change_version
+            and qualification.system_context_validated
+            and (
+                machine.role not in ("rootCa", "issuingCa")
+                or qualification.ml_dsa_87_available
+            )
+            and (
+                machine.role != "webServer"
+                or qualification.ocsp_reference_sha256
+            )
+        )
+        checks.append(
+            InfrastructureCheck(
+                key="qualification", role=machine.role, ok=qualification_ok,
+                detail=(
+                    "Image qualification matches this revision and required canaries."
+                    if qualification_ok
+                    else (
+                        "Image revision is not qualified for the current runner, SYSTEM "
+                        "operations, ML-DSA-87, and role-specific OCSP reference."
+                    )
+                ),
+            )
+        )
 
         network_ok = network_error is None and profile.network in networks
         checks.append(

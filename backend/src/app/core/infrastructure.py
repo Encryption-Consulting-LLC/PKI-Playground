@@ -16,6 +16,23 @@ PKI_ROLES: tuple[PkiRole, ...] = (
 )
 
 
+class ImageQualification(BaseModel):
+    """Observed canary facts tied to one immutable golden-image revision."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    base_change_version: str = Field(alias="baseChangeVersion", min_length=1)
+    windows_build: int = Field(alias="windowsBuild", ge=26100)
+    runner_version: str = Field(alias="runnerVersion", min_length=1, max_length=80)
+    agent_sha256: str = Field(alias="agentSha256", pattern=r"^[0-9a-fA-F]{64}$")
+    validated_at: int = Field(alias="validatedAt", gt=0)
+    ml_dsa_87_available: bool = Field(alias="mlDsa87Available")
+    system_context_validated: bool = Field(alias="systemContextValidated")
+    ocsp_reference_sha256: str | None = Field(
+        default=None, alias="ocspReferenceSha256", pattern=r"^[0-9a-fA-F]{64}$"
+    )
+
+
 class InfrastructureProfile(BaseModel):
     """Clone, placement, and sizing policy for one PKI machine role."""
 
@@ -30,6 +47,7 @@ class InfrastructureProfile(BaseModel):
     memory_mb: int = Field(alias="memoryMb", ge=1024, le=262144)
     system_disk_gb: int = Field(alias="systemDiskGb", ge=32, le=4096)
     max_usage_pct: float = Field(alias="maxUsagePct", gt=0, le=100)
+    qualification: ImageQualification | None = None
 
 
 _DEFAULT_SIZING: dict[PkiRole, tuple[int, int, int]] = {

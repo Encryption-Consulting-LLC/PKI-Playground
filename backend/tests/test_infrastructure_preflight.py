@@ -17,6 +17,16 @@ def _profile(role, *, base="ws-2025", datastore="store", network="PKI"):
         role=role, base=base, datastore=datastore,
         expectedGuestOs="windows2022srvNext-64", network=network,
         cpus=2, memoryMb=4096, systemDiskGb=60, maxUsagePct=90,
+        qualification={
+            "baseChangeVersion": "7", "windowsBuild": 26100,
+            "runnerVersion": "2.0.0", "agentSha256": "a" * 64,
+            "validatedAt": 1, "mlDsa87Available": True,
+            "systemContextValidated": True,
+            **(
+                {"ocspReferenceSha256": "b" * 64}
+                if role == "webServer" else {}
+            ),
+        },
     )
 
 
@@ -87,3 +97,36 @@ def test_missing_role_network_is_blocking(monkeypatch):
         if check.key == "network" and check.role == "rootCa"
     )
     assert root_network.ok is False
+
+
+def test_changed_image_revision_invalidates_canary_qualification(monkeypatch):
+    _patch(monkeypatch)
+    profile = _profile("rootCa")
+    profile.qualification.base_change_version = "stale"
+    result = subject.preflight_infrastructure(
+        SimpleNamespace(
+            content=SimpleNamespace(about=SimpleNamespace(instanceUuid="esxi-1"))
+        ),
+        {"rootCa": profile},
+        [subject.PlannedMachine(role="rootCa", name="CA01")],
+    )
+
+    assert result.ready is False
+    check = next(item for item in result.checks if item.key == "qualification")
+    assert check.ok is False
+
+
+def test_web_role_requires_frozen_ocsp_reference_dump(monkeypatch):
+    _patch(monkeypatch)
+    profile = _profile("webServer")
+    profile.qualification.ocsp_reference_sha256 = None
+    result = subject.preflight_infrastructure(
+        SimpleNamespace(
+            content=SimpleNamespace(about=SimpleNamespace(instanceUuid="esxi-1"))
+        ),
+        {"webServer": profile},
+        [subject.PlannedMachine(role="webServer", name="SRV1")],
+    )
+
+    assert result.ready is False
+    assert next(item for item in result.checks if item.key == "qualification").ok is False

@@ -75,6 +75,15 @@ def test_role_specific_profile_overrides_legacy_image():
                     "memoryMb": 4096,
                     "systemDiskGb": 60,
                     "maxUsagePct": 70,
+                    "qualification": {
+                        "baseChangeVersion": "17",
+                        "windowsBuild": 26100,
+                        "runnerVersion": "2.0.0",
+                        "agentSha256": "a" * 64,
+                        "validatedAt": 1,
+                        "mlDsa87Available": True,
+                        "systemContextValidated": True,
+                    },
                 }
             ],
         }
@@ -82,6 +91,7 @@ def test_role_specific_profile_overrides_legacy_image():
 
     assert profiles["rootCa"].base == "offline-root-image"
     assert profiles["rootCa"].network == "Offline"
+    assert profiles["rootCa"].qualification.ml_dsa_87_available is True
     assert profiles["webServer"].base == "legacy"
 
 
