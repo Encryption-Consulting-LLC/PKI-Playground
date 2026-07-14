@@ -31,6 +31,7 @@ import {
 } from "@/lib/staging"
 import { connectionHealthForOperation, domainJoinEdge } from "@/lib/topology"
 import { buildDeployTopology } from "@/lib/deployTopology"
+import { isCertificateJourney } from "@/lib/certificateJourney"
 import { openJobSocket, type OpRunState } from "@/lib/ws"
 import { useAgentsStore } from "@/store/agents"
 import { useAuthStore } from "@/store/auth"
@@ -272,6 +273,16 @@ function applyPlanState(opsState: Record<string, OpRunState>) {
         connectionHealthForOperation(runState.status),
       )
       if (runState.status === "done") topology.commitEdge(op.edgeId)
+    }
+    if (
+      op.kind === OP_KIND.webServerCert &&
+      runState.status === "done" &&
+      op.secondaryNodeId &&
+      isCertificateJourney(runState.result?.certificateJourney)
+    ) {
+      topology.patchNodeData(op.secondaryNodeId, {
+        certificateJourney: runState.result.certificateJourney,
+      })
     }
   }
 }

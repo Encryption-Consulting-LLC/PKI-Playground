@@ -66,7 +66,8 @@ export function initProjectAutosave() {
         prevData.jobId !== n.data.jobId ||
         prevData.poweredOn !== n.data.poweredOn ||
         prevData.config !== n.data.config ||
-        prevData.lastDeployedConfig !== n.data.lastDeployedConfig
+        prevData.lastDeployedConfig !== n.data.lastDeployedConfig ||
+        prevData.certificateJourney !== n.data.certificateJourney
       )
     })
 

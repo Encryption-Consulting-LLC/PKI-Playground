@@ -28,6 +28,7 @@ import type { IsoMode } from "@/constants/iso"
 import { toast } from "sonner"
 
 import { ApiError, deleteIso, deleteVm } from "@/lib/api"
+import type { CertificateJourney } from "@/lib/certificateJourney"
 import { openJobSocket } from "@/lib/ws"
 import {
   canConnectServiceSockets,
@@ -123,6 +124,8 @@ export interface MachineData extends Record<string, unknown> {
    * in, standing in for what a real deployment will do automatically later.
    */
   orchestratorVmId?: string
+  /** Redacted terminal verification projection used by the certificate journey lens. */
+  certificateJourney?: CertificateJourney
 }
 
 /**
