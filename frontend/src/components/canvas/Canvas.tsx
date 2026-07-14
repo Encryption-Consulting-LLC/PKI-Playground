@@ -19,6 +19,7 @@ import type { Node } from "@xyflow/react"
 import { MachineNode } from "./nodes/MachineNode"
 import { DomainRegions, type DomainDragPreview } from "./DomainRegions"
 import { DomainConfirmDialog } from "./DomainConfirmDialog"
+import { DomainJoinAction } from "./DomainJoinAction"
 import { StagedRemoveDialog } from "./StagedRemoveDialog"
 import {
   useTopologyStore,
@@ -35,6 +36,7 @@ import {
   findOverlappingId,
   isDeployed,
   nearestFreePosition,
+  nodeCenter,
 } from "@/lib/topology"
 import { useResolvedTheme } from "@/hooks/useTheme"
 import { ConnectionLegend } from "./ConnectionLegend"
@@ -381,6 +383,58 @@ export function Canvas() {
     setDomainDragPreview(null)
   }, [applyNodeChanges])
 
+  const requestAccessibleDomainJoin = useCallback(
+    (node: Node<MachineData>, dc: Node<MachineData>) => {
+      const reason = domainJoinBlockReason(node, dc, edges)
+      if (reason) {
+        toast.error(reason)
+        return
+      }
+
+      const dcCenter = nodeCenter(dc)
+      const nodeWidth = node.measured?.width ?? 160
+      const nodeHeight = node.measured?.height ?? 80
+      const desired = {
+        x: dcCenter.x + 145 - nodeWidth / 2,
+        y: dcCenter.y + 115 - nodeHeight / 2,
+      }
+      const position = nearestFreePosition(
+        node,
+        nodes.filter((candidate) => candidate.id !== node.id),
+        desired,
+      )
+      const previewNode = { ...node, position }
+      const previewNodes = nodes.map((candidate) =>
+        candidate.id === node.id ? previewNode : candidate,
+      )
+      const operations = domainJoinOperations(previewNode, dc, previewNodes)
+
+      dragStart.current = {
+        id: node.id,
+        position: { ...node.position },
+        members: [],
+      }
+      applyNodeChanges([{ id: node.id, type: "position", position }])
+      setDomainDragPreview({
+        nodeId: node.id,
+        dcId: dc.id,
+        allowed: true,
+        reason: null,
+        operations,
+      })
+      setPendingOperations(operations)
+      setPendingChanges([
+        {
+          nodeId: node.id,
+          nodeName: node.data.name,
+          dcId: dc.id,
+          domainName: dc.data.config?.domainName ?? dc.data.name,
+        },
+      ])
+    },
+    [nodes, edges, applyNodeChanges],
+  )
+
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = "copy"
@@ -438,6 +492,9 @@ export function Canvas() {
         </Panel>
         <Panel position="top-left">
           <TopologyGuidance />
+        </Panel>
+        <Panel position="bottom-center">
+          <DomainJoinAction onRequest={requestAccessibleDomainJoin} />
         </Panel>
       </ReactFlow>
       <DomainConfirmDialog
