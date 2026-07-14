@@ -109,6 +109,10 @@ def _root_ctx():
         nodes={"primary": node},
         domain_name="encon.pki",
         pki_host="pki.encon.pki",
+        artifacts={
+            "root_cert_filename": "guest-abc12-ca01_EC-Root-CA.crt",
+            "root_crl_filename": "EC-Root-CA.crl",
+        },
     )
 
 
@@ -125,6 +129,10 @@ def test_root_ca_tail_full_sequence():
     # The two reads publish the root cert + CRL into the relay.
     assert steps[4].produces == ("root_crt",)
     assert steps[5].produces == ("root_crl",)
+    assert steps[3].result_artifacts == {
+        "certificateFileName": "root_cert_filename",
+        "baseCrlFileName": "root_crl_filename",
+    }
 
 
 def test_root_ca_settings_include_dsconfigdn_and_periods():
@@ -144,7 +152,7 @@ def test_root_ca_cdp_aia_use_pki_host_and_three_locations():
     assert "http://pki.encon.pki/CertEnroll/" in p["aiaUrls"]
 
 
-def test_root_crt_read_path_is_cn_derived():
+def test_root_crt_read_path_uses_observed_publication_name():
     ctx = _root_ctx()
     read = provision_steps("certificateAuthority", ca_type="Root")[4]
     path = read.resolve_params(ctx)["path"]
@@ -177,6 +185,15 @@ def _full_lab_ctx():
         domain_name="encon.pki",
         netbios="ENCON",
         pki_host="pki.encon.pki",
+        artifacts={
+            "root_cert_filename": "guest-abc12-ca01_EC-Root-CA.crt",
+            "root_crl_filename": "EC-Root-CA.crl",
+            "issuing_cert_filename": (
+                "guest-abc12-ca02_EncryptionConsulting Issuing CA.crt"
+            ),
+            "issuing_crl_filename": "EncryptionConsulting Issuing CA.crl",
+            "issuing_delta_crl_filename": "EncryptionConsulting Issuing CA+.crl",
+        },
     )
 
 

@@ -13,6 +13,8 @@ step can reference another node's real guest-namespaced hostname
 """
 
 import json
+from pathlib import PureWindowsPath
+from urllib.parse import quote
 
 from app.core.sequences.health import (
     ML_DSA_87_SIGNATURE_OID,
@@ -45,6 +47,11 @@ _A_ROOT_CRT = "root_crt"
 _A_ROOT_CRL = "root_crl"
 _A_ISSUING_CSR = "issuing_csr"
 _A_ISSUING_CRT = "issuing_crt"
+_A_ROOT_CERT_FILE = "root_cert_filename"
+_A_ROOT_CRL_FILE = "root_crl_filename"
+_A_ISSUING_CERT_FILE = "issuing_cert_filename"
+_A_ISSUING_CRL_FILE = "issuing_crl_filename"
+_A_ISSUING_DELTA_CRL_FILE = "issuing_delta_crl_filename"
 
 # Service-specific transient retry windows. Side-effecting commands carrying
 # these schedules are required to verify desired state before changing it.
@@ -147,18 +154,20 @@ def _ds_config_dn(domain: str) -> str:
     return f"CN=Configuration,{dc}"
 
 
-def _sanitized_cn_file(cn: str) -> str:
-    """certutil's CertEnroll file stem for a CA common name. UNVERIFIED for CNs
-    with spaces (the exact sanitization is certutil's); the lab's default CNs
-    (``EC-Root-CA``) have none, so the root path is safe."""
-    return cn
+def _observed_filename(ctx: RunContext, key: str) -> str:
+    """Return a certutil-observed leaf filename persisted by publication."""
+
+    value = ctx.artifacts.get(key)
+    if not value:
+        raise ValueError(f"CA publication did not report artifact '{key}'")
+    leaf = PureWindowsPath(value).name
+    if leaf != value or leaf in ("", ".", ".."):
+        raise ValueError(f"CA publication reported unsafe filename '{value}'")
+    return leaf
 
 
-def _crl_url_name(cn: str) -> str:
-    """The CN in an HTTP CRL URL — spaces percent-encoded (certutil publishes
-    `EncryptionConsulting%20Issuing%20CA.crl`), so the agent's URL validator
-    (which rejects raw spaces) accepts it. Canary alongside _sanitized_cn_file."""
-    return _sanitized_cn_file(cn).replace(" ", "%20")
+def _publication_url(ctx: RunContext, key: str) -> str:
+    return quote(_observed_filename(ctx, key), safe="+._-")
 
 
 def _root_aia(pki_host: str) -> str:
@@ -245,12 +254,10 @@ def _root_ca_provision() -> list[Step]:
         return {"aiaUrls": _root_aia(pki), "cdpUrls": _root_cdp(pki)}
 
     def root_crt_path(rt: StepRuntime) -> dict[str, str]:
-        cn = rt.node.template_config.get("commonName", "EC-Root-CA")
-        return {"path": f"{_CERT_ENROLL_DIR}\\{rt.node.hostname}_{_sanitized_cn_file(cn)}.crt"}
+        return {"path": f"{_CERT_ENROLL_DIR}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"}
 
     def root_crl_path(rt: StepRuntime) -> dict[str, str]:
-        cn = rt.node.template_config.get("commonName", "EC-Root-CA")
-        return {"path": f"{_CERT_ENROLL_DIR}\\{_sanitized_cn_file(cn)}.crl"}
+        return {"path": f"{_CERT_ENROLL_DIR}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"}
 
     return [
         Step(
@@ -264,8 +271,14 @@ def _root_ca_provision() -> list[Step]:
         ),
         Step(id="ca-settings", command="ca.configure_settings", target=PRIMARY, params=settings_params),
         Step(id="ca-cdp-aia", command="ca.configure_cdp_aia", target=PRIMARY, params=cdp_aia_params),
-        Step(id="ca-crl", command="ca.publish_crl", target=PRIMARY,
-             retry_delays_s=_CRL_RETRY),
+        Step(
+            id="ca-crl", command="ca.publish_crl", target=PRIMARY,
+            retry_delays_s=_CRL_RETRY,
+            result_artifacts={
+                "certificateFileName": _A_ROOT_CERT_FILE,
+                "baseCrlFileName": _A_ROOT_CRL_FILE,
+            },
+        ),
         Step(id="read-root-crt", command="file.read", target=PRIMARY, params=root_crt_path, produces=(_A_ROOT_CRT,)),
         Step(id="read-root-crl", command="file.read", target=PRIMARY, params=root_crl_path, produces=(_A_ROOT_CRL,)),
     ]
@@ -541,11 +554,14 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
                 "caConfig": ca_config,
                 "template": "OCSPResponseSigning",
                 "refreshMinutes": refresh,
-                # The issuing CA's base + delta CRL over HTTP. The `%3%8%9.crl`
-                # publication expands to `<sanitized-CN>.crl` — CN-derived here;
-                # unverified for CNs with spaces (see _sanitized_cn_file).
-                "baseCrlUrls": f"http://{pki}/CertEnroll/{_crl_url_name(issuing_cn)}.crl",
-                "deltaCrlUrls": f"http://{pki}/CertEnroll/{_crl_url_name(issuing_cn)}+.crl",
+                "baseCrlUrls": (
+                    f"http://{pki}/CertEnroll/"
+                    f"{_publication_url(ctx, _A_ISSUING_CRL_FILE)}"
+                ),
+                "deltaCrlUrls": (
+                    f"http://{pki}/CertEnroll/"
+                    f"{_publication_url(ctx, _A_ISSUING_DELTA_CRL_FILE)}"
+                ),
             },
             verify=Step(id="ocsp-verify", command="ocsp.verify", target=PRIMARY),
             verify_predicate=lambda r: r.get("configured") is True,
@@ -601,15 +617,15 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
     if not all(alias in ctx.nodes for alias in (DC, ROOT, CA, WEB)):
         raise KeyError("final lab health gate requires dc, root, ca, and web nodes")
 
-    root_cert_name = f"{root.hostname}_{_sanitized_cn_file(root_cn)}.crt"
-    issuing_cert_name = f"{ca.hostname}_{_sanitized_cn_file(issuing_cn)}.crt"
+    root_cert_name = _observed_filename(ctx, _A_ROOT_CERT_FILE)
+    issuing_cert_name = _observed_filename(ctx, _A_ISSUING_CERT_FILE)
     http_root = f"http://{pki}/CertEnroll/"
     artifact_urls = [
-        f"{http_root}{root.hostname}_{_crl_url_name(root_cn)}.crt",
-        f"{http_root}{_crl_url_name(root_cn)}.crl",
-        f"{http_root}{ca.hostname}_{_crl_url_name(issuing_cn)}.crt",
-        f"{http_root}{_crl_url_name(issuing_cn)}.crl",
-        f"{http_root}{_crl_url_name(issuing_cn)}+.crl",
+        f"{http_root}{_publication_url(ctx, _A_ROOT_CERT_FILE)}",
+        f"{http_root}{_publication_url(ctx, _A_ROOT_CRL_FILE)}",
+        f"{http_root}{_publication_url(ctx, _A_ISSUING_CERT_FILE)}",
+        f"{http_root}{_publication_url(ctx, _A_ISSUING_CRL_FILE)}",
+        f"{http_root}{_publication_url(ctx, _A_ISSUING_DELTA_CRL_FILE)}",
     ]
     all_dns_records = tuple(ctx.dns_records)
     if not all_dns_records:
@@ -734,27 +750,19 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
         return {"aiaUrls": aia, "cdpUrls": cdp}
 
     def issuing_pub_crt_path(rt: StepRuntime) -> dict[str, str]:
-        cn = rt.node.template_config.get("commonName", "Issuing CA")
-        return {"path": f"{_CERT_ENROLL_DIR}\\{rt.node.hostname}_{_sanitized_cn_file(cn)}.crt"}
+        return {
+            "path": f"{_CERT_ENROLL_DIR}\\"
+            f"{_observed_filename(rt.ctx, _A_ISSUING_CERT_FILE)}"
+        }
 
     def root_web_crt_path(rt: StepRuntime) -> dict[str, str]:
-        cn = root.template_config.get("commonName", "EC-Root-CA")
-        return {
-            "path": f"{_WEB_CERTENROLL}\\{root.hostname}_{_sanitized_cn_file(cn)}.crt"
-        }
+        return {"path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"}
 
     def root_web_crl_path(rt: StepRuntime) -> dict[str, str]:
-        cn = root.template_config.get("commonName", "EC-Root-CA")
-        return {"path": f"{_WEB_CERTENROLL}\\{_sanitized_cn_file(cn)}.crl"}
+        return {"path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"}
 
     def issuing_web_crt_path(rt: StepRuntime) -> dict[str, str]:
-        cn = rt.ctx.node(PRIMARY).template_config.get("commonName", "Issuing CA")
-        return {
-            "path": (
-                f"{_WEB_CERTENROLL}\\{rt.ctx.node(PRIMARY).hostname}_"
-                f"{_sanitized_cn_file(cn)}.crt"
-            )
-        }
+        return {"path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ISSUING_CERT_FILE)}"}
 
     steps: list[Step] = []
 
@@ -827,8 +835,15 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
              params=issuing_settings_params),
         Step(id="issuing-cdp-aia", command="ca.configure_cdp_aia", target=PRIMARY,
              params=issuing_cdp_aia_params),
-        Step(id="issuing-crl", command="ca.publish_crl", target=PRIMARY,
-             retry_delays_s=_CRL_RETRY),
+        Step(
+            id="issuing-crl", command="ca.publish_crl", target=PRIMARY,
+            retry_delays_s=_CRL_RETRY,
+            result_artifacts={
+                "certificateFileName": _A_ISSUING_CERT_FILE,
+                "baseCrlFileName": _A_ISSUING_CRL_FILE,
+                "deltaCrlFileName": _A_ISSUING_DELTA_CRL_FILE,
+            },
+        ),
     ]
     if has_web:
         steps += [

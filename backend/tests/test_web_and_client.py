@@ -53,6 +53,15 @@ def _web_ctx():
                 name="pki",
             ),
         ),
+        artifacts={
+            "root_cert_filename": "guest-abc12-ca01_EC-Root-CA.crt",
+            "root_crl_filename": "EC-Root-CA.crl",
+            "issuing_cert_filename": (
+                "guest-abc12-ca02_EncryptionConsulting Issuing CA.crt"
+            ),
+            "issuing_crl_filename": "EncryptionConsulting Issuing CA.crl",
+            "issuing_delta_crl_filename": "EncryptionConsulting Issuing CA+.crl",
+        },
     )
 
 

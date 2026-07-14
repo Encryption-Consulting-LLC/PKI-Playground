@@ -297,6 +297,57 @@ def test_produces_and_consumes_relay_artifacts():
     assert seen_params["contentB64"] == "Q1NSLWJ5dGVz"
 
 
+def test_persists_required_result_fields_as_cross_operation_artifacts():
+    clock = FakeClock()
+    ctx = _ctx()
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: {
+            "certificateFileName": "CA02_Issuing CA.crt",
+            "baseCrlFileName": "Issuing CA.crl",
+        },
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+
+    engine.run(
+        [
+            Step(
+                id="publish", command="ca.publish_crl", target="primary",
+                result_artifacts={
+                    "certificateFileName": "issuing_cert_filename",
+                    "baseCrlFileName": "issuing_crl_filename",
+                },
+            )
+        ],
+        ctx,
+    )
+
+    assert ctx.artifacts["issuing_cert_filename"] == "CA02_Issuing CA.crt"
+    assert ctx.artifacts["issuing_crl_filename"] == "Issuing CA.crl"
+
+
+def test_missing_required_result_artifact_fails_the_step():
+    clock = FakeClock()
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: {},
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+
+    with pytest.raises(SequenceError, match="certificateFileName"):
+        engine.run(
+            [
+                Step(
+                    id="publish", command="ca.publish_crl", target="primary",
+                    result_artifacts={"certificateFileName": "cert_filename"},
+                )
+            ],
+            _ctx(),
+        )
+
+
 def test_param_resolver_sees_context():
     clock = FakeClock()
     seen = {}

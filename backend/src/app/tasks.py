@@ -838,6 +838,13 @@ def _run_sequence_op(
     push()
     try:
         ctx = build_run_context(db, op, ops, topology)
+        try:
+            prior_run = db["plan_runs"].find_one(
+                {"jobId": job_id}, {"artifacts": 1}
+            ) or {}
+        except (KeyError, TypeError):
+            prior_run = {}
+        ctx.artifacts.update(prior_run.get("artifacts") or {})
         steps = op_sequence(op.kind.value, ctx)
     except ContextError as exc:
         state[op.id] = OpRunState(status="error", detail=str(exc))

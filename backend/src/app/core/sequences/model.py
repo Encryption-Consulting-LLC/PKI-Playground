@@ -121,6 +121,9 @@ class Step:
     #: map; ``consumes`` injects one relay payload as the ``contentB64`` param.
     produces: tuple[str, ...] = ()
     consumes: tuple[str, ...] = ()
+    #: Result field -> persisted artifact key. Used for observed filenames and
+    #: other small facts that later operations must consume verbatim.
+    result_artifacts: Mapping[str, str] = field(default_factory=dict)
     #: Param keys to redact from every progress/error frame (passwords, blobs).
     secret_keys: tuple[str, ...] = ()
     timeout_s: int = 300

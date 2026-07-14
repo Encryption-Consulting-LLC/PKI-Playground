@@ -114,6 +114,14 @@ class SequenceEngine:
             content = result.get("contentB64")
             if isinstance(content, str):
                 ctx.artifacts[key] = content
+        for result_field, artifact_key in step.result_artifacts.items():
+            value = result.get(result_field)
+            if not isinstance(value, str) or not value:
+                raise SequenceError(
+                    f"step '{step.id}' did not report required result field "
+                    f"'{result_field}'"
+                )
+            ctx.artifacts[artifact_key] = value
 
         if step.expects_disconnect:
             self._wait_for_reconnect(
