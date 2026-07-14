@@ -128,9 +128,9 @@ each join, and the CNAME plus HTTP CertEnroll path from CA02 and SRV1. Matching
 pre-existing records are retained; conflicting values fail instead of being
 overwritten. DNS cleanup/retention remains part of dependency-aware teardown.
 
-### P1: Connection meaning and missing-service guidance
+### Completed: Connection meaning and missing-service guidance
 
-Connections should model capabilities, not generic lines. Define typed ports:
+Connections now model capabilities instead of generic lines through typed ports:
 
 - CA parent: `issues CA certificate`;
 - CA publication: `HTTP CDP`, `HTTP AIA`, `OCSP URL`;
@@ -138,13 +138,13 @@ Connections should model capabilities, not generic lines. Define typed ports:
 - web host: `CertEnroll share`, `HTTP CertEnroll`, `Online Responder`;
 - probe certificate: `enrollment`, `chain validation`, `revocation validation`.
 
-Every connection needs three layers of labeling:
+Every connection exposes three layers of labeling:
 
 1. **Intent** before deploy: what the edge will provide.
 2. **Requirements** on hover/select: prerequisites and generated operations.
 3. **Health** after deploy: planned, applying, verified, degraded, or broken.
 
-The topology linter should produce actionable messages such as:
+The canvas and backend topology linters produce actionable messages including:
 
 - "CA02 has a parent but is not inside an AD domain."
 - "CA02 publishes HTTP CDP/AIA, but no web host is connected."
@@ -183,7 +183,7 @@ changes after preflight, the job should fail before the first clone.
 
 - Fix node width and progress overflow.
 - Keep staged nodes connectable and add a regression test.
-- Add typed edge labels, legends, tooltips, and missing-relationship warnings.
+- [x] Add typed edge labels, legends, tooltips, and missing-relationship warnings.
 - Make the supplied project use DC01/CA01/CA02/SRV1, the guide's forest
   level, and ML-DSA-87.
 
