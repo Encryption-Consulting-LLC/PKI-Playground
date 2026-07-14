@@ -85,6 +85,13 @@ class StepRuntime:
 # the target has reached the desired state yet (True = ready, stop retrying).
 VerifyPredicate = Callable[[dict[str, Any]], bool]
 
+# A local aggregate consumes the results of earlier steps without dispatching
+# another agent command.  This is how a final health gate can combine facts
+# gathered from several VMs while keeping each remote probe single-purpose.
+ResultAggregator = Callable[
+    ["StepRuntime", Mapping[str, dict[str, Any]]], dict[str, Any]
+]
+
 
 @dataclass(frozen=True)
 class Step:
@@ -107,6 +114,9 @@ class Step:
     verify: "Step | None" = None
     verify_predicate: VerifyPredicate | None = None
     verify_window_s: int = 600
+    #: Backend-local result aggregator. When present, ``command`` is the
+    #: display/metric label only and no agent dispatch occurs.
+    aggregate: ResultAggregator | None = None
     #: Artifact keys: ``produces`` lifts ``result.contentB64`` into the relay
     #: map; ``consumes`` injects one relay payload as the ``contentB64`` param.
     produces: tuple[str, ...] = ()

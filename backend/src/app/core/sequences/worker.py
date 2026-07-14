@@ -75,20 +75,34 @@ def load_step_medians(db, commands) -> dict[str, float]:
     return medians
 
 
-def _load_run_state(db, plan_job_id: str) -> tuple[dict[str, list[str]], dict[str, str]]:
-    """Return ``(cursor, artifacts)`` for a plan run — the per-op completed-step
-    lists and the artifact relay map — or empty structures for a first run."""
+def _load_run_state(
+    db, plan_job_id: str
+) -> tuple[dict[str, list[str]], dict[str, str], dict[str, dict[str, dict]]]:
+    """Return ``(cursor, artifacts, results)`` for a plan run.
+
+    Results are retained per op so a redelivered sequence can rebuild a local
+    aggregate from already-completed remote probes instead of silently feeding
+    it empty placeholders.
+    """
     doc = db["plan_runs"].find_one({"jobId": plan_job_id})
     if doc is None:
-        return {}, {}
-    return doc.get("cursor") or {}, doc.get("artifacts") or {}
+        return {}, {}, {}
+    return (
+        doc.get("cursor") or {},
+        doc.get("artifacts") or {},
+        doc.get("results") or {},
+    )
 
 
 def _persist_step(
-    db, plan_job_id: str, op_id: str, step_id: str, artifacts: dict[str, str]
+    db,
+    plan_job_id: str,
+    op_id: str,
+    step_id: str,
+    result: dict,
+    artifacts: dict[str, str],
 ) -> None:
-    """Record ``step_id`` complete under ``op_id`` and snapshot the artifact map
-    — the resume cursor. Re-armed TTL on every write."""
+    """Persist a completed step's cursor, result evidence, and relay artifacts."""
     ttl_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
         days=_PLAN_RUN_TTL_DAYS
     )
@@ -98,6 +112,7 @@ def _persist_step(
             "$addToSet": {f"cursor.{op_id}": step_id},
             "$set": {
                 "artifacts": artifacts,
+                f"results.{op_id}.{step_id}": result,
                 "updatedAt": now_ms(),
                 "ttlAt": ttl_at,
             },
@@ -135,8 +150,9 @@ def run_op_sequence(
     * completed steps come from the ``plan_runs`` cursor and each step's
       completion is persisted before the next runs.
     """
-    completed_by_op, artifacts = _load_run_state(db, plan_job_id)
+    completed_by_op, artifacts, results_by_op = _load_run_state(db, plan_job_id)
     completed = set(completed_by_op.get(op_id, []))
+    resumed_results = results_by_op.get(op_id, {})
     ctx.artifacts.update(artifacts)
 
     def dispatch(
@@ -177,8 +193,8 @@ def run_op_sequence(
     def wait_for_reconnect(vm_id, since_ms, timeout_s):
         agentbus.wait_for_reconnect(vm_id, since_ms, timeout_s, db=db)
 
-    def on_step_done(step_id, _result):
-        _persist_step(db, plan_job_id, op_id, step_id, ctx.artifacts)
+    def on_step_done(step_id, result):
+        _persist_step(db, plan_job_id, op_id, step_id, result, ctx.artifacts)
         if on_step_complete is not None:
             on_step_complete(step_id)
 
@@ -189,6 +205,7 @@ def run_op_sequence(
         now_ms=now_ms,
         role=role,
         completed=completed,
+        resumed_results=resumed_results,
         on_step_done=on_step_done,
     )
     return engine.run(steps, ctx)

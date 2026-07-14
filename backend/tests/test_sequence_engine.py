@@ -214,6 +214,61 @@ def test_completed_steps_skip_on_resume():
     assert ran == ["ca.publish_crl"]  # 'a' was already done
 
 
+def test_completed_results_feed_resumable_aggregate():
+    clock = FakeClock()
+    aggregate_inputs = {}
+
+    def aggregate(_rt, results):
+        aggregate_inputs.update(results)
+        return {"healthy": results["probe"]["ready"]}
+
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: (_ for _ in ()).throw(AssertionError("no dispatch")),
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+        completed={"probe"},
+        resumed_results={"probe": {"ready": True}},
+    )
+    results = engine.run(
+        [
+            Step(id="probe", command="dc.verify", target="primary"),
+            Step(
+                id="gate",
+                command="lab.verify",
+                target="primary",
+                aggregate=aggregate,
+            ),
+        ],
+        _ctx(),
+    )
+
+    assert aggregate_inputs == {"probe": {"ready": True}}
+    assert results["gate"] == {"healthy": True}
+
+
+def test_unhealthy_aggregate_fails_sequence_with_reasons():
+    clock = FakeClock()
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: {},
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+    gate = Step(
+        id="gate",
+        command="lab.verify",
+        target="primary",
+        aggregate=lambda _rt, _results: {
+            "healthy": False,
+            "failures": ["OCSP response was not verified"],
+        },
+    )
+
+    with pytest.raises(SequenceError, match="OCSP response was not verified"):
+        engine.run([gate], _ctx())
+
+
 def test_produces_and_consumes_relay_artifacts():
     clock = FakeClock()
     seen_params = {}

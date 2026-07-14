@@ -27,7 +27,7 @@ import logging
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from app.core.sequences.model import RunContext, Step
+from app.core.sequences.model import RunContext, Step, StepRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class SequenceEngine:
         now_ms: Callable[[], int],
         role: str = "guest",
         completed: set[str] | None = None,
+        resumed_results: dict[str, dict] | None = None,
         on_step_done: Callable[[str, dict], None] | None = None,
     ) -> None:
         self._dispatch = dispatch
@@ -64,6 +65,7 @@ class SequenceEngine:
         # VM_PROVISION, so a guest's own lab provisions under 'guest'.
         self._role = role
         self._completed = completed if completed is not None else set()
+        self._resumed_results = resumed_results if resumed_results is not None else {}
         self._on_step_done = on_step_done or (lambda _s, _r: None)
 
     def run(self, steps: Iterable[Step], ctx: RunContext) -> dict[str, dict]:
@@ -72,12 +74,14 @@ class SequenceEngine:
         turns that into a failed op)."""
         results: dict[str, dict] = {}
         for step in steps:
-            results[step.id] = self._run_one(step, ctx)
+            results[step.id] = self._run_one(step, ctx, results)
         return results
 
-    def _run_one(self, step: Step, ctx: RunContext) -> dict:
+    def _run_one(
+        self, step: Step, ctx: RunContext, prior_results: dict[str, dict]
+    ) -> dict:
         node = ctx.node(step.target)
-        if node.agent_vm_id is None:
+        if step.aggregate is None and node.agent_vm_id is None:
             raise SequenceError(
                 f"step '{step.id}' targets node '{step.target}' which has no agent"
             )
@@ -85,7 +89,20 @@ class SequenceEngine:
         if step.id in self._completed:
             logger.info("sequence step %s already complete — skipping", step.id)
             # Its artifacts were restored into ctx by the caller from plan_runs.
-            return {}
+            return self._resumed_results.get(step.id, {})
+
+        if step.aggregate is not None:
+            result = step.aggregate(
+                StepRuntime(ctx=ctx, node=node),
+                prior_results,
+            )
+            if result.get("healthy") is not True:
+                failures = result.get("failures") or ["aggregate health check failed"]
+                detail = "; ".join(str(item) for item in failures)
+                raise SequenceError(f"health gate '{step.command}' failed: {detail}")
+            self._completed.add(step.id)
+            self._on_step_done(step.id, result)
+            return result
 
         params = step.resolve_params(ctx)
         # Capture *before* dispatch so a fast reboot that reconnects immediately
