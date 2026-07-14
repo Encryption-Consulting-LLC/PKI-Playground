@@ -1,6 +1,7 @@
 """Read-only Windows golden-image ESXi preflight."""
 
 import os
+import asyncio
 from types import SimpleNamespace
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
@@ -9,6 +10,7 @@ os.environ.setdefault(
 )
 
 from app.core import golden_image  # noqa: E402
+from app.routers import settings as settings_router  # noqa: E402
 
 
 def _config(**overrides):
@@ -123,3 +125,36 @@ def test_legacy_settings_document_uses_environment_defaults():
 
     assert config.base == golden_image.settings.clone_base
     assert config.datastore == golden_image.settings.clone_datastore
+
+
+def test_settings_validation_endpoint_returns_wire_snapshot(monkeypatch):
+    class Collection:
+        async def find_one(self, _query):
+            return {
+                "cloneBase": "ws-2025-base",
+                "cloneDatastore": "datastore1",
+                "cloneGuestOs": "windows2022srvNext-64",
+                "cloneMaxUsagePct": 80,
+            }
+
+    _patch_inventory(monkeypatch)
+    monkeypatch.setattr(settings_router, "settings_col", lambda: Collection())
+
+    async def run_now(call):
+        return call()
+
+    monkeypatch.setattr(settings_router, "run_in_threadpool", run_now)
+
+    response = asyncio.run(
+        settings_router.validate_golden_image(
+            settings_router.GoldenImageValidationRequest(
+                requestedVmNames=["DC01", "CA01"],
+            ),
+            SimpleNamespace(content=object()),
+        )
+    )
+
+    assert response["ready"] is True
+    assert response["cloneCount"] == 2
+    assert response["baseMoid"] == "vm-42"
+    assert len(response["snapshotId"]) == 64

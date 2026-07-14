@@ -12,11 +12,20 @@ API response/log.
 (Absolute imports mean no clash with ``app.core.settings``.)
 """
 
+from functools import partial
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
+from vmkit import Connection
 
 from app.core.authz import Capability, require_capability
 from app.core.db import SETTINGS_DOC_ID, from_mongo, now_ms, settings_col
+from app.core.esxi import get_esxi
+from app.core.golden_image import (
+    golden_image_config_from_doc,
+    preflight_golden_image,
+)
 from app.core.ippool import guest_network_from_doc, sync_pool_async, validate_network
 from app.core.secrets import encrypt_secret
 
@@ -54,6 +63,15 @@ class SettingsUpdate(BaseModel):
     feature_flags: dict[str, bool] | None = Field(default=None, alias="featureFlags")
 
 
+class GoldenImageValidationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    requested_vm_names: list[str] = Field(
+        default_factory=list, max_length=50, alias="requestedVmNames"
+    )
+    clone_count: int | None = Field(default=None, ge=0, le=50, alias="cloneCount")
+
+
 def _present(doc: dict) -> dict:
     """API shape: replace the ciphertext blob with a ``hasPassword`` flag."""
     out = from_mongo(doc)
@@ -65,6 +83,30 @@ def _present(doc: dict) -> dict:
 async def get_settings() -> dict:
     doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
     return _present(doc)
+
+
+@router.post(
+    "/golden-image/validate",
+    dependencies=[Depends(require_capability(Capability.SETTINGS_READ))],
+)
+async def validate_golden_image(
+    body: GoldenImageValidationRequest,
+    conn: Connection = Depends(get_esxi),
+) -> dict:
+    """Validate the saved Windows golden image without mutating ESXi."""
+
+    doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
+    config = golden_image_config_from_doc(doc)
+    result = await run_in_threadpool(
+        partial(
+            preflight_golden_image,
+            conn,
+            config,
+            requested_vm_names=body.requested_vm_names,
+            clone_count=body.clone_count,
+        )
+    )
+    return result.model_dump(by_alias=True)
 
 
 @router.put("", dependencies=[Depends(require_capability(Capability.SETTINGS_WRITE))])
