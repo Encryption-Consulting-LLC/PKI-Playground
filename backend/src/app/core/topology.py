@@ -30,6 +30,12 @@ class TopologyEdgeKind(str, Enum):
     ca_publication = "caPublication"
 
 
+class DnsRecordKind(str, Enum):
+    a = "A"
+    ptr = "PTR"
+    cname = "CNAME"
+
+
 class TopologyNode(BaseModel):
     id: str = Field(min_length=1, max_length=200)
     name: str = Field(min_length=1, max_length=120)
@@ -44,6 +50,25 @@ class TopologyEdge(BaseModel):
     target: str = Field(min_length=1, max_length=200)
 
 
+class DnsRecordResource(BaseModel):
+    """A symbolic DNS record whose runtime value comes from ``subject``.
+
+    A/PTR resources resolve the subject node's allocated address and real
+    guest hostname after cloning. CNAME resources use ``name`` as the alias
+    and the subject node's FQDN as the target. ``server`` is the authoritative
+    domain-controller node that owns the zone.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(min_length=1, max_length=500)
+    kind: DnsRecordKind
+    server: str = Field(min_length=1, max_length=200)
+    subject: str = Field(min_length=1, max_length=200)
+    zone: str = Field(min_length=1, max_length=253)
+    name: str | None = Field(default=None, min_length=1, max_length=63)
+
+
 class TopologyDocument(BaseModel):
     """Backend-owned topology contract; version changes are explicit."""
 
@@ -52,6 +77,9 @@ class TopologyDocument(BaseModel):
     version: Literal[1] = 1
     nodes: list[TopologyNode] = Field(min_length=1, max_length=200)
     edges: list[TopologyEdge] = Field(default_factory=list, max_length=500)
+    dns_records: list[DnsRecordResource] = Field(
+        default_factory=list, max_length=500, alias="dnsRecords"
+    )
 
 
 class TopologyDiagnostic(BaseModel):
@@ -87,6 +115,7 @@ class CompilableOp(Protocol):
 @dataclass(frozen=True)
 class CompiledPlan:
     operations: list[Any]
+    dns_records: list[DnsRecordResource]
     critical_path: list[str]
     estimated_duration_seconds: int
     critical_path_duration_seconds: int
@@ -418,6 +447,98 @@ def validate_topology(topology: TopologyDocument) -> None:
                 )
             )
 
+    dns_ids: set[str] = set()
+    dns_keys: dict[tuple[DnsRecordKind, str, str, str], DnsRecordResource] = {}
+    valid_dns: list[DnsRecordResource] = []
+    for record in topology.dns_records:
+        if record.id in dns_ids:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="duplicate-dns-resource",
+                    message=f"DNS resource id '{record.id}' is duplicated.",
+                    node_ids=[record.server, record.subject],
+                )
+            )
+        dns_ids.add(record.id)
+        missing = [node_id for node_id in (record.server, record.subject) if node_id not in nodes]
+        if missing:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="dns-unknown-node",
+                    message=f"DNS resource '{record.id}' references unknown node(s): {missing}.",
+                    node_ids=missing,
+                )
+            )
+            continue
+        if nodes[record.server].role is not TopologyRole.domain_controller:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="dns-server-not-authoritative",
+                    message=f"DNS resource '{record.id}' is not owned by a domain controller.",
+                    node_ids=[record.server],
+                )
+            )
+        if record.kind is DnsRecordKind.cname and not record.name:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="dns-cname-missing-name",
+                    message=f"CNAME resource '{record.id}' needs an alias name.",
+                    node_ids=[record.subject],
+                )
+            )
+        if record.kind is not DnsRecordKind.cname and record.name is not None:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="dns-host-name-override",
+                    message=f"{record.kind.value} resource '{record.id}' derives its name from its subject.",
+                    node_ids=[record.subject],
+                )
+            )
+        if record.kind is DnsRecordKind.ptr and not record.zone.lower().endswith(".in-addr.arpa"):
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="dns-invalid-reverse-zone",
+                    message=f"PTR resource '{record.id}' has invalid reverse zone '{record.zone}'.",
+                    node_ids=[record.server, record.subject],
+                )
+            )
+
+        key_name = (record.name or record.subject).casefold()
+        key = (record.kind, record.server, record.zone.casefold().rstrip("."), key_name)
+        previous = dns_keys.get(key)
+        if previous is not None:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="dns-record-conflict",
+                    message=f"DNS resources '{previous.id}' and '{record.id}' claim the same record.",
+                    node_ids=[record.server, previous.subject, record.subject],
+                )
+            )
+        else:
+            dns_keys[key] = record
+        valid_dns.append(record)
+
+    a_targets = {
+        (record.server, record.zone.casefold().rstrip("."), record.subject)
+        for record in valid_dns
+        if record.kind is DnsRecordKind.a
+    }
+    for record in valid_dns:
+        if record.kind is not DnsRecordKind.cname:
+            continue
+        target_key = (record.server, record.zone.casefold().rstrip("."), record.subject)
+        if target_key not in a_targets:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code="dns-cname-target-missing-a",
+                    message=(
+                        f"CNAME '{record.name}.{record.zone}' targets {nodes[record.subject].name}, "
+                        "but that target has no authoritative A resource."
+                    ),
+                    node_ids=[record.server, record.subject],
+                )
+            )
+
     if diagnostics:
         raise TopologyValidationError(diagnostics)
 
@@ -731,6 +852,7 @@ def compile_plan(
     )
     return CompiledPlan(
         operations=ordered,
+        dns_records=list(topology.dns_records),
         critical_path=critical_path,
         estimated_duration_seconds=sum(_duration(op, nodes) for op in ordered),
         critical_path_duration_seconds=critical_duration,

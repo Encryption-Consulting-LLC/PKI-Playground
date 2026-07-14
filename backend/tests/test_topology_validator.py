@@ -3,6 +3,8 @@
 import pytest
 
 from app.core.topology import (
+    DnsRecordKind,
+    DnsRecordResource,
     TopologyDocument,
     TopologyEdge,
     TopologyEdgeKind,
@@ -108,3 +110,47 @@ def test_ca_cycle_diagnostic_names_the_closed_path():
     cycle = next(item for item in caught.value.diagnostics if item.code == "ca-cycle")
     assert cycle.node_ids[0] == cycle.node_ids[-1]
     assert "CA02 -> CA03 -> CA02" in cycle.message
+
+
+def test_cname_requires_an_authoritative_a_resource_for_its_target():
+    topology = _full_topology()
+    topology.dns_records = [
+        DnsRecordResource(
+            id="pki-cname",
+            kind=DnsRecordKind.cname,
+            server="dc",
+            subject="web",
+            zone="encon.pki",
+            name="pki",
+        )
+    ]
+
+    with pytest.raises(TopologyValidationError) as caught:
+        validate_topology(topology)
+
+    assert "dns-cname-target-missing-a" in _codes(caught.value)
+
+
+def test_invalid_reverse_zone_and_duplicate_record_are_reported():
+    topology = _full_topology()
+    topology.dns_records = [
+        DnsRecordResource(
+            id="ptr-one",
+            kind=DnsRecordKind.ptr,
+            server="dc",
+            subject="web",
+            zone="encon.pki",
+        ),
+        DnsRecordResource(
+            id="ptr-two",
+            kind=DnsRecordKind.ptr,
+            server="dc",
+            subject="web",
+            zone="encon.pki",
+        ),
+    ]
+
+    with pytest.raises(TopologyValidationError) as caught:
+        validate_topology(topology)
+
+    assert _codes(caught.value) >= {"dns-invalid-reverse-zone", "dns-record-conflict"}

@@ -141,6 +141,9 @@ def _compiled_response(req: DeployRequest, compiled: CompiledPlan) -> dict:
         "resources": {
             "nodes": len(req.topology.nodes),
             "relationships": len(req.topology.edges),
+            "dnsRecords": [
+                record.model_dump(by_alias=True) for record in compiled.dns_records
+            ],
         },
     }
 

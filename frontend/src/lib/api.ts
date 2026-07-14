@@ -327,6 +327,14 @@ export interface TopologyPayload {
     source: string
     target: string
   }>
+  dnsRecords: Array<{
+    id: string
+    kind: "A" | "PTR" | "CNAME"
+    server: string
+    subject: string
+    zone: string
+    name?: string
+  }>
 }
 
 export const deployPlan = (

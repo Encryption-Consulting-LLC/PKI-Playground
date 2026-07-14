@@ -25,6 +25,62 @@ export function buildDeployTopology(
   nodes: Node<MachineData>[],
   edges: Edge[],
 ): TopologyPayload {
+  const domainControllers = new Map(
+    nodes
+      .filter((node) => topologyRole(node.data) === "domainController")
+      .map((node) => [node.id, node]),
+  )
+  const memberships = new Map(
+    edges
+      .filter((edge) => edge.data?.edgeType === EDGE_TYPE.domainJoin)
+      .map((edge) => [edge.source, edge.target]),
+  )
+  const dnsRecords: TopologyPayload["dnsRecords"] = []
+
+  for (const node of nodes) {
+    const role = topologyRole(node.data)
+    if (!(["domainController", "issuingCa", "webServer"] as TopologyRole[]).includes(role)) {
+      continue
+    }
+    const dcId = role === "domainController" ? node.id : memberships.get(node.id)
+    const dc = dcId ? domainControllers.get(dcId) : undefined
+    const zone = dc?.data.config?.domainName?.trim()
+    if (!dcId || !zone) continue
+    dnsRecords.push({
+      id: `dns:a:${dcId}:${node.id}`,
+      kind: "A",
+      server: dcId,
+      subject: node.id,
+      zone,
+    })
+    const reverseZone = dc?.data.config?.reverseZone?.trim()
+    if (reverseZone) {
+      dnsRecords.push({
+        id: `dns:ptr:${dcId}:${node.id}`,
+        kind: "PTR",
+        server: dcId,
+        subject: node.id,
+        zone: reverseZone,
+      })
+    }
+  }
+
+  for (const edge of edges) {
+    if (edge.data?.edgeType !== EDGE_TYPE.webServerCert) continue
+    const dcId = memberships.get(edge.source)
+    const dc = dcId ? domainControllers.get(dcId) : undefined
+    const zone = dc?.data.config?.domainName?.trim()
+    if (!dcId || !zone) continue
+    dnsRecords.push({
+      id: `dns:cname:${dcId}:pki`,
+      kind: "CNAME",
+      server: dcId,
+      subject: edge.target,
+      zone,
+      name: "pki",
+    })
+  }
+
   return {
     version: 1,
     nodes: nodes.map((node) => ({
@@ -47,5 +103,6 @@ export function buildDeployTopology(
         ? [{ id: edge.id, kind, source: edge.source, target: edge.target }]
         : []
     }),
+    dnsRecords,
   }
 }

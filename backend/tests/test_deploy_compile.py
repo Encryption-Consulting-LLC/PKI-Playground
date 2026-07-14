@@ -66,7 +66,11 @@ def test_dry_run_returns_compiled_operations_and_estimates():
         "connect",
         "publish",
     ]
-    assert response["resources"] == {"nodes": 4, "relationships": 4}
+    assert response["resources"] == {
+        "nodes": 4,
+        "relationships": 4,
+        "dnsRecords": [],
+    }
 
 
 def test_compile_failure_returns_structured_diagnostics():

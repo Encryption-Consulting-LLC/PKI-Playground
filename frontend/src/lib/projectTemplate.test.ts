@@ -70,5 +70,20 @@ describe("supplied PKI project template", () => {
       { kind: "caParent", source: "CA01", target: "CA02" },
       { kind: "caPublication", source: "CA02", target: "SRV1" },
     ])
+
+    expect(
+      topology.dnsRecords.map((record) => ({
+        kind: record.kind,
+        server: names.get(record.server),
+        subject: names.get(record.subject),
+        zone: record.zone,
+        name: record.name,
+      })),
+    ).toEqual([
+      { kind: "A", server: "DC01", subject: "CA02", zone: "encon.pki", name: undefined },
+      { kind: "A", server: "DC01", subject: "DC01", zone: "encon.pki", name: undefined },
+      { kind: "A", server: "DC01", subject: "SRV1", zone: "encon.pki", name: undefined },
+      { kind: "CNAME", server: "DC01", subject: "SRV1", zone: "encon.pki", name: "pki" },
+    ])
   })
 })
