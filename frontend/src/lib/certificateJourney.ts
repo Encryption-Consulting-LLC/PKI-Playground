@@ -31,3 +31,84 @@ export function isCertificateJourney(value: unknown): value is CertificateJourne
       Array.isArray(hop.artifacts),
     )
 }
+
+export interface CertificateJourneyProjection {
+  journey: CertificateJourney
+  nodeIds: string[]
+  edgeIds: string[]
+  live: boolean
+}
+
+/** Build the lens from persisted evidence, falling back to a concrete planned path. */
+export function projectCertificateJourney(
+  nodes: Node<MachineData>[],
+  edges: Edge[],
+): CertificateJourneyProjection | null {
+  const publication = edges.find((edge) => edge.data?.edgeType === EDGE_TYPE.webServerCert)
+  if (!publication) return null
+  const issuing = nodes.find((node) => node.id === publication.source)
+  const web = nodes.find((node) => node.id === publication.target)
+  if (!issuing || !web) return null
+  const parent = edges.find(
+    (edge) => edge.data?.edgeType === EDGE_TYPE.caHierarchy && edge.target === issuing.id,
+  )
+  const membership = edges.find(
+    (edge) => edge.data?.edgeType === EDGE_TYPE.domainJoin && edge.source === web.id,
+  )
+  const dc = nodes.find((node) => node.id === membership?.target)
+  const nodeIds = Array.from(new Set([
+    web.id,
+    issuing.id,
+    ...(parent ? [parent.source] : []),
+  ]))
+  const edgeIds = [publication.id, ...(parent ? [parent.id] : [])]
+  if (web.data.certificateJourney) {
+    return { journey: web.data.certificateJourney, nodeIds, edgeIds, live: true }
+  }
+
+  const domain = dc?.data.config?.domainName || "domain pending"
+  const pkiHost = domain === "domain pending" ? "pki.domain" : `pki.${domain}`
+  const caHost = domain === "domain pending"
+    ? issuing.data.name
+    : `${issuing.data.name}.${domain}`
+  const signature = issuing.data.config?.keyAlgorithm || "signature pending"
+  const pending = "Awaiting deployment verification."
+  const dns = (hostname: string, address?: string) => ({ hostname, address: address ?? null })
+  const hop = (
+    id: CertificateJourneyHop["id"],
+    label: string,
+    url: string,
+    host: ReturnType<typeof dns>,
+    artifacts: string[],
+  ): CertificateJourneyHop => ({
+    id,
+    label,
+    url,
+    dns: host,
+    artifacts,
+    ok: false,
+    failureReason: pending,
+  })
+  return {
+    live: false,
+    nodeIds,
+    edgeIds,
+    journey: {
+      schemaVersion: 1,
+      healthy: false,
+      lastVerifiedAt: "",
+      signatureAlgorithm: signature,
+      hops: [
+        hop("enroll", `${web.data.name} probe enrolls`, `adcs://${caHost}/Workstation`, dns(caHost, issuing.data.ip), ["lab-health-probe.cer"]),
+        hop("issue", `${issuing.data.name} issues`, `adcs://${caHost}/${issuing.data.config?.commonName ?? issuing.data.name}`, dns(caHost, issuing.data.ip), ["lab-health-probe.cer"]),
+        hop("aia", "AIA builds the chain", `http://${pkiHost}/CertEnroll/`, dns(pkiHost, web.data.ip), ["issuing CA certificate", "root CA certificate"]),
+        hop("cdp", "CDP checks revocation", `http://${pkiHost}/CertEnroll/`, dns(pkiHost, web.data.ip), ["base CRLs", "delta CRL"]),
+        hop("ocsp", "OCSP checks status", `http://${pkiHost}/ocsp`, dns(pkiHost, web.data.ip), ["verified OCSP response"]),
+      ],
+    },
+  }
+}
+import type { Edge, Node } from "@xyflow/react"
+
+import { EDGE_TYPE } from "@/constants/topology"
+import type { MachineData } from "@/store/topology"

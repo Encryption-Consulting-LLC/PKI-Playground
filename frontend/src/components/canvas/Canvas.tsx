@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ReactFlow,
   Background,
@@ -47,6 +47,11 @@ import { CapabilityEdge } from "./edges/CapabilityEdge"
 import { TopologyGuidance } from "./TopologyGuidance"
 import { ConnectionPreview } from "./ConnectionPreview"
 import { useConnectionGestureStore } from "@/store/connectionGesture"
+import { projectCertificateJourney } from "@/lib/certificateJourney"
+import {
+  CertificateJourneyLens,
+  CertificateJourneyToggle,
+} from "./CertificateJourneyLens"
 
 const DRAG_TYPE = "application/reactflow"
 
@@ -88,6 +93,34 @@ export function Canvas() {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const resolvedTheme = useResolvedTheme()
   const [initialViewport] = useState(() => useTopologyStore.getState().viewport)
+  const [journeyActive, setJourneyActive] = useState(false)
+  const journeyProjection = useMemo(
+    () => projectCertificateJourney(nodes, edges),
+    [nodes, edges],
+  )
+  const visibleNodes = useMemo(() => {
+    if (!journeyActive || !journeyProjection) return nodes
+    const involved = new Set(journeyProjection.nodeIds)
+    return nodes.map((node) => ({
+      ...node,
+      style: {
+        ...node.style,
+        opacity: involved.has(node.id) ? 1 : 0.18,
+        filter: involved.has(node.id) ? "none" : "grayscale(1)",
+      },
+    }))
+  }, [nodes, journeyActive, journeyProjection])
+  const visibleEdges = useMemo(() => {
+    if (!journeyActive || !journeyProjection) return edges
+    const involved = new Set(journeyProjection.edgeIds)
+    return edges.map((edge) => ({
+      ...edge,
+      animated: involved.has(edge.id),
+      style: involved.has(edge.id)
+        ? { ...edge.style, stroke: "#8b5cf6", strokeWidth: 3, opacity: 1 }
+        : { ...edge.style, opacity: 0.12 },
+    }))
+  }, [edges, journeyActive, journeyProjection])
 
   // The canvas's own pan/zoom is uncontrolled (smooth, no per-frame store
   // writes); we only need to (a) imperatively snap the camera when a project
@@ -484,8 +517,8 @@ export function Canvas() {
   return (
     <div ref={wrapperRef} className="relative flex-1 h-full">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={visibleNodes}
+        edges={visibleEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
@@ -516,17 +549,29 @@ export function Canvas() {
         <Controls />
         <MiniMap zoomable pannable nodeColor={miniMapColor} />
         <Panel position="top-right">
-          <ConnectionLegend />
+          <div className="flex items-start gap-2">
+            <CertificateJourneyToggle
+              active={journeyActive}
+              available={journeyProjection !== null}
+              onToggle={() => setJourneyActive((active) => !active)}
+            />
+            {!journeyActive && <ConnectionLegend />}
+          </div>
         </Panel>
-        <Panel position="top-left">
+        {!journeyActive && <Panel position="top-left">
           <TopologyGuidance />
-        </Panel>
-        <Panel position="top-center">
+        </Panel>}
+        {!journeyActive && <Panel position="top-center">
           <ConnectionPreview />
-        </Panel>
-        <Panel position="bottom-center">
+        </Panel>}
+        {!journeyActive && <Panel position="bottom-center">
           <DomainJoinAction onRequest={requestAccessibleDomainJoin} />
-        </Panel>
+        </Panel>}
+        {journeyActive && journeyProjection && (
+          <Panel position="bottom-center">
+            <CertificateJourneyLens projection={journeyProjection} />
+          </Panel>
+        )}
       </ReactFlow>
       <DomainConfirmDialog
         changes={pendingChanges}
