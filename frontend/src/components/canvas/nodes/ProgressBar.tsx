@@ -8,14 +8,14 @@ import { cn } from "@/lib/utils"
 export function ProgressBar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(100, pct))
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+    <div className="flex w-full min-w-0 items-center gap-2 overflow-hidden">
+      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
         <div
           className={cn("h-full rounded-full bg-primary transition-[width] duration-200")}
           style={{ width: `${clamped}%` }}
         />
       </div>
-      <span className="text-[10px] tabular-nums text-muted-foreground w-9 text-right">
+      <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
         {Math.round(clamped)}%
       </span>
     </div>

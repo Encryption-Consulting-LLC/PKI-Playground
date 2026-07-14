@@ -21,6 +21,8 @@ import type { MachineData } from "@/store/topology"
 import { Badge } from "@/components/ui/badge"
 import { ProgressBar } from "./ProgressBar"
 
+const MACHINE_NODE_WIDTH = 192
+
 function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {
   if (lifecycle === LIFECYCLE.draft)
     return (
@@ -147,8 +149,13 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
 
   return (
     <div
+      style={{
+        width: MACHINE_NODE_WIDTH,
+        minWidth: MACHINE_NODE_WIDTH,
+        maxWidth: MACHINE_NODE_WIDTH,
+      }}
       className={cn(
-        "w-[192px] max-w-[192px] overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm select-none",
+        "overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm select-none",
         "transition-shadow",
         selected && "ring-2 ring-primary shadow-md",
         data.lifecycle === LIFECYCLE.draft && "border-amber-500/40",
@@ -234,7 +241,11 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           data.lifecycle === LIFECYCLE.destroying) && (
           <>
             {data.phase && (
-              <span className="text-[10px] text-muted-foreground truncate">
+              <span
+                className="block min-w-0 max-w-full truncate text-[10px] text-muted-foreground"
+                title={data.phase}
+                tabIndex={0}
+              >
                 {data.phase}
               </span>
             )}
