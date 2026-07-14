@@ -45,6 +45,9 @@ image problems can extend the calendar even when the code is complete.
   have backend/agent command paths.
 - Root-to-issuing artifact movement is relayed through the backend, preserving
   the offline-root/sneakernet model.
+- SRV1 enrolls a dedicated health certificate and the terminal `lab.verify`
+  gate reports structured ML-DSA, chain, AIA, CDP, OCSP, AD PKI, publication,
+  CA service, DNS, agent, and runtime identity evidence.
 - Operations stream phases and progress and retain enough state to retry or
   tear down failed clones.
 
@@ -96,10 +99,10 @@ The operator settings screen must select and validate the image. Deploy prefligh
 must prove the base exists, has sufficient datastore space, exposes the expected
 guest OS, and does not collide with a requested VM name.
 
-### P0: Strong end-to-end success criteria
+### Completed: Strong end-to-end success criteria
 
-`cert.verify` currently treats a generic successful `certutil` exit marker as
-the whole sign-off. It must parse and report separate facts:
+`cert.verify` now reports separate facts instead of treating a generic
+successful `certutil` marker as the whole sign-off:
 
 - chain build successful;
 - root and issuing certificates fetched through AIA;
@@ -108,10 +111,10 @@ the whole sign-off. It must parse and report separate facts:
 - expected ML-DSA signature OIDs/algorithms are present;
 - certificate validity and revocation freshness are acceptable.
 
-Add a final `lab.verify` aggregate that also checks AD PKI containers, CA
-services, DNS records, HTTP artifacts, OCSP configuration, template publication,
-agent health, and expected VM/OS identities. Deploy is green only if this gate
-passes; CRL-only success is not sufficient for the target lab.
+The final `lab.verify` aggregate also checks AD PKI containers, CA services,
+DNS records, HTTP artifacts, OCSP configuration, template publication, agent
+health, and expected VM/OS identities. Its evidence survives worker redelivery.
+Deploy is green only if this gate passes; CRL-only success is not sufficient.
 
 ### Completed: DNS as an explicit resource
 
@@ -218,7 +221,8 @@ without deployment and has no unexplained line or warning.
 
 ### Phase 4 - Verification, recovery, and teardown
 
-- Add structured `lab.verify` and a downloadable evidence bundle.
+- [x] Add structured `lab.verify`.
+- Add a downloadable evidence bundle.
 - Implement real domain leave, reconciles, cancellation, and dependency-aware teardown.
 - Test worker restart/redelivery at every destructive and rebooting step.
 - Add restore-from-project and resume-from-job acceptance tests.
@@ -317,7 +321,7 @@ Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layo
 
 | Gate | Required evidence |
 |---|---|
-| Topology | Five exact roles/names, root not domain joined, no missing required services |
+| Topology | Four exact roles/names, root not domain joined, no missing required services |
 | Images | All four roles use the validated Server 2025 base with the current agent |
 | ML-DSA | Root and issuing CA keys/certificates report ML-DSA-87 parameters |
 | AD/DNS | Forest healthy; A/PTR/SRV/CNAME records resolve from members |
@@ -334,7 +338,7 @@ Inspector. This prevents `Step 1/6 - ca-install...` from changing the graph layo
 2. ~~Fix the supplied template's compiled dependency order and add regression tests.~~
 3. ~~Windows Server golden-image validation and preflight.~~
 4. ~~Explicit DNS A/PTR/CNAME resources and verification.~~
-5. Structured ML-DSA/OCSP/CDP/AIA final health gate.
+5. ~~Structured ML-DSA/OCSP/CDP/AIA final health gate.~~
 6. Real operator settings/preflight UI.
 7. Real-ESXi canary matrix, then three-run soak acceptance.
 8. Deploy compiler, service sockets, certificate journey, and evidence UI.

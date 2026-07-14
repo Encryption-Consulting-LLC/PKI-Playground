@@ -1,10 +1,9 @@
 # Two-tier ADCS lab: verification notes
 
-The sign-off (`plan.md`): the full two-tier Microsoft ADCS lab from
-`pki-lab-guides/vm-building.md` — DC01, CA01 (offline root), CA02 (issuing),
-SRV1 (web + OCSP), WIN11 (client) — deployable end to end from a single canvas
-**Deploy**, ending with `certutil -verify -urlfetch` on WIN11 showing OCSP/CRL/
-AIA all verified.
+The sign-off is the four-machine two-tier Microsoft ADCS lab: DC01, CA01
+(offline root), CA02 (issuing), and SRV1 (web + OCSP). A single canvas
+**Deploy** ends only when SRV1's dedicated probe has structured ML-DSA-87,
+chain, OCSP, CDP, AIA, validity, freshness, and enterprise PKI evidence.
 
 ## What shipped (by slice)
 
@@ -25,6 +24,9 @@ AIA all verified.
 | 13 | `feat(canvas): lab-complete template config and offline root presentation` | `cpsUrl`/`ocspRefreshMinutes` fields, offline-root air-gap UI, stub removal, enroll-cert row |
 | 14 | `feat(topology): model explicit DNS record resources` | Backend-validated A/PTR/CNAME resources derived from the final canvas topology |
 | 15 | `feat(deploy): apply and verify planned DNS resources` | Conflict-safe DNS application; A/PTR/SRV/CNAME and HTTP verification |
+| 16 | `feat(cert): report structured PKI verification health` | Separate chain, AIA, CDP, OCSP, ML-DSA-87, validity, and freshness facts |
+| 17 | `feat(commands): add enterprise PKI health probe` | AD PKI containers, template publication, and concrete HTTP artifact checks |
+| 18 | `feat(deploy): enforce the final lab health gate` | Four-machine identity/service probes and the terminal `lab.verify` aggregate |
 
 The agent command surface includes `dns.apply_resources` and `dns.verify`
 (`pki-orchestrator/src/commands/`),
@@ -38,10 +40,10 @@ Per `plan.md`, per-slice verification here is limited to the static gates; the
 runtime lab is verified separately on real hardware (below).
 
 - **Rust** (`pki-orchestrator`): `cargo fmt --check`, `cargo clippy --all-targets
-  -- -D warnings`, `cargo test --all-targets` — **144 tests pass**, clippy clean,
+  -- -D warnings`, `cargo test --all-targets` — **159 tests pass**, clippy clean,
   fmt clean. Includes `MockPowerShell` unit tests per command (validation +
   canned-output parse) and the `tests/command_catalog.rs` parity fixture.
-- **Backend** (`EC-PKI-Playground/backend`): `uv run pytest tests/` — **55 tests
+- **Backend** (`EC-PKI-Playground/backend`): `uv run pytest tests/` — **146 tests
   pass**. Covers the command-catalog parity mirror, the password policy +
   AES-GCM round-trip, the sequence engine (reboot waits, verify backoff,
   artifact relay, resume-skip), and every op-kind expansion's shape + param
@@ -73,9 +75,9 @@ and wired to the agentbus + `plan_runs` in `core/sequences/worker.py`.
   cert → CA02 `ca.install_cert` → settings → CDP/AIA (+OCSP) → CRL → publish
   templates → DC `template.grant_access(OCSPResponseSigning → SRV1$)`.
 - **webServerCert**: `iis.setup_certenroll(web)` → `ocsp.install` →
-  `cert.enroll(OCSPResponseSigning)` → `ocsp.configure_revocation` →
-  `ocsp.verify` → apply the planned PKI CNAME on the DC → verify DNS and HTTP
-  CertEnroll reachability from SRV1 and CA02.
+  `cert.enroll(OCSPResponseSigning)` → `ocsp.configure_revocation` → apply and
+  verify PKI DNS → enroll SRV1's dedicated probe → collect certificate, AD PKI,
+  CA service, OCSP, DNS/HTTP, and four-machine identity evidence → `lab.verify`.
 - **domainLeave**: no plan sequence — retains the timed simulation stub.
 
 ## Canaries — must be validated on a real golden image before production
@@ -90,33 +92,33 @@ Server 2025 VM; each is flagged in-code.
 2. **OCSP COM automation** (`ocsp.configure_revocation`) — the `CertAdm.OCSPAdmin`
    property set (SigningFlags `0x175`, provider CLSID, `RefreshTimeOut`) is not
    copy-paste-ready in the guide. Freeze the script against a hand-configured
-   `ocsp.msc` dump; `ocsp.verify` asserts the readback. It is best-effort in the
-   plan so a COM mismatch can't poison WIN11 verification (CRL-only still
-   verifies). **Decision pending:** does WIN11 sign-off require OCSP, or accept
-   CRL-only?
+   `ocsp.msc` dump; `ocsp.verify` asserts the readback. The final gate requires
+   an actual verified OCSP response; CRL-only success is deliberately rejected.
 3. **CertEnroll filenames** — `_sanitized_cn_file` / `_crl_url_name` derive the
    published cert/CRL paths from the CA common name; certutil's exact
    sanitization of CNs *with spaces* (the issuing CA) is unverified. The root CA
    default (`EC-Root-CA`, no spaces) is safe.
-4. **ML-DSA-87 provider string** (`ca.rs` `MLDSA_PROVIDER`) — carried over
-   unchanged, still unverified against the 2025 CNG KSP.
+4. **ML-DSA-87 provider string** (`ca.rs` `MLDSA_PROVIDER`) — the required
+   colon-delimited parameter set is statically tested, but remains unverified
+   against the 2025 CNG KSP on a real golden image.
 5. **AD timing** — post-promotion ADWS and template/enrollment propagation
    windows (`verify_window_s`) are tuned by guess; re-tune on real hardware.
 
 ## Full-lab sign-off procedure (real hardware)
 
-1. On a canvas with `AUTH_MODE` configured and a reachable ESXi target + guest
-   IP range, drop the five templates: Domain Controller, two Certificate
-   Authorities (Root offline + Issuing), Web Server, Client.
+1. On a canvas with a reachable ESXi target + guest IP range, drop the four
+   templates: Domain Controller, two Certificate Authorities (Root offline +
+   Issuing), and Web Server.
 2. Configure DC01 with a domain admin password that meets the AD-complexity
    checklist. Wire CA01→CA02 (CA hierarchy), CA02→SRV1 (web cert), and
-   domain-join CA02/SRV1/WIN11 into DC01's region.
+   domain-join CA02/SRV1 into DC01's region.
 3. **Deploy.** The plan runner clones each VM, waits for its agent, and walks
    the op sequences above in DAG order.
-4. Confirm on WIN11: `certutil -verify -urlfetch C:\win11.cer` shows **OCSP (from
-   AIA)**, **CRLs (from CDP)**, and **Certs (from AIA)** all *Verified*.
-5. Confirm on CA02: `pkiview.msc` containers (NTAuth, AIA, CDP, Certification
-   Authorities, Enrollment Services) all **OK**.
+4. Confirm the completed `webServerCert` result contains `health.healthy=true`
+   with every structured certificate, enterprise PKI, CA service, OCSP, DNS,
+   HTTP, and runtime identity check marked `ok=true`.
+5. Use the retained raw `certutil` and readback fields for hardware canary
+   review when a structured check fails.
 
 ## Redelivery / safety
 
