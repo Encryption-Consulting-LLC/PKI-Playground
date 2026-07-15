@@ -612,7 +612,12 @@ async def deploy(
         preflight.model_dump(by_alias=True) if preflight else None,
         user.username,
     )
-    return {"job_id": job_id}
+    # The preflight rides back as a receipt: it was computed anyway, and the
+    # client renders what was verified during the otherwise-opaque wait.
+    return {
+        "job_id": job_id,
+        "preflight": preflight.model_dump(by_alias=True) if preflight else None,
+    }
 
 
 @router.get(
