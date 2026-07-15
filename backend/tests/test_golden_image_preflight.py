@@ -12,6 +12,7 @@ os.environ.setdefault(
 )
 
 from app.core import golden_image  # noqa: E402
+from app.core.datastore_image import DatastoreVmxFacts  # noqa: E402
 from app import tasks  # noqa: E402
 from app.routers import settings as settings_router  # noqa: E402
 from app.routers.deploy import PlanOp  # noqa: E402
@@ -28,25 +29,19 @@ def _config(**overrides):
     return golden_image.GoldenImageConfig(**values)
 
 
-def _vm(
-    guest_os="windows2022srvNext_64Guest",
-    path="[datastore1] ws-2025-base/ws-2025-base.vmx",
-):
-    return SimpleNamespace(
-        _moId="vm-42",
-        config=SimpleNamespace(
-            guestId=guest_os,
-            changeVersion="17",
-            files=SimpleNamespace(vmPathName=path),
-        ),
-    )
-
-
 def _patch_inventory(
-    monkeypatch, *, vm=None, names=None, capacity=1000, free=600, vmdk=100
+    monkeypatch, *, guest_os="windows2022srvNext_64Guest", names=None,
+    capacity=1000, free=600, vmdk=100
 ):
     monkeypatch.setattr(
-        golden_image, "get_vm_by_name", lambda _content, _name: vm or _vm()
+        golden_image,
+        "read_datastore_vmx",
+        lambda _conn, datastore, base: DatastoreVmxFacts(
+            path=f"[{datastore}] {base}/{base}.vmx",
+            revision="vmx-sha256:" + "a" * 64,
+            guest_os=guest_os,
+            networks=frozenset({"VM Network"}),
+        ),
     )
     monkeypatch.setattr(
         golden_image, "list_vm_names", lambda _content: set(names or {"ws-2025-base"})
@@ -77,7 +72,8 @@ def test_ready_image_returns_capacity_and_identity_snapshot(monkeypatch):
     result = _run(["DC01", "CA01"], 2)
 
     assert result.ready is True
-    assert result.base_moid == "vm-42"
+    assert result.base_moid is None
+    assert result.base_change_version == "vmx-sha256:" + "a" * 64
     assert result.esxi_instance_uuid == "esxi-1"
     assert result.actual_guest_os == "windows2022srvNext_64Guest"
     assert result.required_bytes == 200
@@ -87,8 +83,12 @@ def test_ready_image_returns_capacity_and_identity_snapshot(monkeypatch):
 
 
 def test_missing_image_and_wrong_os_are_reported(monkeypatch):
-    _patch_inventory(monkeypatch, vm=SimpleNamespace())
-    monkeypatch.setattr(golden_image, "get_vm_by_name", lambda _content, _name: None)
+    _patch_inventory(monkeypatch)
+    monkeypatch.setattr(
+        golden_image,
+        "read_datastore_vmx",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("HTTP 404")),
+    )
 
     result = _run()
 
@@ -98,7 +98,7 @@ def test_missing_image_and_wrong_os_are_reported(monkeypatch):
 
 
 def test_non_windows_or_mismatched_guest_os_fails(monkeypatch):
-    _patch_inventory(monkeypatch, vm=_vm(guest_os="ubuntu64Guest"))
+    _patch_inventory(monkeypatch, guest_os="ubuntu64Guest")
 
     result = _run()
 
@@ -164,7 +164,7 @@ def test_settings_validation_endpoint_returns_wire_snapshot(monkeypatch):
 
     assert response["ready"] is True
     assert response["cloneCount"] == 2
-    assert response["baseMoid"] == "vm-42"
+    assert response["baseMoid"] is None
     assert len(response["snapshotId"]) == 64
 
 

@@ -9,8 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from pyVmomi import vim
 from vmkit import Connection
 from vmkit.datastore import get_base_vmdk_size
-from vmkit.esxi import get_datastore, get_vm_by_name, list_vm_names
+from vmkit.esxi import get_datastore, list_vm_names
 
+from app.core.datastore_image import DatastoreVmxFacts, read_datastore_vmx
 from app.core.db.models import now_ms
 from app.core.infrastructure import (
     ASSUMED_TESTED_BASE_CHANGE_VERSION,
@@ -92,23 +93,6 @@ def _network_names(content) -> set[str]:
         view.Destroy()
 
 
-def _vm_network_names(vm) -> set[str]:
-    """Return port-group names backing the base VM NICs."""
-
-    devices = getattr(
-        getattr(getattr(vm, "config", None), "hardware", None), "device", []
-    ) or []
-    names: set[str] = set()
-    for device in devices:
-        backing = getattr(device, "backing", None)
-        name = getattr(backing, "deviceName", None)
-        if not name:
-            name = getattr(getattr(backing, "network", None), "name", None)
-        if name:
-            names.add(name)
-    return names
-
-
 def _snapshot_id(facts: dict) -> str:
     encoded = json.dumps(facts, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -158,56 +142,53 @@ def preflight_infrastructure(
         networks = set()
         network_error = str(exc)
 
+    vmx_cache: dict[tuple[str, str], DatastoreVmxFacts | Exception] = {}
+
     for machine in machines:
         profile = profiles[machine.role]
-        base_vm = None
-        try:
-            base_vm = get_vm_by_name(conn.content, profile.base)
-        except Exception as exc:  # noqa: BLE001
-            checks.append(
-                InfrastructureCheck(
-                    key="image", role=machine.role, ok=False,
-                    detail=f"Could not inspect image '{profile.base}': {exc}",
-                )
-            )
         base_moid = None
         change_version = None
         actual_guest_os = None
         base_networks: set[str] = set()
         base_size = None
-        if base_vm is None:
-            if not any(c.key == "image" and c.role == machine.role for c in checks):
-                checks.append(
-                    InfrastructureCheck(
-                        key="image", role=machine.role, ok=False,
-                        detail=f"Golden image VM '{profile.base}' was not found.",
-                    )
+        vmx_error = None
+        cache_key = (profile.datastore, profile.base)
+        if cache_key not in vmx_cache:
+            try:
+                vmx_cache[cache_key] = read_datastore_vmx(
+                    conn, profile.datastore, profile.base
                 )
+            except Exception as exc:  # noqa: BLE001
+                vmx_cache[cache_key] = exc
+        cached_vmx = vmx_cache[cache_key]
+        if isinstance(cached_vmx, Exception):
+            vmx_error = str(cached_vmx)
             checks.append(
                 InfrastructureCheck(
-                    key="guestOs", role=machine.role, ok=False,
-                    detail="Guest OS cannot be checked until the image exists.",
-                )
-            )
-        else:
-            base_moid = getattr(base_vm, "_moId", None)
-            vm_config = getattr(base_vm, "config", None)
-            change_version = getattr(vm_config, "changeVersion", None)
-            base_networks = _vm_network_names(base_vm)
-            vm_path = getattr(getattr(vm_config, "files", None), "vmPathName", "") or ""
-            expected_prefix = f"[{profile.datastore}] {profile.base}/"
-            image_ok = vm_path.startswith(expected_prefix)
-            checks.append(
-                InfrastructureCheck(
-                    key="image", role=machine.role, ok=image_ok,
+                    key="image", role=machine.role, ok=False,
                     detail=(
-                        f"Image '{profile.base}' is registered from {vm_path}."
-                        if image_ok
-                        else f"Image '{profile.base}' is not stored on '{profile.datastore}'."
+                        f"Could not read image VMX '[{profile.datastore}] "
+                        f"{profile.base}/{profile.base}.vmx': {vmx_error}"
                     ),
                 )
             )
-            actual_guest_os = getattr(vm_config, "guestId", None)
+            checks.append(
+                InfrastructureCheck(
+                    key="guestOs", role=machine.role, ok=False,
+                    detail="Guest OS cannot be checked until the VMX is readable.",
+                )
+            )
+        else:
+            change_version = cached_vmx.revision
+            base_networks = set(cached_vmx.networks)
+            checks.append(
+                InfrastructureCheck(
+                    key="image", role=machine.role, ok=True,
+                    detail=f"Image VMX '{cached_vmx.path}' is available "
+                    f"(revision {cached_vmx.revision}).",
+                )
+            )
+            actual_guest_os = cached_vmx.guest_os
             linux_product = machine.role in LINUX_PRODUCT_TEMPLATES
             platform_label = "Linux" if linux_product else "Windows"
             platform_ok = bool(
@@ -269,8 +250,9 @@ def preflight_infrastructure(
                     else "Image qualification matches this revision and required canaries."
                     if qualification_ok
                     else (
-                        "Image revision is not qualified for the current runner, SYSTEM "
-                        "operations, ML-DSA-87, and role-specific OCSP reference."
+                        f"Image revision '{change_version or 'unavailable'}' is not "
+                        "qualified for the current runner, SYSTEM operations, "
+                        "ML-DSA-87, and role-specific OCSP reference."
                     )
                 ),
             )
@@ -291,8 +273,12 @@ def preflight_infrastructure(
                         f"Could not inspect ESXi networks: {network_error}"
                         if network_error
                         else (
+                            "Could not inspect the image NIC until its VMX is readable."
+                            if vmx_error is not None
+                        else (
                             f"Network mapping '{profile.network}' must exist and back "
                             f"the selected image NIC (observed: {sorted(base_networks)})."
+                        )
                         )
                     )
                 ),

@@ -9,6 +9,7 @@ os.environ.setdefault(
 )
 
 from app.core import infrastructure_preflight as subject  # noqa: E402
+from app.core.datastore_image import DatastoreVmxFacts  # noqa: E402
 from app.core.infrastructure import InfrastructureProfile  # noqa: E402
 
 
@@ -38,23 +39,18 @@ def _profile(role, *, base="ws-2025", datastore="store", network="PKI"):
     )
 
 
-def _vm(base="ws-2025"):
-    return SimpleNamespace(
-        _moId=f"vm-{base}",
-        config=SimpleNamespace(
-            guestId="windows2022srvNext_64Guest", changeVersion="7",
-            files=SimpleNamespace(vmPathName=f"[store] {base}/{base}.vmx"),
-            hardware=SimpleNamespace(
-                device=[SimpleNamespace(backing=SimpleNamespace(deviceName="PKI")),
-                        SimpleNamespace(backing=SimpleNamespace(deviceName="Offline"))]
-            ),
-        ),
-    )
-
-
 def _patch(monkeypatch, *, free=500 * 1024**3, networks=("PKI", "Offline")):
     monkeypatch.setattr(subject, "list_vm_names", lambda _content: {"ws-2025"})
-    monkeypatch.setattr(subject, "get_vm_by_name", lambda _content, base: _vm(base))
+    monkeypatch.setattr(
+        subject,
+        "read_datastore_vmx",
+        lambda _conn, datastore, base: DatastoreVmxFacts(
+            path=f"[{datastore}] {base}/{base}.vmx",
+            revision="7",
+            guest_os="windows2022srvNext_64Guest",
+            networks=frozenset({"PKI", "Offline"}),
+        ),
+    )
     datastore = SimpleNamespace(
         summary=SimpleNamespace(capacity=1000 * 1024**3, freeSpace=free)
     )
@@ -90,6 +86,31 @@ def test_preflight_reserves_all_role_disks_on_shared_datastore(monkeypatch):
     assert result.datastores[0].reserved_bytes == 240 * 1024**3
     assert result.machines[1].network == "Offline"
     assert len(result.snapshot_id) == 64
+    assert all(machine.base_moid is None for machine in result.machines)
+    assert any("Image VMX '[store] ws-2025/ws-2025.vmx'" in c.detail for c in result.checks)
+
+
+def test_unreadable_datastore_vmx_is_blocking_without_network_cascade(monkeypatch):
+    _patch(monkeypatch)
+    monkeypatch.setattr(
+        subject,
+        "read_datastore_vmx",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("HTTP 404")),
+    )
+    profile = _profile("rootCa")
+    result = subject.preflight_infrastructure(
+        SimpleNamespace(
+            content=SimpleNamespace(about=SimpleNamespace(instanceUuid="esxi-1"))
+        ),
+        {"rootCa": profile},
+        [subject.PlannedMachine(role="rootCa", name="CA01")],
+    )
+
+    assert result.ready is False
+    assert "HTTP 404" in next(c.detail for c in result.checks if c.key == "image")
+    assert "until its VMX is readable" in next(
+        c.detail for c in result.checks if c.key == "network"
+    )
 
 
 def test_aggregate_reservation_blocks_datastore_overcommit(monkeypatch):

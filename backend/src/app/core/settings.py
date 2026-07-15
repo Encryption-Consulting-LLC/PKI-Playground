@@ -76,8 +76,9 @@ class Settings(BaseSettings):
 
     # Golden image used by guided deploys. These values seed the shared settings
     # document on first boot; operator edits there become authoritative. The
-    # expected guest OS is the VMware ``guestOS`` identifier exposed by the
-    # registered Windows Server image, not the Windows marketing name.
+    # expected guest OS is the VMware ``guestOS`` identifier stored in the
+    # datastore VMX, not the Windows marketing name. The base does not need to
+    # be registered in ESXi inventory.
     clone_base: str = "ws-2025-base"
     clone_datastore: str = "datastore1"
     clone_guest_os: str = "windows2022srvNext-64"

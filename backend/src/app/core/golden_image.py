@@ -7,8 +7,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from vmkit import Connection
 from vmkit.datastore import get_base_vmdk_size
-from vmkit.esxi import get_datastore, get_vm_by_name, list_vm_names
+from vmkit.esxi import get_datastore, list_vm_names
 
+from app.core.datastore_image import read_datastore_vmx
 from app.core.db.models import now_ms
 from app.core.settings import settings
 from app.core.vmware_guest_os import guest_os_ids_match
@@ -132,45 +133,32 @@ def preflight_golden_image(
         )
 
     try:
-        base_vm = get_vm_by_name(conn.content, config.base)
+        vmx = read_datastore_vmx(conn, config.datastore, config.base)
     except Exception as exc:  # noqa: BLE001 - return a structured failed check
-        base_vm = None
-        checks.append(_check("image", False, f"Could not inspect image: {exc}"))
-
-    if base_vm is None:
-        if not any(check.key == "image" for check in checks):
-            checks.append(
-                _check(
-                    "image", False, f"Golden image VM '{config.base}' was not found."
-                )
-            )
-        checks.append(
-            _check(
-                "guestOs", False, "Guest OS cannot be checked until the image exists."
-            )
-        )
-    else:
-        base_moid = getattr(base_vm, "_moId", None)
-        vm_config = getattr(base_vm, "config", None)
-        change_version = getattr(vm_config, "changeVersion", None)
-        vm_path = getattr(getattr(vm_config, "files", None), "vmPathName", "") or ""
-        expected_prefix = f"[{config.datastore}] {config.base}/"
-        image_ok = vm_path.startswith(expected_prefix)
         checks.append(
             _check(
                 "image",
-                image_ok,
-                (
-                    f"Golden image '{config.base}' is registered from {vm_path}."
-                    if image_ok
-                    else (
-                        f"Golden image '{config.base}' is registered from '{vm_path}', "
-                        f"not datastore '{config.datastore}'."
-                    )
-                ),
+                False,
+                f"Could not read golden image VMX '[{config.datastore}] "
+                f"{config.base}/{config.base}.vmx': {exc}",
             )
         )
-        actual_guest_os = getattr(vm_config, "guestId", None)
+        checks.append(
+            _check(
+                "guestOs", False, "Guest OS cannot be checked until the VMX is readable."
+            )
+        )
+    else:
+        change_version = vmx.revision
+        checks.append(
+            _check(
+                "image",
+                True,
+                f"Golden image VMX '{vmx.path}' is available "
+                f"(revision {vmx.revision}).",
+            )
+        )
+        actual_guest_os = vmx.guest_os
         guest_ok = bool(
             actual_guest_os
             and actual_guest_os.lower().startswith("windows")

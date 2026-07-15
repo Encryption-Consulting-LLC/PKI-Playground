@@ -449,7 +449,7 @@ export function SettingsDialog() {
                 </h3>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="clone-base">Inventory name</Label>
+                    <Label htmlFor="clone-base">Datastore image name</Label>
                     <Input id="clone-base" value={form.cloneBase} onChange={(event) => patch("cloneBase", event.target.value)} />
                   </div>
                   <div className="space-y-1.5">
