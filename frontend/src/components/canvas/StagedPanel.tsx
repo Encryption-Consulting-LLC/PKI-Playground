@@ -27,8 +27,10 @@ import {
   type CompiledExecutionGroup,
 } from "@/lib/api"
 import {
+  isPreExecutionPhase,
   prepareDeployPlan,
   useStagingStore,
+  type PlanPhase,
   type PreparedDeployPlan,
 } from "@/store/staging"
 import { useTopologyStore } from "@/store/topology"
@@ -87,6 +89,31 @@ function StatusGlyph({ op }: { op: StagedOp }) {
   }
 }
 
+//: Seconds of pre-execution wait before the button label escalates from the
+//: short form to the explain-the-wait form and starts counting elapsed time.
+const PRE_EXECUTION_ESCALATE_SEC = 3
+
+/**
+ * What the deploy button says before any per-op progress exists — the label
+ * *changes* even though the op counter can't, so a slow preflight or a busy
+ * worker queue reads as motion instead of a hang.
+ */
+function preExecutionLabel(
+  phase: PlanPhase,
+  detail: string | null,
+  elapsedSec: number,
+): string {
+  const base =
+    phase === "posting"
+      ? elapsedSec < PRE_EXECUTION_ESCALATE_SEC
+        ? "Validating & preflighting…"
+        : "Checking ESXi host — images, capacity, names…"
+      : phase === "queued"
+        ? "Queued — waiting for a deployment worker…"
+        : (detail ?? "Preparing plan…")
+  return elapsedSec >= PRE_EXECUTION_ESCALATE_SEC ? `${base} ${elapsedSec}s` : base
+}
+
 /**
  * The "Staged" tab of the Toolbox — a linear view over the staging store's
  * op list, backed by the dependency DAG in `lib/staging.ts`. Undo pops the
@@ -96,6 +123,9 @@ function StatusGlyph({ op }: { op: StagedOp }) {
 export function StagedPanel() {
   const ops = useStagingStore((s) => s.ops)
   const deploying = useStagingStore((s) => s.deploying)
+  const planPhase = useStagingStore((s) => s.planPhase)
+  const planPhaseDetail = useStagingStore((s) => s.planPhaseDetail)
+  const deployStartedAt = useStagingStore((s) => s.deployStartedAt)
   const undo = useStagingStore((s) => s.undo)
   const removeOpCascade = useStagingStore((s) => s.removeOpCascade)
   const deploy = useStagingStore((s) => s.deploy)
@@ -108,7 +138,20 @@ export function StagedPanel() {
   const [preview, setPreview] = useState<CompiledDeployPlan | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const previewGeneration = useRef(0)
+
+  // Elapsed-time ticker for the pre-execution label; idle once per-op
+  // progress takes over or no deploy is in flight.
+  const ticking = deploying && isPreExecutionPhase(planPhase) && deployStartedAt != null
+  useEffect(() => {
+    if (!ticking) return
+    const timer = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [ticking])
+  const elapsedSec = ticking
+    ? Math.max(0, Math.floor((nowMs - (deployStartedAt ?? nowMs)) / 1000))
+    : 0
 
   // The backend owns sequence expansion. Keep its tree warm while the user
   // stages a valid topology, but never surface expected incomplete-topology
@@ -310,7 +353,11 @@ export function StagedPanel() {
           {deploying || compiling ? (
             <>
               <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              {compiling ? "Compiling review…" : `Deploying ${doneCount}/${ops.length}…`}
+              {compiling
+                ? "Compiling review…"
+                : isPreExecutionPhase(planPhase)
+                  ? preExecutionLabel(planPhase!, planPhaseDetail, elapsedSec)
+                  : `Deploying ${doneCount}/${ops.length}…`}
             </>
           ) : ops.length === 0 ? (
             "Nothing staged"
