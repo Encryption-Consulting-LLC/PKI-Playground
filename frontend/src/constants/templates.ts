@@ -228,14 +228,14 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
       },
     ],
   },
-  {
-    id: "client",
-    label: "Client",
-    icon: Monitor,
-    accent: "text-violet-400",
-    description: "Windows 11 workstation",
-    platform: "windows",
-  },
+  // {
+  //   id: "client",
+  //   label: "Client",
+  //   icon: Monitor,
+  //   accent: "text-violet-400",
+  //   description: "Windows 11 workstation",
+  //   platform: "windows",
+  // },
   {
     id: "standalone",
     label: "Standalone",
