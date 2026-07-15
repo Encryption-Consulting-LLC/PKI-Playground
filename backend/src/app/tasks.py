@@ -1399,7 +1399,19 @@ def start_plan_task(
 
     conn = None
     request = None
+
+    # Setup breadcrumbs: the window between `queued` and `running` is otherwise
+    # silent while the worker connects and re-verifies — narrate it so the
+    # client can show what the wait actually is. Still `queued`: no op has run.
+    def _setup_phase(phase: str) -> None:
+        transport.publish(
+            job_id,
+            ProgressMsg(percent=0.0, phase=phase, key="planSetup"),
+            status=JobStatus.queued,
+        )
+
     try:
+        _setup_phase("Preparing plan…")
         request = DeployRequest(**plan)
         request.ops = compile_plan(request.topology, request.ops).operations
         plan = request.model_dump(by_alias=True)
@@ -1412,7 +1424,9 @@ def start_plan_task(
             gc_orphan_isos(db)
             _sweep_stale_agents_sync(db)
             if any(op.kind is PlanOpKind.create_vm for op in request.ops):
+                _setup_phase("Connecting to the ESXi host…")
                 conn = _open_worker_connection()
+                _setup_phase("Re-verifying infrastructure against the host…")
                 _verify_worker_infrastructure_preflight(
                     conn, db, request.ops, preflight_snapshot
                 )
