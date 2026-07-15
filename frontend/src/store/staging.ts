@@ -24,6 +24,8 @@ import {
   OP_KIND,
   OP_STATUS,
   inferDependsOn,
+  isProvisionOpId,
+  provisionParentId,
   sanitizeOps,
   transitiveDependents,
   type OpKind,
@@ -34,7 +36,6 @@ import { buildDeployTopology } from "@/lib/deployTopology"
 import { isCertificateJourney } from "@/lib/certificateJourney"
 import { createLabEvidence, isLabHealthReport } from "@/lib/labEvidence"
 import { openJobSocket, type OpRunState } from "@/lib/ws"
-import { useAgentsStore } from "@/store/agents"
 import { useAuthStore } from "@/store/auth"
 import { useProjectsStore } from "@/store/projects"
 import { useTopologyStore } from "@/store/topology"
@@ -46,6 +47,9 @@ function revertOp(op: StagedOp) {
     case OP_KIND.createVm:
       // Config is kept so the config form re-opens pre-filled.
       topology.patchNodeData(op.targetNodeId, { lifecycle: LIFECYCLE.draft })
+      return
+    case OP_KIND.provision:
+      // Synthesized display row — no optimistic canvas effect to unwind.
       return
     case OP_KIND.domainJoin:
       if (op.edgeId) topology.removeEdge(op.edgeId)
@@ -194,23 +198,34 @@ export function prepareDeployPlan(ops = useStagingStore.getState().ops): Prepare
         ? { ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined }
         : op,
     )
-  const keptIds = new Set(resettable.map((op) => op.id))
-  const pruned = resettable.map((op) => ({
+  const resettableIds = new Set(resettable.map((op) => op.id))
+  // Synthetic provision rows only make sense under a createVm being (re)sent —
+  // a dropped `done` parent takes its display row with it (the backend
+  // re-synthesizes the op, and this list re-materializes the row, on deploy).
+  const kept = resettable.filter(
+    (op) => !op.synthesized || resettableIds.has(provisionParentId(op.id)),
+  )
+  const keptIds = new Set(kept.map((op) => op.id))
+  const pruned = kept.map((op) => ({
     ...op,
     dependsOn: op.dependsOn.filter((dep) => keptIds.has(dep)),
   }))
-  const payload: PlanOpPayload[] = pruned.map((op) => {
-    const { params, files } = buildOpPayload(op)
-    return {
-      id: op.id,
-      kind: op.kind,
-      target: op.targetNodeId,
-      ...(op.secondaryNodeId ? { secondary: op.secondaryNodeId } : {}),
-      params,
-      ...(files ? { files } : {}),
-      dependsOn: op.dependsOn,
-    }
-  })
+  // Synthetic rows are display-only and never POSTed — the backend strips
+  // client-supplied provision ops anyway; this is defense in depth.
+  const payload: PlanOpPayload[] = pruned
+    .filter((op) => !op.synthesized)
+    .map((op) => {
+      const { params, files } = buildOpPayload(op)
+      return {
+        id: op.id,
+        kind: op.kind,
+        target: op.targetNodeId,
+        ...(op.secondaryNodeId ? { secondary: op.secondaryNodeId } : {}),
+        params,
+        ...(files ? { files } : {}),
+        dependsOn: op.dependsOn,
+      }
+    })
   const topologyState = useTopologyStore.getState()
   return {
     ops: pruned,
@@ -220,12 +235,70 @@ export function prepareDeployPlan(ops = useStagingStore.getState().ops): Prepare
   }
 }
 
-/** Folds one `plan-state` snapshot into the staging list and mirrors createVm/edge transitions onto the canvas. Idempotent — safe to apply the same snapshot more than once (reconnects/replays). */
-function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: string) {
+/** Display label for a synthesized provision row, derived from the parent createVm's node. */
+function provisionRowLabel(parent: StagedOp): string {
+  const node = useTopologyStore.getState().nodes.find((n) => n.id === parent.targetNodeId)
+  const name = node?.data.name ?? parent.targetNodeId
+  const typeId = node?.data.typeId
+  const detail =
+    typeId === "domainController"
+      ? "AD DS forest"
+      : typeId === "certificateAuthority" && node?.data.config?.caType === "Root"
+        ? "Root CA setup"
+        : "Boot & settle"
+  return `Provision ${name} — ${detail}`
+}
+
+/**
+ * Materializes read-only rows for backend-synthesized provision ops
+ * (`{createVmOpId}::provision`) the first time a plan-state frame mentions
+ * them, inserted directly after their parent createVm row. Idempotent —
+ * keyed by op id, and the deterministic backend ids mean a retry reuses the
+ * same rows.
+ */
+function ensureSyntheticRows(opsState: Record<string, OpRunState>): void {
+  const ops = useStagingStore.getState().ops
+  const known = new Set(ops.map((o) => o.id))
+  const insertsByParent = new Map<string, StagedOp>()
+  for (const opId of Object.keys(opsState)) {
+    if (!isProvisionOpId(opId) || known.has(opId)) continue
+    const parent = ops.find(
+      (o) => o.id === provisionParentId(opId) && o.kind === OP_KIND.createVm,
+    )
+    if (!parent) continue
+    insertsByParent.set(parent.id, {
+      id: opId,
+      kind: OP_KIND.provision,
+      targetNodeId: parent.targetNodeId,
+      params: {},
+      dependsOn: [parent.id],
+      label: provisionRowLabel(parent),
+      status: OP_STATUS.pending,
+      synthesized: true,
+    })
+  }
+  if (insertsByParent.size === 0) return
+  useStagingStore.setState((s) => ({
+    ops: s.ops.flatMap((op) => {
+      const child = insertsByParent.get(op.id)
+      return child ? [op, child] : [op]
+    }),
+  }))
+}
+
+/** Folds one `plan-state` snapshot into the staging list and mirrors createVm/edge transitions onto the canvas. Idempotent — safe to apply the same snapshot more than once (reconnects/replays). Exported for tests. */
+export function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: string) {
+  ensureSyntheticRows(opsState)
   const { ops, setOpState } = useStagingStore.getState()
   const topology = useTopologyStore.getState()
 
-  for (const [opId, runState] of Object.entries(opsState)) {
+  // Provision ops own their node's final lifecycle transition — process them
+  // after every other op so a whole-state snapshot carrying both a done
+  // createVm and its terminal provision sibling lands on the sibling's word.
+  const entries = Object.entries(opsState).sort(
+    ([a], [b]) => Number(isProvisionOpId(a)) - Number(isProvisionOpId(b)),
+  )
+  for (const [opId, runState] of entries) {
     const op = ops.find((o) => o.id === opId)
     if (!op) continue
 
@@ -242,7 +315,11 @@ function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: 
         : undefined,
     })
 
-    if (op.kind === OP_KIND.createVm) {
+    if (op.kind === OP_KIND.provision) {
+      // The synthesized provision op owns the node's final transition — the
+      // clone op parks the node in `provisioning`; this branch takes it to
+      // `deployed` (or `failed`, keeping the clone's vmName/ip so the
+      // Tear down VM affordance stays available over the surviving VM).
       if (runState.status === "running") {
         topology.patchNodeData(op.targetNodeId, {
           lifecycle: LIFECYCLE.deploying,
@@ -256,23 +333,58 @@ function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: 
             : {}),
         })
       } else if (runState.status === "done") {
+        const result = runState.result
+        topology.patchNodeData(op.targetNodeId, {
+          lifecycle: LIFECYCLE.deployed,
+          poweredOn: true,
+          progress: 100,
+          phase: undefined,
+          // Conditional spreads so a result-less replay of an older snapshot
+          // can never clobber an already-recorded identity with undefined.
+          ...(typeof result?.ip === "string" ? { ip: result.ip } : {}),
+          ...(typeof result?.vmName === "string" ? { vmName: result.vmName } : {}),
+          ...(typeof result?.agentVmId === "string"
+            ? { orchestratorVmId: result.agentVmId }
+            : {}),
+        })
+      } else if (runState.status === "error") {
+        topology.patchNodeData(op.targetNodeId, {
+          lifecycle: LIFECYCLE.failed,
+          progress: undefined,
+          phase: undefined,
+          errorDetail: runState.detail || "Provisioning failed",
+        })
+      }
+      // `cancelled` (its clone failed) patches nothing — the createVm error
+      // branch already marked the node failed with the clone's detail.
+      continue
+    }
+
+    if (op.kind === OP_KIND.createVm) {
+      if (runState.status === "running") {
+        topology.patchNodeData(op.targetNodeId, {
+          lifecycle: LIFECYCLE.deploying,
+          progress: runState.percent,
+          phase: runState.phase,
+          errorDetail: undefined,
+          ...(typeof runState.result?.agentVmId === "string"
+            ? { orchestratorVmId: runState.result.agentVmId }
+            : {}),
+        })
+      } else if (runState.status === "done") {
         const node = topology.nodes.find((n) => n.id === op.targetNodeId)
         const result = runState.result
         const agentVmId =
           typeof result?.agentVmId === "string" ? result.agentVmId : undefined
-        // The clone is done, but a VM with a baked orchestrator agent isn't
-        // *confirmed* deployed until that agent phones home — until then hold
-        // the node in `provisioning` (dashed circle, IP hidden). Nodes with no
-        // agent (authored-ISO clones) have nothing to wait for, so they go
-        // straight to `deployed`. If the agent already phoned home before this
-        // frame arrived, its vm_id is already in the presence snapshot — skip
-        // the wait. `useAgentPromotion` handles the reverse race (agent comes
-        // online after this transition).
-        const awaitingAgent =
-          agentVmId !== undefined &&
-          !useAgentsStore.getState().onlineVmIds.includes(agentVmId)
+        // The clone is done, but the node isn't *confirmed* deployed until
+        // its synthesized provision sibling finishes — park it in
+        // `provisioning` (dashed circle, IP hidden) and let the provision
+        // branch above own the final transition. Snapshot entries are
+        // processed provision-last, so a frame that already carries the
+        // sibling's terminal state still lands correctly. `useAgentPromotion`
+        // remains a harmless backstop for agent-online promotion.
         topology.patchNodeData(op.targetNodeId, {
-          lifecycle: awaitingAgent ? LIFECYCLE.provisioning : LIFECYCLE.deployed,
+          lifecycle: LIFECYCLE.provisioning,
           poweredOn: true,
           lastDeployedConfig: node?.data.config,
           // ISO drift baseline, mirroring lastDeployedConfig. Safe to hold by
@@ -348,6 +460,19 @@ function revertNonTerminalToStaged(): void {
   const remaining: StagedOp[] = []
   for (const op of ops) {
     if (op.status === OP_STATUS.done) continue
+    if (op.synthesized) {
+      // Display-only row: drop it (the next deploy re-materializes it) and
+      // unwind its node like any interrupted createVm — the parent clone may
+      // already read `done` and been dropped above, leaving nobody else to
+      // reset the node out of `provisioning`/`deploying`.
+      topology.patchNodeData(op.targetNodeId, {
+        lifecycle: LIFECYCLE.staged,
+        progress: undefined,
+        phase: undefined,
+        errorDetail: undefined,
+      })
+      continue
+    }
     if (op.kind === OP_KIND.createVm) {
       topology.patchNodeData(op.targetNodeId, {
         lifecycle: LIFECYCLE.staged,
@@ -365,17 +490,25 @@ function revertNonTerminalToStaged(): void {
   useStagingStore.setState({ ops: remaining, deployJobId: null, deploying: false })
 }
 
-/** Final reconcile once the plan job reaches `done`: apply the last snapshot, drop fully-`done` ops off the list, and reopen `cancelled` ops (skipped only because a dependency failed) as `staged` so "Retry deploy" resends them alongside the op that actually failed. */
-function finishDeploy(result: Record<string, unknown>, deploymentJobId: string): void {
+/** Final reconcile once the plan job reaches `done`: apply the last snapshot, drop fully-`done` ops off the list, and reopen `cancelled` ops (skipped only because a dependency failed) as `staged` so "Retry deploy" resends them alongside the op that actually failed. Exported for tests. */
+export function finishDeploy(result: Record<string, unknown>, deploymentJobId: string): void {
   const opsResult = (result?.ops ?? {}) as Record<string, OpRunState>
   applyPlanState(opsResult, deploymentJobId)
 
   const { ops } = useStagingStore.getState()
+  // A done createVm whose provision sibling failed is retained alongside it —
+  // dropping the parent would orphan the synthetic error row, and the pair
+  // reads as one failed deployment of the node (teardown is the exit).
+  const failedProvisionParents = new Set(
+    ops
+      .filter((op) => op.synthesized && opsResult[op.id]?.status === "error")
+      .map((op) => provisionParentId(op.id)),
+  )
   let errorCount = 0
   const remaining: StagedOp[] = []
   for (const op of ops) {
     const finalState = opsResult[op.id]
-    if (finalState?.status === "done") continue
+    if (finalState?.status === "done" && !failedProvisionParents.has(op.id)) continue
     if (finalState?.status === "error") errorCount++
     remaining.push(
       finalState?.status === "cancelled"
@@ -458,9 +591,19 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
   undo() {
     const { ops, deploying } = get()
     if (deploying || ops.length === 0) return
-    const last = ops[ops.length - 1]
+    // Synthetic provision rows are display-only — undo targets the last
+    // user-staged op and carries the op's synthetic child away with it.
+    let index = ops.length - 1
+    while (index >= 0 && ops[index].synthesized) index--
+    if (index < 0) return
+    const last = ops[index]
     revertOp(last)
-    set({ ops: ops.slice(0, -1) })
+    set({
+      ops: ops.filter(
+        (op, i) =>
+          i !== index && !(op.synthesized && provisionParentId(op.id) === last.id),
+      ),
+    })
   },
 
   removeOpCascade(opId) {

@@ -12,6 +12,13 @@
 
 export const OP_KIND = {
   createVm: "createVm",
+  /**
+   * Backend-synthesized companion of a createVm (agent phone-home, boot
+   * settle, role install). Never staged or POSTed by the client — rows of
+   * this kind are read-only mirrors inserted when a plan-state frame first
+   * mentions the op (see `applyPlanState`).
+   */
+  provision: "provision",
   domainJoin: "domainJoin",
   domainLeave: "domainLeave",
   caConnect: "caConnect",
@@ -57,6 +64,24 @@ export interface StagedOp extends Record<string, unknown> {
     phase?: string
     detail?: string
   }>
+  /**
+   * True for read-only rows mirroring backend-synthesized provision ops.
+   * Excluded from the deploy payload, hidden from removal controls, and
+   * dropped/retained in lockstep with their parent createVm row.
+   */
+  synthesized?: boolean
+}
+
+/** Id suffix of backend-synthesized provision ops: `{createVmOpId}::provision`. */
+export const PROVISION_SUFFIX = "::provision"
+
+export function isProvisionOpId(opId: string): boolean {
+  return opId.endsWith(PROVISION_SUFFIX)
+}
+
+/** The createVm op id a synthesized provision op id derives from. */
+export function provisionParentId(opId: string): string {
+  return isProvisionOpId(opId) ? opId.slice(0, -PROVISION_SUFFIX.length) : opId
 }
 
 /** Ops (anywhere in the list) that transitively depend on `opId`, in list order. */
@@ -124,6 +149,9 @@ export function inferDependsOn(
 
   switch (kind) {
     case OP_KIND.createVm:
+      return []
+    case OP_KIND.provision:
+      // Synthesized rows never enter through stageOp; nothing to infer.
       return []
     case OP_KIND.domainJoin:
     case OP_KIND.caConnect:

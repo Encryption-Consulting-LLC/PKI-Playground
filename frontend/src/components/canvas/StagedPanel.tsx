@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Circle,
+  Cog,
   Globe,
   Loader2,
   LogOut,
@@ -37,6 +38,7 @@ import { DeployCompilerDialog } from "./DeployCompilerDialog"
 
 const KIND_ICON: Record<string, LucideIcon> = {
   [OP_KIND.createVm]: Server,
+  [OP_KIND.provision]: Cog,
   [OP_KIND.domainJoin]: Building2,
   [OP_KIND.domainLeave]: LogOut,
   [OP_KIND.caConnect]: ShieldCheck,
@@ -230,18 +232,20 @@ export function StagedPanel() {
                       <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                     </button>
                     <span className="w-4 shrink-0 text-right text-[10px] text-muted-foreground">
-                      {i + 1}
+                      {op.synthesized ? "·" : i + 1}
                     </span>
                     <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
-                      <span className="block font-medium leading-snug">{group?.label ?? op.label}</span>
+                      <span className={`block font-medium leading-snug ${op.synthesized ? "text-muted-foreground" : ""}`}>{group?.label ?? op.label}</span>
                       <span className="block break-words text-[10px] leading-snug text-muted-foreground">
                         {subtitle(op, group)}
                         {op.status === OP_STATUS.running && op.phase ? ` — ${op.phase}` : null}
                       </span>
                     </span>
                     <StatusGlyph op={op} />
-                    {!deploying && (
+                    {/* Synthesized rows are read-only — they live and die with
+                        their parent createVm, so no direct remove control. */}
+                    {!deploying && !op.synthesized && (
                       <button
                         onClick={() => requestRemove(op)}
                         className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-red-500"

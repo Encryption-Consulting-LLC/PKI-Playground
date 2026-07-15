@@ -15,6 +15,15 @@ import { lintTopologyRelationships } from "@/lib/topology"
 import { useTopologyStore } from "@/store/topology"
 import { cn } from "@/lib/utils"
 
+/** Friendly display names for compiled op kinds the user never staged themselves. */
+const KIND_LABEL: Record<string, string> = {
+  provision: "provision (agent & role setup)",
+}
+
+function kindLabel(kind: string): string {
+  return KIND_LABEL[kind] ?? kind
+}
+
 function duration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`
   const hours = Math.floor(seconds / 3600)
@@ -125,9 +134,9 @@ export function DeployCompilerDialog({
                       <button type="button" onClick={() => highlight(op.id)} className={cn("group flex w-full gap-3 rounded-xl border p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", critical.has(op.id) && "border-amber-500/40 bg-amber-500/5")}>
                         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold", critical.has(op.id) && "border-amber-500 text-amber-500")}>{index + 1}</span>
                         <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-2 text-xs font-semibold"><span className="truncate">{op.kind}</span>{critical.has(op.id) && <span className="text-amber-500">◆</span>}</span>
+                          <span className="flex items-center gap-2 text-xs font-semibold"><span className="truncate">{kindLabel(op.kind)}</span>{critical.has(op.id) && <span className="text-amber-500">◆</span>}</span>
                           <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{node?.data.name ?? op.target}{op.secondary ? ` ← ${nodes.find((item) => item.id === op.secondary)?.data.name ?? op.secondary}` : ""}</span>
-                          <span className="mt-1 block text-[10px] text-muted-foreground">{op.dependsOn.length === 0 ? "Starts immediately" : `After ${op.dependsOn.map((id) => operationById.get(id)?.kind ?? id).join(", ")}`}</span>
+                          <span className="mt-1 block text-[10px] text-muted-foreground">{op.dependsOn.length === 0 ? "Starts immediately" : `After ${op.dependsOn.map((id) => kindLabel(operationById.get(id)?.kind ?? id)).join(", ")}`}</span>
                         </span>
                       </button>
                     </li>
