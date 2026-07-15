@@ -1,0 +1,21 @@
+<svg width="70" height="72" viewBox="0 0 80 82" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M69.3938 1.96777H10.8059C5.83736 1.96777 1.80957 6.10201 1.80957 11.2019V71.3381C1.80957 76.4379 5.83736 80.5721 10.8059 80.5721H69.3938C74.3623 80.5721 78.3901 76.4379 78.3901 71.3381V11.2019C78.3901 6.10201 74.3623 1.96777 69.3938 1.96777Z" stroke="url(#certsecure-border)" stroke-width="2.47525" stroke-miterlimit="10" />
+  <path d="M27.3981 30.623L27.3224 42.2095L27.3948 58.1903L16.59 46.921L16.6459 36.9883L21.9595 30.8694L27.3981 30.623Z" fill="#0D56D4" />
+  <path d="M21.9583 30.8715H35.6533L46.4318 19.2715L33.1083 19.5786L21.9583 30.8715Z" fill="url(#certsecure-top)" />
+  <path d="M49.0765 25.2622L49.4349 42.2116L49.3626 58.1923L60.1674 46.9231L60.1115 36.9904L54.7979 30.8715L49.0765 25.2622Z" fill="#0D56D4" />
+  <path d="M54.5382 52.9072L38.0252 53.2751L22.4592 53.2009L33.435 64.2946L43.1153 64.2338L49.0766 58.7798L54.5382 52.9072Z" fill="url(#certsecure-bottom)" />
+  <defs>
+    <linearGradient id="certsecure-border" x1="0.931639" y1="41.27" x2="79.2681" y2="41.27" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D56D4" />
+      <stop offset="1" stop-color="#009DFF" />
+    </linearGradient>
+    <linearGradient id="certsecure-top" x1="21.9583" y1="25.0698" x2="46.4318" y2="25.0698" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#006DFF" />
+      <stop offset="1" stop-color="#00A3FF" />
+    </linearGradient>
+    <linearGradient id="certsecure-bottom" x1="22.4592" y1="58.6009" x2="54.5382" y2="58.6009" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#006DFF" />
+      <stop offset="1" stop-color="#00A3FF" />
+    </linearGradient>
+  </defs>
+</svg>

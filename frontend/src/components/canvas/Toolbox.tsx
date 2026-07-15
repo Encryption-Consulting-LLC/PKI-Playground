@@ -9,6 +9,12 @@ const DRAG_TYPE = "application/reactflow"
 
 type Tab = "templates" | "staged"
 
+const PRODUCT_CATALOG = [
+  { label: "CertSecure Manager", logo: "/certsecure-manager.svg" },
+  { label: "CBOM Secure", logo: "/cbom-secure.svg" },
+  { label: "CodeSign Secure", logo: "/codesign-secure.svg" },
+] as const
+
 export function Toolbox() {
   const [tab, setTab] = useState<Tab>("templates")
   const opsCount = useStagingStore((s) => s.ops.length)
@@ -47,7 +53,10 @@ export function Toolbox() {
       </div>
 
       {tab === "templates" ? (
-        <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+        <div className="flex flex-1 flex-col overflow-y-auto p-3">
+          <h2 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Components
+          </h2>
           <div className="grid grid-cols-2 gap-2">
             {TEMPLATE_CATALOG.map((def) => {
               const Icon = def.icon
@@ -77,8 +86,32 @@ export function Toolbox() {
             })}
           </div>
 
+          <h2 className="mb-2 mt-5 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Product Catalog
+          </h2>
+          <div className="grid grid-cols-2 gap-2">
+            {PRODUCT_CATALOG.map((product) => {
+              return (
+                <div
+                  key={product.label}
+                  className="flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg border bg-card p-1.5 shadow-sm select-none"
+                >
+                  <img
+                    src={product.logo}
+                    alt=""
+                    className="h-8 w-8 shrink-0"
+                    draggable={false}
+                  />
+                  <span className="text-center text-[11px] font-semibold leading-tight">
+                    {product.label}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
           <p className="mt-3 px-1 text-[10px] text-muted-foreground leading-snug">
-            Drag a template onto the canvas to add it.
+            Drag a component onto the canvas to add it.
           </p>
         </div>
       ) : (

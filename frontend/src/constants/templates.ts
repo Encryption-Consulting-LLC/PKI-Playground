@@ -56,7 +56,6 @@ export type ConfigField =
 export interface TemplateDef {
   id: string
   label: string
-  short: string
   icon: LucideIcon
   accent: string
   description: string
@@ -67,7 +66,6 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
   {
     id: "domainController",
     label: "Domain Controller",
-    short: "DC",
     icon: Building2,
     accent: "text-blue-500",
     description: "AD DS · DNS",
@@ -117,7 +115,6 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
   {
     id: "certificateAuthority",
     label: "Certificate Authority",
-    short: "CA",
     icon: ShieldCheck,
     accent: "text-amber-500",
     description: "AD CS",
@@ -189,7 +186,6 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
   {
     id: "webServer",
     label: "PKI Web Services",
-    short: "PKI",
     icon: Globe,
     accent: "text-emerald-500",
     description: "IIS publication · CDP/AIA · OCSP",
@@ -221,7 +217,6 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
   {
     id: "client",
     label: "Client",
-    short: "WIN11",
     icon: Monitor,
     accent: "text-violet-400",
     description: "Windows 11 workstation",
@@ -229,7 +224,6 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
   {
     id: "standalone",
     label: "Standalone",
-    short: "SRV",
     icon: Server,
     accent: "text-slate-400",
     description: "Generic Windows Server",

@@ -1,0 +1,14 @@
+<svg width="70" height="72" viewBox="0 0 80 82" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M69.4072 1.96777H10.8193C5.85074 1.96777 1.82295 6.10201 1.82295 11.2019V71.3381C1.82295 76.4379 5.85074 80.5721 10.8193 80.5721H69.4072C74.3757 80.5721 78.4035 76.4379 78.4035 71.3381V11.2019C78.4035 6.10201 74.3757 1.96777 69.4072 1.96777Z" stroke="url(#codesign-border)" stroke-width="2.47525" stroke-miterlimit="10" />
+  <path d="M31.5625 58.3726L16.904 48.1834L17.3216 34.5449L37.1753 50.1949L31.5625 58.3726Z" fill="#1EBDBD" />
+  <path d="M16.904 47.6774L36.9156 32.6079L32.2563 24.1602L17.246 34.3224L16.904 47.6774Z" fill="#66D9BD" />
+  <path d="M63.3185 47.6774L43.3069 32.6079L47.9662 24.1602L62.9732 34.3224L63.3185 47.6774Z" fill="#1EBDBD" />
+  <path d="M48.6605 58.3726L63.319 48.1834L62.9014 34.5449L43.0477 50.1949L48.6605 58.3726Z" fill="#66D9BD" />
+  <defs>
+    <linearGradient id="codesign-border" x1="0.945021" y1="41.27" x2="79.2814" y2="41.27" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1EBDBD" />
+      <stop offset="0.48" stop-color="#3EC9BD" />
+      <stop offset="1" stop-color="#66D9BD" />
+    </linearGradient>
+  </defs>
+</svg>
