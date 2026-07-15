@@ -21,6 +21,7 @@ import { toast } from "sonner"
 import { CONNECTION_HEALTH, EDGE_TYPE, LIFECYCLE, SERVICE_SOCKET } from "@/constants/topology"
 import {
   ApiError,
+  type CompiledExecutionGroup,
   deployPlan,
   type DeployPreflightReceipt,
   type PlanOpPayload,
@@ -145,6 +146,8 @@ interface StagingState {
   /** Reverts and removes `opId` plus everything that transitively depends on it. */
   removeOpCascade: (opId: string) => void
   setOpState: (opId: string, patch: Partial<StagedOp>) => void
+  /** Cache the reviewed compiler manifest and pre-materialize its read-only provision rows so expanded steps survive a reload. */
+  cacheExecutionGroups: (groups: CompiledExecutionGroup[]) => void
   /** Swaps in another project's op list — called alongside `loadSnapshot` on project switch. Resumes an in-flight plan job, if any. */
   loadOps: (ops: StagedOp[], deployJobId: string | null) => void
   /** Sends the current ops to the backend plan runner and attaches the plan-progress socket. */
@@ -743,6 +746,43 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
     set((s) => ({
       ops: s.ops.map((op) => (op.id === opId ? { ...op, ...patch } : op)),
     }))
+  },
+
+  cacheExecutionGroups(groups) {
+    const groupsById = new Map(groups.map((group) => [group.id, group]))
+    set((state) => {
+      const knownIds = new Set(state.ops.map((op) => op.id))
+      return {
+        ops: state.ops.flatMap((op) => {
+          const parent = {
+            ...op,
+            ...(groupsById.has(op.id)
+              ? { executionGroup: groupsById.get(op.id) }
+              : {}),
+          }
+          if (op.kind !== OP_KIND.createVm) return [parent]
+
+          const provisionId = `${op.id}::provision`
+          const provisionGroup = groupsById.get(provisionId)
+          if (!provisionGroup || knownIds.has(provisionId)) return [parent]
+          knownIds.add(provisionId)
+          return [
+            parent,
+            {
+              id: provisionId,
+              kind: OP_KIND.provision,
+              targetNodeId: op.targetNodeId,
+              params: {},
+              dependsOn: [op.id],
+              label: provisionGroup.label || provisionRowLabel(op),
+              status: OP_STATUS.pending,
+              synthesized: true,
+              executionGroup: provisionGroup,
+            },
+          ]
+        }),
+      }
+    })
   },
 
   loadOps(ops, deployJobId) {

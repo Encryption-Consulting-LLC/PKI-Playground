@@ -12,6 +12,25 @@ describe("project recovery", () => {
   it("restores staged operations and an in-flight deployment job", () => {
     const topology = useTopologyStore.getState()
     const staging = useStagingStore.getState()
+    const stagedOps = staging.ops.map((operation, index) => index === 0
+      ? {
+          ...operation,
+          executionGroup: {
+            id: operation.id,
+            kind: operation.kind,
+            label: operation.label,
+            target: operation.targetNodeId,
+            dependsOn: [],
+            steps: [{
+              id: `${operation.id}:clone`,
+              label: "Clone the saved machine",
+              kind: "clone" as const,
+              targetNodeId: operation.targetNodeId,
+              dependsOn: [],
+            }],
+          },
+        }
+      : operation)
     const project: Project = {
       id: "recovery-project",
       name: "Recoverable PKI lab",
@@ -19,7 +38,7 @@ describe("project recovery", () => {
       edges: topology.edges,
       counters: topology.counters,
       viewport: topology.viewport,
-      stagedOps: staging.ops,
+      stagedOps,
       deployJobId: "job-resume-123",
       dirty: false,
       updatedAt: 10,
@@ -34,6 +53,9 @@ describe("project recovery", () => {
     expect(restored.deployJobId).toBe("job-resume-123")
     expect(restored.stagedOps?.map((operation) => operation.id)).toEqual(
       staging.ops.map((operation) => operation.id),
+    )
+    expect(restored.stagedOps?.[0].executionGroup?.steps[0].label).toBe(
+      "Clone the saved machine",
     )
     expect(restored.nodes.map((node) => node.data.name).sort()).toEqual([
       "CA01", "CA02", "DC01", "SRV1",

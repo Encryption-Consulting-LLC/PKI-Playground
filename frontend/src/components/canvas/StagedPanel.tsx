@@ -235,6 +235,7 @@ export function StagedPanel() {
   const undo = useStagingStore((s) => s.undo)
   const removeOpCascade = useStagingStore((s) => s.removeOpCascade)
   const deploy = useStagingStore((s) => s.deploy)
+  const cacheExecutionGroups = useStagingStore((s) => s.cacheExecutionGroups)
   const nodes = useTopologyStore((s) => s.nodes)
 
   const [pendingRemoval, setPendingRemoval] = useState<StagedOp[] | null>(null)
@@ -337,6 +338,7 @@ export function StagedPanel() {
   }
 
   function confirmDeploy() {
+    if (review) cacheExecutionGroups(review.groups)
     setReview(null)
     setPrepared(null)
     deploy()
@@ -362,7 +364,7 @@ export function StagedPanel() {
           <ol className="flex flex-col">
             {ops.map((op, i) => {
               const Icon = KIND_ICON[op.kind]
-              const group = groups.get(op.id)
+              const group = groups.get(op.id) ?? op.executionGroup
               const autoExpanded = op.status === OP_STATUS.running || op.status === OP_STATUS.error
               const isExpanded = expanded[op.id] ?? autoExpanded
               return (

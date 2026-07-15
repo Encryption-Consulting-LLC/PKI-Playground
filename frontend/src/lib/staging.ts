@@ -1,3 +1,5 @@
+import type { CompiledExecutionGroup } from "@/lib/api"
+
 /**
  * Pure staging helpers — no React, no store imports. Mirrors `lib/topology.ts`.
  *
@@ -66,6 +68,13 @@ export interface StagedOp extends Record<string, unknown> {
     phase?: string
     detail?: string
   }>
+  /**
+   * Compiler-authored labels/commands for this operation's expandable step
+   * tree. Cached on the op so a deployment remount can combine it with the
+   * persisted/runtime `executionSteps` state without recompiling a topology
+   * whose resources may already have become realized.
+   */
+  executionGroup?: CompiledExecutionGroup
   /**
    * True for read-only rows mirroring backend-synthesized provision ops.
    * Excluded from the deploy payload, hidden from removal controls, and

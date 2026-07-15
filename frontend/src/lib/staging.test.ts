@@ -94,6 +94,46 @@ test("materializes one synthetic row after its parent, idempotently", () => {
   expect(row.dependsOn).toEqual(["op-dc"])
 })
 
+test("caches compiler steps and provision rows for reload recovery", () => {
+  staging.useStagingStore.getState().cacheExecutionGroups([
+    {
+      id: "op-dc",
+      kind: "createVm",
+      label: "Clone VM",
+      target: "node-dc",
+      dependsOn: [],
+      steps: [{
+        id: "op-dc:clone",
+        label: "Clone the domain controller",
+        kind: "clone",
+        targetNodeId: "node-dc",
+        dependsOn: [],
+      }],
+    },
+    {
+      id: "op-dc::provision",
+      kind: "provision",
+      label: "Provision dc01 — AD DS forest",
+      target: "node-dc",
+      dependsOn: ["op-dc"],
+      steps: [{
+        id: "op-dc::provision:forest",
+        label: "Install the forest",
+        command: "dc.install_forest",
+        kind: "agent",
+        targetNodeId: "node-dc",
+        dependsOn: [],
+      }],
+    },
+  ])
+
+  const ops = staging.useStagingStore.getState().ops
+  expect(ops.map((op) => op.id)).toEqual(["op-dc", "op-dc::provision"])
+  expect(ops[0].executionGroup?.steps[0].label).toBe("Clone the domain controller")
+  expect(ops[1].executionGroup?.steps[0].command).toBe("dc.install_forest")
+  expect(ops[1].synthesized).toBe(true)
+})
+
 test("unknown provision frames without a parent row are skipped", () => {
   staging.applyPlanState({ "ghost::provision": { status: "running" } }, "job1")
 
