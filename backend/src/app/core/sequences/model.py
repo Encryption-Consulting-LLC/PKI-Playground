@@ -124,6 +124,11 @@ class Step:
     #: Result field -> persisted artifact key. Used for observed filenames and
     #: other small facts that later operations must consume verbatim.
     result_artifacts: Mapping[str, str] = field(default_factory=dict)
+    #: Optional result field -> compatibility value resolver. Only consulted
+    #: when an older agent omits a field named by ``result_artifacts``.
+    result_artifact_defaults: ParamResolver | Mapping[str, str] = field(
+        default_factory=dict
+    )
     #: Param keys to redact from every progress/error frame (passwords, blobs).
     secret_keys: tuple[str, ...] = ()
     timeout_s: int = 300
@@ -142,3 +147,11 @@ class Step:
             if key in ctx.artifacts:
                 params["contentB64"] = ctx.artifacts[key]
         return params
+
+    def resolve_result_artifact_defaults(self, ctx: RunContext) -> dict[str, str]:
+        node = ctx.node(self.target)
+        if callable(self.result_artifact_defaults):
+            return dict(
+                self.result_artifact_defaults(StepRuntime(ctx=ctx, node=node))
+            )
+        return dict(self.result_artifact_defaults)

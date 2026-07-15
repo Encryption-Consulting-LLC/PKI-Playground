@@ -167,6 +167,38 @@ def test_verify_treats_probe_error_as_not_ready():
     assert attempts["n"] == 2
 
 
+def test_verify_retries_production_dispatch_errors_until_ready():
+    clock = FakeClock()
+    attempts = {"n": 0}
+
+    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+        if command == "dc.verify":
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise RuntimeError("agent command 'dc.verify' failed: ADWS still down")
+            return {"ready": True}
+        return {}
+
+    engine = SequenceEngine(
+        dispatch=dispatch,
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+    step = Step(
+        id="install",
+        command="dc.install_forest",
+        target="primary",
+        verify=Step(id="v", command="dc.verify", target="primary"),
+        verify_predicate=lambda r: r.get("ready") is True,
+    )
+
+    engine.run([step], _ctx())
+
+    assert attempts["n"] == 3
+    assert clock.t == 15_000
+
+
 def test_failed_step_raises_and_stops_the_sequence():
     clock = FakeClock()
     ran = []
@@ -352,6 +384,77 @@ def test_missing_required_result_artifact_fails_the_step():
             ],
             _ctx(),
         )
+
+
+def test_missing_result_artifact_uses_explicit_legacy_agent_default():
+    clock = FakeClock()
+    ctx = _ctx()
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: {"published": True},
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+
+    engine.run(
+        [
+            Step(
+                id="publish", command="ca.publish_crl", target="primary",
+                result_artifacts={"certificateFileName": "cert_filename"},
+                result_artifact_defaults={
+                    "certificateFileName": "dc_Example CA.crt"
+                },
+            )
+        ],
+        ctx,
+    )
+
+    assert ctx.artifacts["cert_filename"] == "dc_Example CA.crt"
+
+
+def test_missing_file_result_artifact_fails_at_the_producer():
+    clock = FakeClock()
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: {},
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+
+    with pytest.raises(SequenceError, match="contentB64"):
+        engine.run(
+            [
+                Step(
+                    id="read-cert", command="file.read", target="primary",
+                    produces=("certificate",),
+                )
+            ],
+            _ctx(),
+        )
+
+
+def test_missing_consumed_artifact_fails_before_dispatch():
+    clock = FakeClock()
+    dispatched = []
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: dispatched.append(a),
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+
+    with pytest.raises(SequenceError, match="unavailable artifact 'certificate'"):
+        engine.run(
+            [
+                Step(
+                    id="write-cert", command="file.write", target="primary",
+                    consumes=("certificate",),
+                )
+            ],
+            _ctx(),
+        )
+
+    assert dispatched == []
 
 
 def test_param_resolver_sees_context():

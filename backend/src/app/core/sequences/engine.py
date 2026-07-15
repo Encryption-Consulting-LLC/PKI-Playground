@@ -6,9 +6,9 @@ redis, Mongo, or a real agent:
 
 * ``dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s,
   expect_disconnect) -> dict`` sends one command and blocks for its terminal
-  result (raising
-  :class:`SequenceError` on agent error / timeout) — in production this is the
-  worker↔agent bridge (:func:`app.core.agentbus.dispatch_and_wait`). ``job_key``
+  result (raising a transport-specific exception on agent error / timeout) —
+  in production this is the worker↔agent bridge
+  (:func:`app.core.agentbus.dispatch_and_wait`). ``job_key``
   is the step's stable id, used to derive the deterministic per-step job id
   (idempotency key on redelivery).
 * ``wait_for_reconnect(vm_id, since_ms, timeout_s)`` blocks until the agent's
@@ -143,6 +143,13 @@ class SequenceEngine:
             self._on_step_done(step.id, result)
             return result
 
+        for artifact_key in step.consumes:
+            if artifact_key not in ctx.artifacts:
+                raise SequenceError(
+                    f"step '{step.id}' requires unavailable artifact "
+                    f"'{artifact_key}'"
+                )
+
         params = step.resolve_params(ctx)
         # Capture *before* dispatch so a fast reboot that reconnects immediately
         # still registers as "after" the dispatch (timestamp compare).
@@ -151,10 +158,17 @@ class SequenceEngine:
 
         for key in step.produces:
             content = result.get("contentB64")
-            if isinstance(content, str):
-                ctx.artifacts[key] = content
+            if not isinstance(content, str):
+                raise SequenceError(
+                    f"step '{step.id}' did not report required result field "
+                    "'contentB64'"
+                )
+            ctx.artifacts[key] = content
+        artifact_defaults = step.resolve_result_artifact_defaults(ctx)
         for result_field, artifact_key in step.result_artifacts.items():
             value = result.get(result_field)
+            if not isinstance(value, str) or not value:
+                value = artifact_defaults.get(result_field)
             if not isinstance(value, str) or not value:
                 raise SequenceError(
                     f"step '{step.id}' did not report required result field "
@@ -235,9 +249,11 @@ class SequenceEngine:
                     self._on_verify_done(verify_id)
                     return
                 last_detail = f"{probe.command} not ready yet"
-            except SequenceError as exc:
-                # A probe raising (e.g. ADWS still down) is the normal
-                # not-ready-yet signal — keep retrying until the window closes.
+            except Exception as exc:  # noqa: BLE001 - readiness boundary
+                # Production dispatch raises agentbus DispatchError /
+                # AgentUnreachableError, while unit-test adapters commonly use
+                # SequenceError. Any probe failure is a not-ready-yet signal;
+                # keep retrying until the verify window closes.
                 last_detail = str(exc)
 
             if self._now_ms() >= deadline:

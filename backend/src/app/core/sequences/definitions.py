@@ -259,6 +259,13 @@ def _root_ca_provision() -> list[Step]:
     def root_crl_path(rt: StepRuntime) -> dict[str, str]:
         return {"path": f"{_CERT_ENROLL_DIR}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"}
 
+    def publication_defaults(rt: StepRuntime) -> dict[str, str]:
+        ca_name = rt.node.template_config.get("commonName", "")
+        return {
+            "certificateFileName": f"{rt.node.hostname}_{ca_name}.crt",
+            "baseCrlFileName": f"{ca_name}.crl",
+        }
+
     return [
         Step(
             id="ca-install",
@@ -278,6 +285,7 @@ def _root_ca_provision() -> list[Step]:
                 "certificateFileName": _A_ROOT_CERT_FILE,
                 "baseCrlFileName": _A_ROOT_CRL_FILE,
             },
+            result_artifact_defaults=publication_defaults,
         ),
         Step(id="read-root-crt", command="file.read", target=PRIMARY, params=root_crt_path, produces=(_A_ROOT_CRT,)),
         Step(id="read-root-crl", command="file.read", target=PRIMARY, params=root_crl_path, produces=(_A_ROOT_CRL,)),
@@ -286,8 +294,10 @@ def _root_ca_provision() -> list[Step]:
 
 def _domain_controller_provision(*, include_dns: bool = False) -> list[Step]:
     """Domain controller (createVm tail, slice 11): promote a new forest
-    (``Install-ADDSForest -NoRebootOnCompletion``), reboot, verify ADWS is up,
-    then point the DC's own NIC DNS at itself. The `pki` CNAME is deferred to
+    (``Install-ADDSForest -NoRebootOnCompletion``), reboot, point the DC's own
+    NIC DNS at itself, then verify ADWS is up. DNS must precede the probe so
+    legacy agents that use default DC discovery do not retain the cloned
+    image's pre-promotion resolver settings. The `pki` CNAME is deferred to
     the webServerCert op (it only resolves usefully once the web host exists)."""
 
     def forest_params(rt: StepRuntime) -> dict[str, str]:
@@ -314,15 +324,15 @@ def _domain_controller_provision(*, include_dns: bool = False) -> list[Step]:
             target=PRIMARY,
             expects_disconnect=True,
             timeout_s=1200,
-            verify=Step(id="dc-verify", command="dc.verify", target=PRIMARY),
-            verify_predicate=lambda r: bool((r.get("domain") or {}).get("DNSRoot")),
-            verify_window_s=900,
         ),
         Step(
             id="dns-self",
             command="dns.set_client",
             target=PRIMARY,
             params=lambda rt: {"servers": rt.node.ip or "127.0.0.1"},
+            verify=Step(id="dc-verify", command="dc.verify", target=PRIMARY),
+            verify_predicate=lambda r: bool((r.get("domain") or {}).get("DNSRoot")),
+            verify_window_s=900,
         ),
     ]
     if include_dns:
@@ -860,6 +870,15 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
     def issuing_web_crt_path(rt: StepRuntime) -> dict[str, str]:
         return {"path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ISSUING_CERT_FILE)}"}
 
+    def issuing_publication_defaults(rt: StepRuntime) -> dict[str, str]:
+        ca_name = rt.node.template_config.get("commonName", "")
+        server_dns_name = _fqdn(rt.ctx, rt.node.hostname)
+        return {
+            "certificateFileName": f"{server_dns_name}_{ca_name}.crt",
+            "baseCrlFileName": f"{ca_name}.crl",
+            "deltaCrlFileName": f"{ca_name}+.crl",
+        }
+
     steps: list[Step] = []
 
     # 1) Trust the offline root on CA02 (carried from the relay).
@@ -939,6 +958,7 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
                 "baseCrlFileName": _A_ISSUING_CRL_FILE,
                 "deltaCrlFileName": _A_ISSUING_DELTA_CRL_FILE,
             },
+            result_artifact_defaults=issuing_publication_defaults,
         ),
     ]
     if has_web:

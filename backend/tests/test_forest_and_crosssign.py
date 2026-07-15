@@ -40,7 +40,8 @@ def test_dc_provision_promotes_reboots_and_points_dns_at_self():
     ]
     assert "safeModePassword" in steps[0].secret_keys
     assert steps[1].expects_disconnect is True
-    assert steps[1].verify.command == "dc.verify"
+    assert steps[1].verify is None
+    assert steps[2].verify.command == "dc.verify"
 
 
 def test_dc_forest_params_map_config():
