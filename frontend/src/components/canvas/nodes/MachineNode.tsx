@@ -34,7 +34,9 @@ import {
   serviceSocketsForNode,
 } from "@/lib/topology"
 import { findLabEvidence, nodeHealthWarning } from "@/lib/labEvidence"
+import { OP_KIND, OP_STATUS } from "@/lib/staging"
 import { useAgentConnected } from "@/hooks/useAgentConnected"
+import { isPreExecutionPhase, useStagingStore } from "@/store/staging"
 import { useTopologyStore } from "@/store/topology"
 import { useConnectionGestureStore } from "@/store/connectionGesture"
 import type { MachineData } from "@/store/topology"
@@ -122,7 +124,24 @@ function machineNodeHeight(
     Math.max(0, sideSocketRows - COMPACT_CARD_SIDE_SOCKET_ROWS) * SOCKET_ROW_HEIGHT
 }
 
-function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {
+function LifecycleBadge({
+  lifecycle,
+  preparing,
+}: {
+  lifecycle: Lifecycle
+  /** True while a deploy including this node is pre-execution (preflight/queue/worker setup) — the node hasn't flipped to `deploying` yet, but "staged" would read as idle. */
+  preparing?: boolean
+}) {
+  if (preparing && lifecycle === LIFECYCLE.staged)
+    return (
+      <Badge
+        variant="secondary"
+        className="flex items-center gap-1 text-[10px] text-sky-500 border-sky-500/30"
+      >
+        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+        preparing…
+      </Badge>
+    )
   if (lifecycle === LIFECYCLE.draft)
     return (
       <Badge
@@ -286,6 +305,18 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
   const nodes = useNodes<Node<MachineData>>()
   const edges = useEdges()
   const isOverlapping = useTopologyStore((s) => s.overlapNodeId === id)
+  // Pre-execution echo: this node's clone is in the in-flight plan but no op
+  // has started yet (route preflight / worker queue / worker setup).
+  const preparingDeploy = useStagingStore(
+    (s) =>
+      isPreExecutionPhase(s.planPhase) &&
+      s.ops.some(
+        (op) =>
+          op.kind === OP_KIND.createVm &&
+          op.targetNodeId === id &&
+          op.status === OP_STATUS.pending,
+      ),
+  )
   const gesture = useConnectionGestureStore((s) => s.gesture)
   const hoverTarget = useConnectionGestureStore((s) => s.hoverTarget)
   const updateNodeInternals = useUpdateNodeInternals()
@@ -475,7 +506,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
             {def?.label ?? data.typeId}
           </span>
         </span>
-        <LifecycleBadge lifecycle={data.lifecycle} />
+        <LifecycleBadge lifecycle={data.lifecycle} preparing={preparingDeploy} />
         {!activePhase && (
           warning ? (
             <span
