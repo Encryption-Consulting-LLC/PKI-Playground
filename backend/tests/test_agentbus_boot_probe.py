@@ -1,10 +1,10 @@
 """Active boot-settle probe (`wait_for_settled_boot`).
 
 The gate must decide "final boot reached" from `system.boot_info` facts —
-finalize task state + uptime, confirmed across the finalize's brief
-unregister→reboot window — never from connection-stability heuristics that
-reconnect churn can reset forever. Driven with an injected clock and a
-scripted dispatcher; no real Valkey/Mongo/agent.
+legacy finalize task state + uptime, confirmed across both current and legacy
+pre-reboot windows — never from connection-stability heuristics that reconnect
+churn can reset forever. Driven with an injected clock and a scripted
+dispatcher; no real Valkey/Mongo/agent.
 """
 
 import os
@@ -142,6 +142,8 @@ def test_finalize_pending_reports_phase_and_keeps_probing():
 def test_missed_trigger_forces_a_reboot(monkeypatch):
     clock = FakeClock()
     reconnect_waits = []
+    phases = []
+    monkeypatch.setattr(settings, "agent_boot_force_reboot_uptime_s", 600)
     monkeypatch.setattr(
         agentbus,
         "wait_for_reconnect",
@@ -154,7 +156,7 @@ def test_missed_trigger_forces_a_reboot(monkeypatch):
             _info(135),  # confirmed
         ]
     )
-    _wait(dispatch, clock)
+    _wait(dispatch, clock, on_phase=phases.append)
     kicks = [c for c in dispatch.calls if c[0] == "system.reboot"]
     assert len(kicks) == 1
     _, params, kwargs = kicks[0]
@@ -162,6 +164,10 @@ def test_missed_trigger_forces_a_reboot(monkeypatch):
     assert kwargs["expect_disconnect"] is True
     assert kwargs["job_id"].startswith("job-op-bootprobe:bootkick:")
     assert len(reconnect_waits) == 1
+    assert (
+        "Finalize still pending after 600s — forcing a recovery reboot"
+        in phases
+    )
 
 
 def test_a_running_finalize_task_is_not_kicked():

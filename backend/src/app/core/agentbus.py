@@ -283,10 +283,10 @@ def wait_for_stable_agent(
     continuous ``settle_s`` — its liveness key present AND ``agent.lastConnectedAt``
     unchanged — or raise :class:`AgentUnreachableError` after ``timeout_s``.
 
-    A freshly-cloned VM phones home during an intermediate firstboot boot, then
-    reboots once more to finalize its hostname; dispatching provisioning at that
-    first phone-home would push a command into an agent the finalize reboot is
-    about to kill. This dwell rides through that reboot: the streak resets
+    A freshly-cloned VM can phone home before its firstboot reboot applies the
+    hostname; dispatching provisioning at that first phone-home would push a
+    command into an agent the reboot is about to kill. This dwell rides through
+    that reboot: the streak resets
     whenever the liveness key drops (reboot) or ``lastConnectedAt`` advances
     (reconnect), so only the final, stable boot accrues ``settle_s``."""
     r = client or transport._client
@@ -318,9 +318,9 @@ def wait_for_stable_agent(
 
 #: Gap between boot_info probes.
 _BOOT_PROBE_INTERVAL_S = 20.0
-#: Gap before the confirming second probe — must exceed the firstboot
-#: finalize's unregister→reboot window (Start-Sleep 15 + shutdown, ~15-20s),
-#: so a probe that caught boot 2 in that window is always contradicted.
+#: Gap before the confirming second probe — must exceed both the current
+#: SetupComplete shutdown delay and a legacy finalize's unregister→reboot
+#: window (~15-20s), so a pre-reboot probe is always contradicted.
 _BOOT_PROBE_CONFIRM_GAP_S = 45.0
 #: Minimum uptime before a boot with no finalize task can count as settled.
 _BOOT_UPTIME_FLOOR_S = 60
@@ -361,14 +361,16 @@ def wait_for_settled_boot(
     forever), this actively dispatches the read-tier ``system.boot_info``
     command and decides from facts:
 
-    * finalize task still registered → intermediate boot; keep waiting. If it
-      stays registered past ``settings.agent_boot_force_reboot_uptime_s`` (a
-      missed ``-AtStartup`` trigger) and isn't mid-run, dispatch
-      ``system.reboot`` to force it (capped at ``_BOOT_FORCE_REBOOT_MAX``).
+    * finalize task still registered → a legacy image's intermediate boot;
+      keep waiting. If it stays registered past
+      ``settings.agent_boot_force_reboot_uptime_s`` (a missed ``-AtStartup``
+      trigger) and isn't mid-run, dispatch ``system.reboot`` to recover it
+      (capped at ``_BOOT_FORCE_REBOOT_MAX``).
     * finalize task absent + uptime past the floor → candidate settled boot,
       confirmed by a second probe ``_BOOT_PROBE_CONFIRM_GAP_S`` later on the
-      *same* boot (uptime advanced consistently) — defeating the finalize's
-      brief unregister→reboot window.
+      *same* boot (uptime advanced consistently) — defeating both a current
+      image's pre-reboot window and a legacy finalize's unregister→reboot
+      window.
     * agent unreachable → mid-reboot; poll the liveness key and re-probe the
       moment it reconnects. A probe timeout keeps the settled-boot candidate —
       it says nothing about a reboot, and the same-boot uptime check catches a
@@ -464,7 +466,11 @@ def wait_for_settled_boot(
                         f"{forced_reboots} forced reboots"
                     )
                 forced_reboots += 1
-                _phase("Finalize task missed its startup trigger — forcing a reboot")
+                _phase(
+                    "Finalize still pending after "
+                    f"{settings.agent_boot_force_reboot_uptime_s}s — "
+                    "forcing a recovery reboot"
+                )
                 from app.core.db import now_ms
 
                 since = now_ms()
@@ -488,7 +494,8 @@ def wait_for_settled_boot(
             sleep(_BOOT_PROBE_INTERVAL_S)
             continue
 
-        # Finalize task absent.
+        # Finalize task absent. This is normal for new single-reboot images,
+        # including the short window after SetupComplete schedules that reboot.
         if uptime < _BOOT_UPTIME_FLOOR_S:
             candidate = None
             _phase(f"Waiting for boot to settle — booted {int(uptime)}s ago")
@@ -496,9 +503,10 @@ def wait_for_settled_boot(
             continue
 
         if candidate is None:
-            # First settled-looking probe. Could be boot 2's brief
-            # unregister→reboot window — confirm on the SAME boot after a gap
-            # longer than that window.
+            # First settled-looking probe. It could be the brief window before
+            # a new image's scheduled reboot, or an old image's
+            # unregister→reboot window. Confirm on the SAME boot after a gap
+            # longer than either window.
             candidate = (float(uptime), monotonic())
             _phase(f"Boot looks settled (up {int(uptime)}s) — confirming")
             sleep(_BOOT_PROBE_CONFIRM_GAP_S)
@@ -508,7 +516,7 @@ def wait_for_settled_boot(
         elapsed = monotonic() - first_at
         if uptime >= first_uptime + elapsed - _BOOT_CONFIRM_SLACK_S:
             return  # same boot, uptime advanced consistently → settled
-        # Uptime went backwards: the finalize reboot happened between probes.
+        # Uptime went backwards: a firstboot reboot happened between probes.
         candidate = None
         sleep(_BOOT_PROBE_INTERVAL_S)
 

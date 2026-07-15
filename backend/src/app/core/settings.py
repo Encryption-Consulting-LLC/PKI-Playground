@@ -137,10 +137,10 @@ class Settings(BaseSettings):
     # plus the intermediate-boot window.
     agent_boot_settle_s: int = 180
 
-    # Uptime (seconds) past which a still-registered FirstBootFinalize
-    # scheduled task is treated as having missed its -AtStartup trigger; the
-    # worker then dispatches system.reboot to force the finalize. Tune up for
-    # sites whose storage/CPU make the intermediate boot legitimately slow.
+    # LEGACY-IMAGE RECOVERY ONLY: uptime (seconds) past which a still-registered
+    # FirstBootFinalize scheduled task is treated as having missed its
+    # -AtStartup trigger; the worker then dispatches system.reboot. Current
+    # single-reboot images do not create this task.
     agent_boot_force_reboot_uptime_s: int = 600
 
     @property

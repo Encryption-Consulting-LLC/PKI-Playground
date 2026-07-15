@@ -544,11 +544,12 @@ def _run_provision_op(
             op.id, vm_id, time.monotonic() - op_started,
         )
 
-        # A fresh clone phones home during an intermediate firstboot boot and
-        # then reboots once more to finalize its hostname — probe boot_info
-        # until the VM is provably on its final boot so we don't dispatch into
-        # an agent that reboot is about to kill (legacy agents fall back to
-        # the connection-stability dwell inside wait_for_settled_boot).
+        # A fresh clone can phone home before its one firstboot reboot applies
+        # the hostname. Probe boot_info until the VM is provably on the
+        # post-reboot boot so we don't dispatch into an agent that reboot is
+        # about to kill. Older images may expose a pending finalize task;
+        # legacy agents fall back to the connection-stability dwell inside
+        # wait_for_settled_boot.
         def _boot_phase(phase: str) -> None:
             _set_visible_step(
                 state, op.id, "boot-settle", "running", push,
