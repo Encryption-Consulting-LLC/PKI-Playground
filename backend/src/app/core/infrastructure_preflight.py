@@ -18,6 +18,7 @@ from app.core.infrastructure import (
     InfrastructureProfile,
     PkiRole,
 )
+from app.core.vmware_guest_os import guest_os_ids_match
 
 
 class PlannedMachine(BaseModel):
@@ -209,7 +210,7 @@ def preflight_infrastructure(
             os_ok = bool(
                 actual_guest_os
                 and actual_guest_os.lower().startswith("windows")
-                and actual_guest_os == profile.expected_guest_os
+                and guest_os_ids_match(actual_guest_os, profile.expected_guest_os)
             )
             checks.append(
                 InfrastructureCheck(

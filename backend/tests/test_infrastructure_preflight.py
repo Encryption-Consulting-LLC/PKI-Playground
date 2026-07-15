@@ -42,7 +42,7 @@ def _vm(base="ws-2025"):
     return SimpleNamespace(
         _moId=f"vm-{base}",
         config=SimpleNamespace(
-            guestId="windows2022srvNext-64", changeVersion="7",
+            guestId="windows2022srvNext_64Guest", changeVersion="7",
             files=SimpleNamespace(vmPathName=f"[store] {base}/{base}.vmx"),
             hardware=SimpleNamespace(
                 device=[SimpleNamespace(backing=SimpleNamespace(deviceName="PKI")),

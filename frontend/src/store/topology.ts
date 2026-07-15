@@ -950,7 +950,12 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       return {
         ...edge,
         type: "capability",
-        hidden: false,
+        // Domain membership is a logical relationship rendered by the DC's
+        // surrounding region, not by a React Flow edge. Older snapshots may
+        // omit `hidden`, but passing such an edge to React Flow makes it try
+        // to resolve generic handles that MachineNode intentionally does not
+        // expose (error 008).
+        hidden: edgeType === EDGE_TYPE.domainJoin,
         ...visual,
         data: {
           ...edge.data,

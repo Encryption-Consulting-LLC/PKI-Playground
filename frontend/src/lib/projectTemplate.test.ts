@@ -159,6 +159,23 @@ describe("supplied PKI project template", () => {
     ])
   })
 
+  it("keeps domain membership edges logical-only on snapshot load", () => {
+    const { nodes, edges, counters, viewport } = useTopologyStore.getState()
+    const persistedEdges = edges.map((edge) =>
+      edge.data?.edgeType === EDGE_TYPE.domainJoin
+        ? { ...edge, hidden: false }
+        : edge,
+    )
+
+    useTopologyStore.getState().loadSnapshot(nodes, persistedEdges, counters, viewport)
+
+    const domainEdges = useTopologyStore.getState().edges.filter(
+      (edge) => edge.data?.edgeType === EDGE_TYPE.domainJoin,
+    )
+    expect(domainEdges).toHaveLength(2)
+    expect(domainEdges.every((edge) => edge.hidden === true)).toBe(true)
+  })
+
   it("derives PTR resources only when a reverse zone is configured", () => {
     const dc = useTopologyStore
       .getState()

@@ -18,6 +18,11 @@ export function enableServerPersistence() {
   server = true
 }
 
+/** Return to local persistence when the authenticated session changes. */
+export function disableServerPersistence() {
+  server = false
+}
+
 export function isServerPersistence() {
   return server
 }

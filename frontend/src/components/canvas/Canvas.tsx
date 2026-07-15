@@ -127,7 +127,9 @@ export function Canvas() {
     // Do not give those logical-only edges to React Flow: it still resolves
     // handles for hidden edges, and domain controllers intentionally expose
     // no generic target handle (which otherwise emits React Flow error 008).
-    const renderableEdges = displayedEdges.filter((edge) => !edge.hidden)
+    const renderableEdges = displayedEdges.filter(
+      (edge) => !edge.hidden && edge.data?.edgeType !== EDGE_TYPE.domainJoin,
+    )
     if (!journeyActive || !journeyProjection) return renderableEdges
     const involved = new Set(journeyProjection.edgeIds)
     return renderableEdges.map((edge) => ({

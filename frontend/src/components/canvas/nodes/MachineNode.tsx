@@ -43,10 +43,10 @@ import { ProgressBar } from "./ProgressBar"
 
 const MACHINE_NODE_WIDTH = 304
 const MACHINE_NODE_MIN_HEIGHT = 160
-const BOTTOM_SOCKET_GUTTER = 20
+const BOTTOM_SOCKET_GUTTER = 28
 const DRAFT_NODE_HEIGHT = 92
 const SOCKET_ROW_HEIGHT = 24
-const SOCKETS_WITHIN_COMPACT_CARD = 2
+const COMPACT_CARD_SIDE_SOCKET_ROWS = 2
 
 const SOCKET_APPEARANCE: Record<
   ServiceSocket,
@@ -113,8 +113,13 @@ function machineNodeHeight(
   const hasBottomSocket = socketSpecs.some(
     (spec) => spec.socket === SERVICE_SOCKET.issuance && spec.type === "source",
   )
+  const sideSocketRows = new Set(
+    socketSpecs
+      .filter((spec) => !(spec.socket === SERVICE_SOCKET.issuance && spec.type === "source"))
+      .map((spec) => socketPlacement(spec.socket, spec.type).handleStyle.top),
+  ).size
   return MACHINE_NODE_MIN_HEIGHT + (hasBottomSocket ? BOTTOM_SOCKET_GUTTER : 0) +
-    Math.max(0, socketSpecs.length - SOCKETS_WITHIN_COMPACT_CARD) * SOCKET_ROW_HEIGHT
+    Math.max(0, sideSocketRows - COMPACT_CARD_SIDE_SOCKET_ROWS) * SOCKET_ROW_HEIGHT
 }
 
 function LifecycleBadge({ lifecycle }: { lifecycle: Lifecycle }) {

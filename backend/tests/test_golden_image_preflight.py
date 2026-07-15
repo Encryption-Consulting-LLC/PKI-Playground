@@ -29,7 +29,8 @@ def _config(**overrides):
 
 
 def _vm(
-    guest_os="windows2022srvNext-64", path="[datastore1] ws-2025-base/ws-2025-base.vmx"
+    guest_os="windows2022srvNext_64Guest",
+    path="[datastore1] ws-2025-base/ws-2025-base.vmx",
 ):
     return SimpleNamespace(
         _moId="vm-42",
@@ -78,7 +79,7 @@ def test_ready_image_returns_capacity_and_identity_snapshot(monkeypatch):
     assert result.ready is True
     assert result.base_moid == "vm-42"
     assert result.esxi_instance_uuid == "esxi-1"
-    assert result.actual_guest_os == "windows2022srvNext-64"
+    assert result.actual_guest_os == "windows2022srvNext_64Guest"
     assert result.required_bytes == 200
     assert result.projected_usage_pct == 60
     assert len(result.snapshot_id) == 64

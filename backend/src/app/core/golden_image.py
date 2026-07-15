@@ -11,6 +11,7 @@ from vmkit.esxi import get_datastore, get_vm_by_name, list_vm_names
 
 from app.core.db.models import now_ms
 from app.core.settings import settings
+from app.core.vmware_guest_os import guest_os_ids_match
 
 
 class GoldenImageConfig(BaseModel):
@@ -173,7 +174,7 @@ def preflight_golden_image(
         guest_ok = bool(
             actual_guest_os
             and actual_guest_os.lower().startswith("windows")
-            and actual_guest_os == config.expected_guest_os
+            and guest_os_ids_match(actual_guest_os, config.expected_guest_os)
         )
         checks.append(
             _check(

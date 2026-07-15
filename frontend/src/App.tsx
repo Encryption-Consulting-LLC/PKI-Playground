@@ -15,11 +15,12 @@ import { useBeforeUnloadWarning } from "@/hooks/useBeforeUnloadWarning"
 import { useMe } from "@/hooks/useMe"
 import { initProjectAutosave } from "@/lib/projectAutosave"
 import {
+  initLocalProjects,
   initServerProjects,
   retryInitServerProjects,
+  stopServerProjects,
   useProjectSyncStore,
 } from "@/lib/projectSync"
-import { useProjectsStore } from "@/store/projects"
 
 function App() {
   // Apply the resolved theme to <html> on every render. Must be called before
@@ -43,17 +44,25 @@ function App() {
   // Capabilities are per-user (GET /auth/me), so wait for that query before
   // choosing a persistence mode — `me` is undefined until it lands.
   const me = useMe()
-  const canProjects = !!me?.capabilities.includes(CAPABILITIES.projectRead)
+  const canProjects = !!me?.capabilities.includes(CAPABILITIES.projectRead) &&
+    !!me?.capabilities.includes(CAPABILITIES.projectWrite)
   const syncStatus = useProjectSyncStore((s) => s.status)
   const syncError = useProjectSyncStore((s) => s.loadError)
-  const didInitProjects = useRef(false)
+  const initializedSession = useRef<string | null>(null)
   useEffect(() => {
-    if (!sessionReady || !me || didInitProjects.current) return
-    didInitProjects.current = true
+    if (!sessionReady) {
+      if (initializedSession.current) stopServerProjects()
+      initializedSession.current = null
+      return
+    }
+    if (!me) return
+    const sessionMode = `${token}:${canProjects ? "server" : "local"}`
+    if (initializedSession.current === sessionMode) return
+    initializedSession.current = sessionMode
     initProjectAutosave()
     if (canProjects) void initServerProjects()
-    else useProjectsStore.getState().restoreProjects()
-  }, [sessionReady, me, canProjects])
+    else void initLocalProjects()
+  }, [sessionReady, token, me, canProjects])
 
   if (!token) return <LoginForm />
 

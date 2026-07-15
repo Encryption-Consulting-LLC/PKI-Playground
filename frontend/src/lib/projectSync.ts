@@ -10,8 +10,8 @@
  * Change detection compares `serializeProject` JSON against the last acked
  * copy (`lastSynced`), so dirty-flag flips, progress ticks, and client
  * `updatedAt` stamps never cause writes. Flushes happen immediately on:
- * explicit save (dirty true→false), project switch, re-login after a 401,
- * the window coming back online, and beforeunload (with `keepalive`).
+ * explicit save (dirty true→false), project switch, the window coming back
+ * online, and beforeunload (with `keepalive`).
  * Failed writes stay in `pendingIds` (arming the unload warning) and retry
  * every few seconds — nothing is lost while the tab lives.
  */
@@ -28,11 +28,14 @@ import {
   listProjects,
   updateProject,
 } from "@/lib/api"
-import { enableServerPersistence } from "@/lib/persistenceMode"
+import {
+  disableServerPersistence,
+  enableServerPersistence,
+  isServerPersistence,
+} from "@/lib/persistenceMode"
 import { deserializeProject, serializeProject } from "@/lib/projectSerialize"
 import { migrateNodeData, useProjectsStore } from "@/store/projects"
 import type { Project } from "@/store/projects"
-import { useAuthStore } from "@/store/auth"
 
 const SAVE_DEBOUNCE_MS = 1500
 const RETRY_MS = 5000
@@ -60,7 +63,10 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>()
 const inFlight = new Set<string>()
 const changedWhileInFlight = new Set<string>()
 let retryTimer: ReturnType<typeof setTimeout> | null = null
-let subscribed = false
+let unsubscribeProjects: (() => void) | null = null
+let onlineHandler: (() => void) | null = null
+let syncGeneration = 0
+let writesForbidden = false
 
 // --- device-local meta (active tab + numbering — deliberately not server state)
 
@@ -92,20 +98,52 @@ function writeMeta(activeProjectId: string | null, nextProjectNumber: number) {
  * (acceptable for a playground) but a populated server never gets clobbered.
  */
 function readLocalProjects(): Project[] {
+  return readLocalProjectState().projects.map((project) => ({
+    ...project,
+    // An imported snapshot is fully acknowledged once POST succeeds; guest
+    // dirty flags are device-local editing state, not server data.
+    dirty: false,
+  }))
+}
+
+interface LocalProjectState {
+  projects: Project[]
+  activeProjectId: string | null
+  nextProjectNumber: number
+}
+
+/** Read and normalize the persisted guest store without retaining live state. */
+function readLocalProjectState(): LocalProjectState {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.projects)
-    if (!raw) return []
-    const envelope = JSON.parse(raw) as { state?: { projects?: Project[] } }
-    return (envelope.state?.projects ?? []).map((p) => ({
+    if (!raw) return { projects: [], activeProjectId: null, nextProjectNumber: 1 }
+    const envelope = JSON.parse(raw) as {
+      state?: {
+        projects?: Project[]
+        activeProjectId?: string | null
+        nextProjectNumber?: number
+      }
+    }
+    const projects = (envelope.state?.projects ?? []).map((p) => ({
       ...p,
       // Idempotent v0→v1 node migration, same as the persist `migrate` fn.
       nodes: (p.nodes ?? []).map((n) => ({ ...n, data: migrateNodeData(n.data) })),
       stagedOps: p.stagedOps ?? [],
       deployJobId: p.deployJobId ?? null,
-      dirty: false,
+      dirty: p.dirty ?? false,
     }))
+    const storedActiveId = envelope.state?.activeProjectId
+    const activeProjectId = storedActiveId && projects.some((p) => p.id === storedActiveId)
+      ? storedActiveId
+      : projects[0]?.id ?? null
+    return {
+      projects,
+      activeProjectId,
+      nextProjectNumber:
+        envelope.state?.nextProjectNumber ?? inferNextProjectNumber(projects),
+    }
   } catch {
-    return []
+    return { projects: [], activeProjectId: null, nextProjectNumber: 1 }
   }
 }
 
@@ -119,15 +157,19 @@ function inferNextProjectNumber(projects: Project[]): number {
 }
 
 export async function initServerProjects(): Promise<void> {
+  stopServerProjects()
+  const generation = syncGeneration
   enableServerPersistence()
   useProjectSyncStore.setState({ status: "loading", loadError: undefined })
   try {
     const { projects: summaries } = await listProjects()
+    if (generation !== syncGeneration) return
 
     let projects: Project[]
     let imported = false
     if (summaries.length > 0) {
       const docs = await Promise.all(summaries.map((s) => getProject(s.id)))
+      if (generation !== syncGeneration) return
       projects = docs.map(deserializeProject)
     } else {
       const local = readLocalProjects()
@@ -164,7 +206,7 @@ export async function initServerProjects(): Promise<void> {
 
     useProjectsStore.getState().hydrateFromServer(projects, activeId, nextNumber)
     writeMeta(activeId, nextNumber)
-    startSubscriptions()
+    startSubscriptions(generation)
     useProjectSyncStore.setState({ status: "ready" })
 
     for (const p of projects) {
@@ -178,11 +220,55 @@ export async function initServerProjects(): Promise<void> {
       toast.success(`Imported ${n} locally saved project${n === 1 ? "" : "s"} to the server.`)
     }
   } catch (e) {
+    if (generation !== syncGeneration) return
     useProjectSyncStore.setState({
       status: "error",
       loadError: e instanceof Error ? e.message : String(e),
     })
   }
+}
+
+/**
+ * Tear down every server-mode side effect. This is required on logout/account
+ * changes: otherwise a guest signing in after an operator inherits the old
+ * project subscription and sends operator-only PUTs with the guest token.
+ */
+export function stopServerProjects() {
+  syncGeneration += 1
+  unsubscribeProjects?.()
+  unsubscribeProjects = null
+  if (onlineHandler) window.removeEventListener("online", onlineHandler)
+  onlineHandler = null
+  for (const timer of timers.values()) clearTimeout(timer)
+  timers.clear()
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = null
+  lastSynced.clear()
+  serverKnownIds.clear()
+  inFlight.clear()
+  changedWhileInFlight.clear()
+  writesForbidden = false
+  useProjectSyncStore.setState({
+    status: "idle",
+    loadError: undefined,
+    pendingIds: [],
+    saveFailed: false,
+  })
+}
+
+/** Rehydrate the device-local project set after leaving server mode. */
+export async function initLocalProjects(): Promise<void> {
+  stopServerProjects()
+  // Only open the localStorage write gate once the local snapshot is ready to
+  // replace live state. During the logged-out gap, the old operator graph may
+  // still receive an async update and must never leak into guest storage.
+  disableServerPersistence()
+  const local = readLocalProjectState()
+  // Replace the project slice even when local storage is empty. Merging a
+  // missing snapshot would otherwise leave the previous operator's server
+  // projects visible to the next guest in the same browser tab.
+  useProjectsStore.setState(local)
+  useProjectsStore.getState().restoreProjects()
 }
 
 export function retryInitServerProjects() {
@@ -191,11 +277,9 @@ export function retryInitServerProjects() {
 
 // --- change detection ---------------------------------------------------------
 
-function startSubscriptions() {
-  if (subscribed) return
-  subscribed = true
-
-  useProjectsStore.subscribe((state, prev) => {
+function startSubscriptions(generation: number) {
+  unsubscribeProjects = useProjectsStore.subscribe((state, prev) => {
+    if (generation !== syncGeneration) return
     if (
       state.activeProjectId !== prev.activeProjectId ||
       state.nextProjectNumber !== prev.nextProjectNumber
@@ -225,12 +309,8 @@ function startSubscriptions() {
     if (state.activeProjectId !== prev.activeProjectId) flushAllPending()
   })
 
-  // Re-login after a 401 gate: the stores kept all unsaved state in memory.
-  useAuthStore.subscribe((state, prev) => {
-    if (state.token && !prev.token) flushAllPending()
-  })
-
-  window.addEventListener("online", () => flushAllPending())
+  onlineHandler = () => flushAllPending()
+  window.addEventListener("online", onlineHandler)
 }
 
 // --- flushing -----------------------------------------------------------------
@@ -248,6 +328,8 @@ function scheduleFlush(id: string) {
 }
 
 async function flushProject(id: string, init?: RequestInit): Promise<void> {
+  if (!isServerPersistence() || writesForbidden) return
+  const generation = syncGeneration
   const timer = timers.get(id)
   if (timer) {
     clearTimeout(timer)
@@ -274,15 +356,24 @@ async function flushProject(id: string, init?: RequestInit): Promise<void> {
     } else {
       await createProject(payload, init)
     }
+    if (generation !== syncGeneration) return
     serverKnownIds.add(id)
     lastSynced.set(id, serialized)
     clearPending(id)
     clearSaveFailure()
   } catch (e) {
+    if (generation !== syncGeneration) return
     if (e instanceof ApiError) {
-      // 401: api.ts already cleared auth and the UI gated to login; the
-      // auth-store subscription re-flushes after re-login. Stay pending.
+      // 401: api.ts already cleared auth and the UI gates to login. Stay
+      // pending until the session teardown resets this sync instance.
       if (e.status === 401) return
+      // Unlike network/5xx failures, a capability denial will not heal on a
+      // timer. Stop all project writes for this session so it cannot become a
+      // permanent PUT/403 loop. Signing in again reselects persistence mode.
+      if (e.status === 403) {
+        reportAuthorizationFailure()
+        return
+      }
       // The doc vanished server-side (e.g. wiped DB): recreate on next flush.
       if (e.status === 404 && serverKnownIds.has(id)) serverKnownIds.delete(id)
       // A duplicate id on POST means the doc exists after all: PUT next time.
@@ -290,8 +381,10 @@ async function flushProject(id: string, init?: RequestInit): Promise<void> {
     }
     reportSaveFailure()
   } finally {
-    inFlight.delete(id)
-    if (changedWhileInFlight.delete(id)) scheduleFlush(id)
+    if (generation === syncGeneration) {
+      inFlight.delete(id)
+      if (changedWhileInFlight.delete(id) && !writesForbidden) scheduleFlush(id)
+    }
   }
 }
 
@@ -348,6 +441,15 @@ function reportSaveFailure() {
       flushAllPending()
     }, RETRY_MS)
   }
+}
+
+function reportAuthorizationFailure() {
+  if (writesForbidden) return
+  writesForbidden = true
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = null
+  useProjectSyncStore.setState({ saveFailed: true })
+  toast.error("Project saving is not permitted for this account. Sign out and back in.")
 }
 
 function clearSaveFailure() {
