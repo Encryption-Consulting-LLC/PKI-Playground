@@ -204,7 +204,14 @@ export interface OperatorSettingsUpdate {
   guestDnsSuffix?: string
 }
 
-export type PkiRole = "domainController" | "rootCa" | "issuingCa" | "webServer"
+export type PkiRole =
+  | "domainController"
+  | "rootCa"
+  | "issuingCa"
+  | "webServer"
+  | "certsecure"
+  | "cbom"
+  | "codesign"
 
 export interface InfrastructureProfile {
   role: PkiRole

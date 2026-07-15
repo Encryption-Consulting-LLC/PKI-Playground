@@ -680,6 +680,9 @@ function miniMapColor(node: Node<MachineData>): string {
     case "webServer": return "#10b981"
     case "client": return "#a78bfa"
     case "standalone": return "#94a3b8"
+    case "certsecure": return "#06b6d4"
+    case "cbom": return "#14b8a6"
+    case "codesign": return "#6366f1"
     default: return "#94a3b8"
   }
 }

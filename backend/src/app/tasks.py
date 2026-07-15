@@ -59,7 +59,11 @@ from app.core.ippool import (
     load_guest_network_sync,
     release_ip_sync,
 )
-from app.core.infrastructure import infrastructure_profiles_from_doc, role_for_template
+from app.core.infrastructure import (
+    LINUX_PRODUCT_TEMPLATES,
+    deployment_profiles_from_doc,
+    role_for_template,
+)
 from app.core.infrastructure_preflight import (
     InfrastructurePreflight,
     PlannedMachine,
@@ -147,6 +151,12 @@ _SIMULATED_PHASES: dict[str, tuple[str, str, str]] = {
 }
 _SIMULATED_PERCENTS = (33.0, 66.0, 100.0)
 _SIMULATED_STEP_SECONDS = 0.6
+
+_PRODUCT_SETUP_LABELS = {
+    "certsecure": "Set up CertSecure Manager (stub)",
+    "cbom": "Set up CBOM Secure (stub)",
+    "codesign": "Set up CodeSign Secure (stub)",
+}
 
 
 @celery_app.task(name="clone_vm")
@@ -461,9 +471,35 @@ def _run_provision_op(
         return False
 
     vm_name = create_op.params["vmName"]
+    template = create_op.params["template"]
     registry = conn_db["vm_registry"].find_one({"vmName": vm_name}) or {}
     vm_id = (registry.get("agent") or {}).get("vmId")
     ip = registry.get("ip")
+    if template in LINUX_PRODUCT_TEMPLATES:
+        _set_visible_step(
+            state, op.id, "service-setup", "running", push,
+            percent=0.0, phase=_PRODUCT_SETUP_LABELS[template],
+        )
+        # Intentional placeholder until product installation automation lands.
+        # Keeping it as a real provision step makes the future implementation a
+        # drop-in replacement without changing the plan/topology contract.
+        time.sleep(_SIMULATED_STEP_SECONDS)
+        _set_visible_step(
+            state, op.id, "service-setup", "done", push,
+            percent=100.0, phase="Service setup stub complete",
+        )
+        _set_provision_state(conn_db, vm_name, "applied")
+        state[op.id] = OpRunState(
+            status="done", percent=100.0, phase="Service setup stub complete",
+            result={
+                "vmName": vm_name,
+                "setupStub": True,
+                **({"ip": ip} if ip else {}),
+            },
+            steps=state[op.id].steps,
+        )
+        push()
+        return True
     if vm_id is None:
         for step_id, phase in (
             ("agent-ready", "No orchestrator agent required"),
@@ -480,7 +516,6 @@ def _run_provision_op(
         push()
         return True
 
-    template = create_op.params["template"]
     dns_records = dns_records_for_context(topology)
     steps = provision_steps(
         template,
@@ -655,6 +690,7 @@ def _run_clone_op(
         maxUsagePct=settings.clone_max_usage_pct,
     )
     vm_name = op.params["vmName"]
+    template = op.params["template"]
     # Golden-image guard, enforced here and not only in deploy.validate_plan:
     # the worker trusts the plan payload's vmName verbatim (no re-validation,
     # no re-namespacing), so a plan that skipped the current route — a stale or
@@ -675,7 +711,11 @@ def _run_clone_op(
         return False
     iso_id = op.params.get("isoId")
     authored = bool(op.files) or bool(iso_id)
-    bundling = settings.orchestrator_bundling_enabled and not authored
+    bundling = (
+        settings.orchestrator_bundling_enabled
+        and not authored
+        and template not in LINUX_PRODUCT_TEMPLATES
+    )
     _set_visible_step(
         state, op.id, "prepare", "running", push,
         percent=0.0, phase="Preparing guest and first-boot media",
@@ -1209,7 +1249,7 @@ def _verify_worker_infrastructure_preflight(
         raise RuntimeError("Deploy job is missing its infrastructure preflight snapshot.")
     accepted = InfrastructurePreflight(**accepted_payload)
     doc = db["settings"].find_one({"_id": "global"})
-    profiles = infrastructure_profiles_from_doc(doc)
+    profiles = deployment_profiles_from_doc(doc)
     machines = [
         PlannedMachine(
             role=role_for_template(op.params["template"], op.params.get("caType")),
@@ -1510,7 +1550,7 @@ def run_plan_operation_task(
             push()
             if op.kind is PlanOpKind.create_vm:
                 conn = _open_worker_connection()
-                profiles = infrastructure_profiles_from_doc(
+                profiles = deployment_profiles_from_doc(
                     db["settings"].find_one({"_id": "global"})
                 )
                 ok = _run_clone_op(

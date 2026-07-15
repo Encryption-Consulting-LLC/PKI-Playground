@@ -162,6 +162,9 @@ TEMPLATE_CONFIG_FIELDS: dict[str, dict[str, FieldSpec]] = {
     },
     "client": {},
     "standalone": {},
+    "certsecure": {},
+    "cbom": {},
+    "codesign": {},
 }
 
 

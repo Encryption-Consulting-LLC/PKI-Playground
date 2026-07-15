@@ -13,6 +13,7 @@ import {
 import type { IsoMode } from "@/constants/iso"
 import { deleteIso, getTemplateScripts, uploadIso } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { templatePlatform } from "@/constants/templates"
 import type { IsoAuthoring, IsoFileEntry } from "@/store/topology"
 import { useTopologyStore } from "@/store/topology"
 import { useStagingStore } from "@/store/staging"
@@ -33,10 +34,11 @@ function formatSize(bytes: number): string {
 }
 
 /** First `new-script.ps1` variant that doesn't collide with existing names. */
-function freshName(existing: string[]): string {
-  if (!existing.includes("new-script.ps1")) return "new-script.ps1"
+function freshName(existing: string[], extension: ".ps1" | ".sh"): string {
+  const initial = `new-script${extension}`
+  if (!existing.includes(initial)) return initial
   for (let i = 2; ; i++) {
-    const candidate = `new-script-${i}.ps1`
+    const candidate = `new-script-${i}${extension}`
     if (!existing.includes(candidate)) return candidate
   }
 }
@@ -65,6 +67,7 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
   const isoInputRef = useRef<HTMLInputElement>(null)
 
   if (!node) return null
+  const templateId = node.data.typeId
   const iso = node.data.isoAuthoring ?? EMPTY_ISO
   const files = [...iso.files].sort((a, b) => a.name.localeCompare(b.name))
   const editingFile = editing ? (files.find((f) => f.name === editing) ?? null) : null
@@ -133,7 +136,8 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
   }
 
   function newFile() {
-    const name = freshName(iso.files.map((f) => f.name))
+    const extension = templatePlatform(templateId) === "linux" ? ".sh" : ".ps1"
+    const name = freshName(iso.files.map((f) => f.name), extension)
     if (!validateAdd(name, "")) return
     patch({ files: [...iso.files, { name, content: "" }] })
     setEditing(name)
@@ -383,6 +387,7 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
       <GenerateScriptDialog
         open={generating}
         nodeName={node.data.name}
+        platform={templatePlatform(templateId)}
         onInsert={insertGenerated}
         onClose={() => setGenerating(false)}
       />

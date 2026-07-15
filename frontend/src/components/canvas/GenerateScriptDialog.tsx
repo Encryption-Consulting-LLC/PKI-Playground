@@ -4,6 +4,7 @@ import { Loader2, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { generateHostname, generateNetwork, generatePassword } from "@/lib/api"
+import type { Platform } from "@/lib/api"
 import type { IsoFileEntry } from "@/store/topology"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,13 +17,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-/** All current templates clone the Windows Server base — see core/firstboot.py's `_PLATFORM`. */
-const PLATFORM = "windows" as const
-
 const KINDS = {
-  hostname: { label: "Hostname", filename: "10-hostname.ps1" },
-  network: { label: "Network", filename: "20-network.ps1" },
-  password: { label: "Password", filename: "25-password.ps1" },
+  hostname: { label: "Hostname", basename: "10-hostname" },
+  network: { label: "Network", basename: "20-network" },
+  password: { label: "Password", basename: "25-password" },
 } as const
 
 type Kind = keyof typeof KINDS
@@ -32,9 +30,10 @@ type Kind = keyof typeof KINDS
  * charset, 15-char NetBIOS limit keeping the tail — purely a prefill
  * convenience; configgen validates the real value on generate.
  */
-function defaultHostname(nodeName: string): string {
+function defaultHostname(nodeName: string, platform: Platform): string {
   const safe = nodeName.replace(/[^A-Za-z0-9-]/g, "-").replace(/^-+|-+$/g, "") || "vm"
-  return safe.slice(-15).replace(/^-+|-+$/g, "") || "vm"
+  const limit = platform === "linux" ? 63 : 15
+  return safe.slice(-limit).replace(/^-+|-+$/g, "") || "vm"
 }
 
 /**
@@ -47,11 +46,13 @@ function defaultHostname(nodeName: string): string {
 export function GenerateScriptDialog({
   open,
   nodeName,
+  platform,
   onInsert,
   onClose,
 }: {
   open: boolean
   nodeName: string
+  platform: Platform
   /** Inserts (or replaces, keyed by filename) the generated script in the panel. */
   onInsert: (file: IsoFileEntry) => void
   onClose: () => void
@@ -59,7 +60,7 @@ export function GenerateScriptDialog({
   const [kind, setKind] = useState<Kind>("hostname")
   const [busy, setBusy] = useState(false)
 
-  const [hostname, setHostname] = useState(() => defaultHostname(nodeName))
+  const [hostname, setHostname] = useState(() => defaultHostname(nodeName, platform))
   const [dhcp, setDhcp] = useState(false)
   const [ip, setIp] = useState("")
   const [prefix, setPrefix] = useState("24")
@@ -67,7 +68,7 @@ export function GenerateScriptDialog({
   const [dns1, setDns1] = useState("")
   const [dns2, setDns2] = useState("")
   const [dnsSuffix, setDnsSuffix] = useState("")
-  const [username, setUsername] = useState("Administrator")
+  const [username, setUsername] = useState(platform === "linux" ? "ubuntu" : "Administrator")
   const [password, setPassword] = useState("")
 
   function generate() {
@@ -75,10 +76,10 @@ export function GenerateScriptDialog({
     setBusy(true)
     const call =
       kind === "hostname"
-        ? generateHostname({ platform: PLATFORM, hostname: hostname.trim() })
+        ? generateHostname({ platform, hostname: hostname.trim() })
         : kind === "network"
           ? generateNetwork({
-              platform: PLATFORM,
+              platform,
               dhcp,
               ...(dhcp
                 ? {}
@@ -91,11 +92,11 @@ export function GenerateScriptDialog({
               ...(dns2.trim() ? { dns2: dns2.trim() } : {}),
               ...(dnsSuffix.trim() ? { dns_suffix: dnsSuffix.trim() } : {}),
             })
-          : generatePassword({ platform: PLATFORM, username: username.trim(), password })
+          : generatePassword({ platform, username: username.trim(), password })
 
     call
       .then((content) => {
-        onInsert({ name: KINDS[kind].filename, content })
+        onInsert({ name: `${KINDS[kind].basename}.${platform === "linux" ? "sh" : "ps1"}`, content })
         onClose()
       })
       .catch((err) => {
@@ -124,7 +125,7 @@ export function GenerateScriptDialog({
           <Dialog.Title className="text-sm font-semibold">Generate from template</Dialog.Title>
           <Dialog.Description className="text-xs text-muted-foreground">
             Renders a firstboot script with configgen and adds it to the panel
-            as <span className="font-mono">{KINDS[kind].filename}</span>,
+            as <span className="font-mono">{KINDS[kind].basename}.{platform === "linux" ? "sh" : "ps1"}</span>,
             editable like any other file.
           </Dialog.Description>
 
@@ -146,7 +147,7 @@ export function GenerateScriptDialog({
 
           {kind === "hostname" &&
             field(
-              "Hostname (15 chars max)",
+              platform === "windows" ? "Hostname (15 chars max)" : "Hostname (63 chars max)",
               <Input
                 value={hostname}
                 onChange={(e) => setHostname(e.target.value)}

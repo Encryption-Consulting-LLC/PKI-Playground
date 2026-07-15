@@ -18,6 +18,7 @@ import type {
   ServiceSocket,
 } from "@/constants/topology"
 import type { IsoAuthoring, MachineData } from "@/store/topology"
+import { templatePlatform } from "@/constants/templates"
 
 // ---------------------------------------------------------------------------
 // Lifecycle derived state
@@ -916,6 +917,7 @@ export function truncateLabel(label: string, max = DOMAIN_LABEL_MAX_CHARS): stri
  */
 export function isDomainEligible(node: Node<MachineData>, edges: Edge[]): boolean {
   if (node.data.typeId === "domainController") return false
+  if (templatePlatform(node.data.typeId) === "linux") return false
   if (!isConnectable(node.data)) return false
   if (
     node.data.typeId === "certificateAuthority" &&
@@ -936,6 +938,9 @@ export function domainJoinBlockReason(
   }
   if (node.data.typeId === "domainController") {
     return "A domain controller defines its own boundary and cannot join another domain."
+  }
+  if (templatePlatform(node.data.typeId) === "linux") {
+    return `${node.data.name} is a Linux product server; domain integration is not implemented yet.`
   }
   if (!isConnectable(node.data)) {
     return `Configure ${node.data.name} before joining it to a domain.`

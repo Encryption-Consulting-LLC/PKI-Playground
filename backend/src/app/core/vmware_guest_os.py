@@ -16,6 +16,17 @@ def guest_os_ids_match(actual: str | None, expected: str) -> bool:
     if actual == expected:
         return True
 
+    # Common Linux ids use ``ubuntu-64`` in VMX but ``ubuntu64Guest`` in the
+    # inventory API. Normalizing separators and the API suffix also covers the
+    # Windows ``-64``/``_64Guest`` pair below without special-casing a distro.
+    def normalized(value: str) -> str:
+        if value.endswith("Guest"):
+            value = value.removesuffix("Guest")
+        return value.replace("-", "").replace("_", "").casefold()
+
+    if normalized(actual) == normalized(expected):
+        return True
+
     api_suffix = "_64Guest"
     vmx_suffix = "-64"
     if actual.endswith(api_suffix) and expected.endswith(vmx_suffix):

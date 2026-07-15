@@ -57,8 +57,12 @@ export interface TemplateDef {
   id: string
   label: string
   icon: LucideIcon
+  logo?: string
   accent: string
   description: string
+  platform: "linux" | "windows"
+  category?: "component" | "product"
+  cloneBase?: string
   configFields?: ConfigField[]
 }
 
@@ -69,6 +73,7 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
     icon: Building2,
     accent: "text-blue-500",
     description: "AD DS · DNS",
+    platform: "windows",
     configFields: [
       {
         key: "domainName",
@@ -118,6 +123,7 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
     icon: ShieldCheck,
     accent: "text-amber-500",
     description: "AD CS",
+    platform: "windows",
     configFields: [
       {
         key: "caType",
@@ -189,6 +195,7 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
     icon: Globe,
     accent: "text-emerald-500",
     description: "IIS publication · CDP/AIA · OCSP",
+    platform: "windows",
     configFields: [
       {
         key: "certEnrollPath",
@@ -220,6 +227,7 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
     icon: Monitor,
     accent: "text-violet-400",
     description: "Windows 11 workstation",
+    platform: "windows",
   },
   {
     id: "standalone",
@@ -227,6 +235,40 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
     icon: Server,
     accent: "text-slate-400",
     description: "Generic Windows Server",
+    platform: "windows",
+  },
+  {
+    id: "certsecure",
+    label: "CertSecure Manager",
+    icon: Server,
+    logo: "/certsecure-manager.svg",
+    accent: "text-cyan-500",
+    description: "Linux server · Ubuntu 22.04",
+    platform: "linux",
+    category: "product",
+    cloneBase: "ub-22.04-base",
+  },
+  {
+    id: "cbom",
+    label: "CBOM Secure",
+    icon: Server,
+    logo: "/cbom-secure.svg",
+    accent: "text-teal-500",
+    description: "Linux server · Ubuntu 22.04",
+    platform: "linux",
+    category: "product",
+    cloneBase: "ub-22.04-base",
+  },
+  {
+    id: "codesign",
+    label: "CodeSign Secure",
+    icon: Server,
+    logo: "/codesign-secure.svg",
+    accent: "text-indigo-500",
+    description: "Linux server · Ubuntu 22.04",
+    platform: "linux",
+    category: "product",
+    cloneBase: "ub-22.04-base",
   },
 ]
 
@@ -240,4 +282,11 @@ export const AUTO_NAME_PREFIX: Record<string, string> = {
   webServer: "srv",
   client: "client",
   standalone: "misc",
+  certsecure: "certsecure",
+  cbom: "cbom",
+  codesign: "codesign",
+}
+
+export function templatePlatform(typeId: string): "linux" | "windows" {
+  return TEMPLATE_BY_ID[typeId]?.platform ?? "windows"
 }

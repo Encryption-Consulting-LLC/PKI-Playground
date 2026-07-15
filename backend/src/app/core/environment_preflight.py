@@ -132,6 +132,7 @@ def preflight_control_plane(
     *,
     mongo_ready: bool,
     check_worker: bool = True,
+    require_agent: bool = True,
 ) -> EnvironmentPreflight:
     """Check persistence, broker, worker, callback, and bundled agent identity."""
 
@@ -161,7 +162,15 @@ def preflight_control_plane(
         )
     )
 
-    agent_check, agent_digest = _agent_binary_check(profiles)
+    if require_agent:
+        agent_check, agent_digest = _agent_binary_check(profiles)
+    else:
+        agent_check = EnvironmentCheck(
+            key="agentBinary",
+            ok=True,
+            detail="Windows orchestrator agent is not required for this Linux product-only plan.",
+        )
+        agent_digest = None
     checks.append(agent_check)
 
     if check_worker:

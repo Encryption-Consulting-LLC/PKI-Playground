@@ -7,13 +7,20 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.settings import settings
 
 
-PkiRole = Literal["domainController", "rootCa", "issuingCa", "webServer"]
+PkiRole = Literal[
+    "domainController", "rootCa", "issuingCa", "webServer",
+    "certsecure", "cbom", "codesign",
+]
 PKI_ROLES: tuple[PkiRole, ...] = (
     "domainController",
     "rootCa",
     "issuingCa",
     "webServer",
 )
+PRODUCT_ROLES: tuple[PkiRole, ...] = ("certsecure", "cbom", "codesign")
+LINUX_PRODUCT_TEMPLATES = frozenset(PRODUCT_ROLES)
+LINUX_PRODUCT_BASE = "ub-22.04-base"
+LINUX_PRODUCT_GUEST_OS = "ubuntu-64"
 REQUIRED_AGENT_COMMANDS = frozenset({
     "ca.publish_crl", "ca.uninstall", "dc.remove_forest", "dns.remove_resources",
     "dns.verify_absent", "domain.leave", "iis.remove_certenroll", "ocsp.remove",
@@ -71,6 +78,8 @@ _DEFAULT_SIZING: dict[PkiRole, tuple[int, int, int]] = {
     "issuingCa": (8, 8192, 80),
     "webServer": (8, 8192, 80),
 }
+
+_PRODUCT_SIZING = (4, 8192, 40)
 
 
 def default_infrastructure_profiles() -> list[InfrastructureProfile]:
@@ -141,6 +150,35 @@ def infrastructure_profiles_from_doc(doc: dict | None) -> dict[PkiRole, Infrastr
     return defaults
 
 
+def deployment_profiles_from_doc(doc: dict | None) -> dict[PkiRole, InfrastructureProfile]:
+    """Resolve guided Windows profiles plus fixed Ubuntu product profiles.
+
+    Product services intentionally do not extend the operator's Windows image
+    qualification form yet. They clone the shared ``ub-22.04-base`` image and
+    inherit only placement policy (datastore, port group, usage ceiling) from
+    the legacy/global clone settings until product-specific setup is built.
+    """
+
+    doc = doc or {}
+    profiles = infrastructure_profiles_from_doc(doc)
+    cpus, memory_mb, disk_gb = _PRODUCT_SIZING
+    for role in PRODUCT_ROLES:
+        profiles[role] = InfrastructureProfile(
+            role=role,
+            base=LINUX_PRODUCT_BASE,
+            datastore=doc.get("cloneDatastore") or settings.clone_datastore,
+            expectedGuestOs=LINUX_PRODUCT_GUEST_OS,
+            network=doc.get("cloneNetwork") or settings.clone_network,
+            cpus=cpus,
+            memoryMb=memory_mb,
+            systemDiskGb=disk_gb,
+            maxUsagePct=(
+                doc.get("cloneMaxUsagePct") or settings.clone_max_usage_pct
+            ),
+        )
+    return profiles
+
+
 def role_for_template(template: str, ca_type: str | None = None) -> PkiRole:
     """Map a staged template configuration to its infrastructure role."""
 
@@ -150,4 +188,6 @@ def role_for_template(template: str, ca_type: str | None = None) -> PkiRole:
         return "webServer"
     if template == "certificateAuthority":
         return "issuingCa" if ca_type == "Issuing" else "rootCa"
+    if template in LINUX_PRODUCT_TEMPLATES:
+        return template  # type: ignore[return-value]
     raise ValueError(f"template '{template}' has no guided PKI infrastructure profile")

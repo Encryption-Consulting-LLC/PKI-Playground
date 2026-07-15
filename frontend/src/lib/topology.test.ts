@@ -241,6 +241,9 @@ describe("living domain model", () => {
     expect(domainJoinBlockReason(root, dc, [])).toBe(
       "CA01 is an offline root CA and must remain outside Active Directory.",
     )
+    expect(domainJoinBlockReason(machine("product", "CBOM01", "cbom"), dc, [])).toBe(
+      "CBOM01 is a Linux product server; domain integration is not implemented yet.",
+    )
     expect(domainJoinBlockReason(machine("web", "SRV1", "webServer"), dc, [])).toBeNull()
   })
 

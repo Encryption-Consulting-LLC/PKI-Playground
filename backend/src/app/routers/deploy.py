@@ -17,7 +17,7 @@ import re
 import uuid
 import io
 import datetime
-from typing import Literal
+from typing import Literal, Mapping
 from enum import Enum
 from functools import partial
 
@@ -49,7 +49,13 @@ from app.core.golden_image import (
     preflight_golden_image,
 )
 from app.core.ippool import guest_network_from_doc
-from app.core.infrastructure import infrastructure_profiles_from_doc, role_for_template
+from app.core.infrastructure import (
+    LINUX_PRODUCT_BASE,
+    LINUX_PRODUCT_TEMPLATES,
+    deployment_profiles_from_doc,
+    infrastructure_profiles_from_doc,
+    role_for_template,
+)
 from app.core.infrastructure_preflight import PlannedMachine, preflight_infrastructure
 from app.core.environment_preflight import preflight_control_plane
 from app.core.settings import settings
@@ -184,6 +190,7 @@ def validate_plan(
     guest_network_configured: bool,
     project_id: str | None = None,
     clone_base: str | None = None,
+    clone_bases: Mapping[str, str] | None = None,
 ) -> None:
     """Raise 422 on a malformed plan: duplicate ids, unknown/self deps, cycles,
     a ``createVm`` missing its ``vmName``/``template`` params, or invalid
@@ -205,6 +212,10 @@ def validate_plan(
     stay easy to read and the errors are unambiguous 422s.
     """
     clone_base = clone_base or settings.clone_base
+    template_clone_bases = {
+        template: LINUX_PRODUCT_BASE for template in LINUX_PRODUCT_TEMPLATES
+    }
+    template_clone_bases.update(clone_bases or {})
     ids = [op.id for op in ops]
     if len(ids) != len(set(ids)):
         raise HTTPException(422, detail="Plan contains duplicate op ids.")
@@ -223,6 +234,12 @@ def validate_plan(
         )
 
     id_set = set(ids)
+    linux_product_nodes = {
+        op.target
+        for op in ops
+        if op.kind is PlanOpKind.create_vm
+        and op.params.get("template") in LINUX_PRODUCT_TEMPLATES
+    }
     plan_files_bytes = 0
     seen_iso_ids: set[str] = set()
     for op in ops:
@@ -238,6 +255,17 @@ def validate_plan(
                 raise HTTPException(
                     422,
                     detail=f"Op '{op.id}': ISO content is only valid on createVm ops.",
+                )
+            if (
+                op.kind is PlanOpKind.domain_join
+                and op.target in linux_product_nodes
+            ):
+                raise HTTPException(
+                    422,
+                    detail=(
+                        f"Op '{op.id}' (domainJoin) targets a Linux product server; "
+                        "domain integration is not implemented yet."
+                    ),
                 )
             # Cross-node ops name their second node so the backend can resolve
             # its real identity. ``secondary``/``target`` are canvas
@@ -372,11 +400,14 @@ def validate_plan(
         # ESXi rejects as "file already exists" — but only after clobbering the
         # directory. Reject it up front. Guests can't reach this (their names are
         # namespaced), so this catches free-form operator names.
-        if op.params["vmName"] == clone_base:
+        selected_base = template_clone_bases.get(
+            op.params["template"], clone_base
+        )
+        if op.params["vmName"] == selected_base:
             raise HTTPException(
                 422,
                 detail=(
-                    f"Op '{op.id}' (createVm) would name a VM '{clone_base}', "
+                    f"Op '{op.id}' (createVm) would name a VM '{selected_base}', "
                     "the base image it clones from — rename the node."
                 ),
             )
@@ -475,6 +506,7 @@ async def deploy(
     req.ops = compiled.operations
     doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
     image_config = golden_image_config_from_doc(doc)
+    deployment_profiles = deployment_profiles_from_doc(doc)
     target = _target_from_doc(doc)
     validate_plan(
         req.ops,
@@ -483,6 +515,10 @@ async def deploy(
         guest_network_configured=guest_network_from_doc(doc) is not None,
         project_id=req.project_id,
         clone_base=image_config.base,
+        clone_bases={
+            template: deployment_profiles[role_for_template(template)].base
+            for template in LINUX_PRODUCT_TEMPLATES
+        },
     )
 
     # Reject a derived name that already belongs to a *different* live VM before
@@ -496,6 +532,10 @@ async def deploy(
                 preflight_control_plane,
                 infrastructure_profiles_from_doc(doc),
                 mongo_ready=True,
+                require_agent=any(
+                    op.params["template"] not in LINUX_PRODUCT_TEMPLATES
+                    for op in create_ops
+                ),
             )
         )
         if not environment.ready:
@@ -544,7 +584,7 @@ async def deploy(
                 ),
             )
 
-    # Last read-only gate before enqueue: prove the selected Windows image,
+    # Last read-only gate before enqueue: prove each selected Windows/Linux image,
     # aggregate datastore capacity, and every derived inventory name against
     # the live ESXi host. The snapshot rides with the job and is checked again
     # by the worker before its first datastore write.
@@ -556,7 +596,7 @@ async def deploy(
             partial(
                 preflight_infrastructure,
                 conn,
-                infrastructure_profiles_from_doc(doc),
+                deployment_profiles,
                 [
                     PlannedMachine(
                         role=role_for_template(

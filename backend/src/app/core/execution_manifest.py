@@ -2,7 +2,11 @@
 
 from typing import Any
 
-from app.core.infrastructure import infrastructure_profiles_from_doc, role_for_template
+from app.core.infrastructure import (
+    LINUX_PRODUCT_TEMPLATES,
+    deployment_profiles_from_doc,
+    role_for_template,
+)
 from app.core.sequences.context import dns_records_for_context
 from app.core.sequences.definitions import CA, DC, PRIMARY, ROOT, SECONDARY, WEB, op_sequence, provision_steps
 from app.core.sequences.model import DnsRecordContext, NodeContext, RunContext, Step
@@ -162,7 +166,7 @@ def build_execution_groups(
 
     topology_nodes = {node.id: node for node in topology.nodes}
     ops_by_id = {op.id: op for op in operations}
-    profiles = infrastructure_profiles_from_doc(settings_doc)
+    profiles = deployment_profiles_from_doc(settings_doc)
     groups = []
     for op in operations:
         kind = str(getattr(op.kind, "value", op.kind))
@@ -183,24 +187,40 @@ def build_execution_groups(
             # Synthesized ops carry empty params; the sibling createVm holds
             # the template/config, exactly as the runtime resolves them.
             sibling = ops_by_id.get(op.id.removesuffix(PROVISION_SUFFIX), op)
+            template = sibling.params.get("template", "")
             context = _preview_context(topology, sibling)
-            steps = [
-                {"id": "agent-ready", "label": "Wait for orchestrator agent", "kind": "wait", "dependsOn": []},
-                {"id": "boot-settle", "label": "Wait for first boot to settle", "kind": "wait", "dependsOn": ["agent-ready"]},
-            ]
+            if template in LINUX_PRODUCT_TEMPLATES:
+                product_label = {
+                    "certsecure": "Set up CertSecure Manager (stub)",
+                    "cbom": "Set up CBOM Secure (stub)",
+                    "codesign": "Set up CodeSign Secure (stub)",
+                }[template]
+                steps = [{
+                    "id": "service-setup", "label": product_label,
+                    "kind": "backend", "dependsOn": [],
+                }]
+            else:
+                steps = [
+                    {"id": "agent-ready", "label": "Wait for orchestrator agent", "kind": "wait", "dependsOn": []},
+                    {"id": "boot-settle", "label": "Wait for first boot to settle", "kind": "wait", "dependsOn": ["agent-ready"]},
+                ]
             for item in steps:
                 item["targetNodeId"] = op.target
             provision = provision_steps(
-                sibling.params.get("template", ""),
+                template,
                 ca_type=sibling.params.get("caType"),
                 node_id=op.target,
                 dns_records=context.dns_records,
             )
             tail = _manifest_steps(provision, context.nodes)
-            if tail:
+            if tail and template not in LINUX_PRODUCT_TEMPLATES:
                 tail[0]["dependsOn"] = ["boot-settle"]
             steps.extend(tail)
-            detail = _PROVISION_DETAIL.get(target.role, "Boot & settle")
+            detail = (
+                "Service setup stub"
+                if template in LINUX_PRODUCT_TEMPLATES
+                else _PROVISION_DETAIL.get(target.role, "Boot & settle")
+            )
             label = f"Provision {target.name} — {detail}"
         else:
             context = _preview_context(topology, op)

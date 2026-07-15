@@ -499,7 +499,11 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           "bg-muted/40",
         )}
       >
-        <Icon className={cn("h-4 w-4 shrink-0", def?.accent ?? "text-muted-foreground")} />
+        {def?.logo ? (
+          <img src={def.logo} alt="" className="h-5 w-5 shrink-0" draggable={false} />
+        ) : (
+          <Icon className={cn("h-4 w-4 shrink-0", def?.accent ?? "text-muted-foreground")} />
+        )}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-xs font-semibold">{data.name}</span>
           <span className="block truncate text-[9px] text-muted-foreground">

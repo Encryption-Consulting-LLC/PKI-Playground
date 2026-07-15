@@ -9,11 +9,8 @@ const DRAG_TYPE = "application/reactflow"
 
 type Tab = "templates" | "staged"
 
-const PRODUCT_CATALOG = [
-  { label: "CertSecure Manager", logo: "/certsecure-manager.svg" },
-  { label: "CBOM Secure", logo: "/cbom-secure.svg" },
-  { label: "CodeSign Secure", logo: "/codesign-secure.svg" },
-] as const
+const COMPONENT_TEMPLATES = TEMPLATE_CATALOG.filter((def) => def.category !== "product")
+const PRODUCT_TEMPLATES = TEMPLATE_CATALOG.filter((def) => def.category === "product")
 
 export function Toolbox() {
   const [tab, setTab] = useState<Tab>("templates")
@@ -58,7 +55,7 @@ export function Toolbox() {
             Components
           </h2>
           <div className="grid grid-cols-2 gap-2">
-            {TEMPLATE_CATALOG.map((def) => {
+            {COMPONENT_TEMPLATES.map((def) => {
               const Icon = def.icon
               return (
                 <div
@@ -90,18 +87,29 @@ export function Toolbox() {
             Product Catalog
           </h2>
           <div className="grid grid-cols-2 gap-2">
-            {PRODUCT_CATALOG.map((product) => {
+            {PRODUCT_TEMPLATES.map((product) => {
+              const Icon = product.icon
               return (
                 <div
-                  key={product.label}
-                  className="flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg border bg-card p-1.5 shadow-sm select-none"
+                  key={product.id}
+                  draggable={!deploying}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(DRAG_TYPE, product.id)
+                    e.dataTransfer.effectAllowed = "copy"
+                  }}
+                  title={`${product.description} · clones ${product.cloneBase}`}
+                  className={cn(
+                    "flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg border bg-card p-1.5 shadow-sm select-none transition-colors",
+                    deploying
+                      ? "cursor-not-allowed opacity-50"
+                      : "cursor-grab hover:bg-accent hover:text-accent-foreground active:cursor-grabbing",
+                  )}
                 >
-                  <img
-                    src={product.logo}
-                    alt=""
-                    className="h-8 w-8 shrink-0"
-                    draggable={false}
-                  />
+                  {product.logo ? (
+                    <img src={product.logo} alt="" className="h-8 w-8 shrink-0" draggable={false} />
+                  ) : (
+                    <Icon className={cn("h-8 w-8 shrink-0", product.accent)} />
+                  )}
                   <span className="text-center text-[11px] font-semibold leading-tight">
                     {product.label}
                   </span>

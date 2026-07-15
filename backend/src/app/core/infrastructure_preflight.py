@@ -14,6 +14,7 @@ from vmkit.esxi import get_datastore, get_vm_by_name, list_vm_names
 from app.core.db.models import now_ms
 from app.core.infrastructure import (
     ASSUMED_TESTED_BASE_CHANGE_VERSION,
+    LINUX_PRODUCT_TEMPLATES,
     REQUIRED_AGENT_COMMANDS,
     InfrastructureProfile,
     PkiRole,
@@ -207,16 +208,25 @@ def preflight_infrastructure(
                 )
             )
             actual_guest_os = getattr(vm_config, "guestId", None)
-            os_ok = bool(
+            linux_product = machine.role in LINUX_PRODUCT_TEMPLATES
+            platform_label = "Linux" if linux_product else "Windows"
+            platform_ok = bool(
                 actual_guest_os
-                and actual_guest_os.lower().startswith("windows")
-                and guest_os_ids_match(actual_guest_os, profile.expected_guest_os)
+                and (
+                    not linux_product
+                    and actual_guest_os.lower().startswith("windows")
+                    or linux_product
+                    and not actual_guest_os.lower().startswith("windows")
+                )
+            )
+            os_ok = platform_ok and guest_os_ids_match(
+                actual_guest_os, profile.expected_guest_os
             )
             checks.append(
                 InfrastructureCheck(
                     key="guestOs", role=machine.role, ok=os_ok,
                     detail=(
-                        f"Image reports expected Windows guest OS '{actual_guest_os}'."
+                        f"Image reports expected {platform_label} guest OS '{actual_guest_os}'."
                         if os_ok
                         else f"Image reports '{actual_guest_os or 'unknown'}'; expected '{profile.expected_guest_os}'."
                     ),
@@ -224,6 +234,7 @@ def preflight_infrastructure(
             )
 
         qualification = profile.qualification
+        linux_product = machine.role in LINUX_PRODUCT_TEMPLATES
         revision_qualified = bool(
             qualification
             and (
@@ -231,7 +242,7 @@ def preflight_infrastructure(
                 or qualification.base_change_version == ASSUMED_TESTED_BASE_CHANGE_VERSION
             )
         )
-        qualification_ok = bool(
+        qualification_ok = linux_product or bool(
             qualification
             and revision_qualified
             and qualification.system_context_validated
@@ -253,7 +264,9 @@ def preflight_infrastructure(
             InfrastructureCheck(
                 key="qualification", role=machine.role, ok=qualification_ok,
                 detail=(
-                    "Image qualification matches this revision and required canaries."
+                    "Linux product setup is stubbed; Windows PKI qualification is not required."
+                    if linux_product
+                    else "Image qualification matches this revision and required canaries."
                     if qualification_ok
                     else (
                         "Image revision is not qualified for the current runner, SYSTEM "

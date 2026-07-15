@@ -606,7 +606,11 @@ export function Inspector() {
     <aside className="flex w-64 shrink-0 flex-col gap-0 overflow-x-hidden overflow-y-auto border-l bg-sidebar transition-[width] duration-200 ease-in-out">
       {/* Header */}
       <div className="flex items-center gap-2 border-b px-3 py-3">
-        <Icon className={cn("h-4 w-4 shrink-0", def?.accent)} />
+        {def?.logo ? (
+          <img src={def.logo} alt="" className="h-5 w-5 shrink-0" draggable={false} />
+        ) : (
+          <Icon className={cn("h-4 w-4 shrink-0", def?.accent)} />
+        )}
         <span className="flex-1 text-sm font-semibold truncate">{data.name}</span>
         <button
           onClick={() => store.selectNode(null)}
@@ -627,6 +631,14 @@ export function Inspector() {
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
             <span className="text-muted-foreground">Role</span>
             <span>{def?.label ?? data.typeId}</span>
+            <span className="text-muted-foreground">Platform</span>
+            <span>{def?.platform === "linux" ? "Linux · Ubuntu 22.04" : "Windows"}</span>
+            {def?.cloneBase && (
+              <>
+                <span className="text-muted-foreground">Clone image</span>
+                <span className="font-mono">{def.cloneBase}</span>
+              </>
+            )}
             {/* Offline root: present as air-gapped — the management IP is real
                 (it phones home) but hidden here; operators see it in the
                 Orchestrator panel. Everyone else just sees the sneakernet

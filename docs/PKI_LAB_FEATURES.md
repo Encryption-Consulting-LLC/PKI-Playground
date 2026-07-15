@@ -72,6 +72,6 @@
 
 ## EC Product Catalog
 
-- [ ] Ready-made CertSecure component template
-- [ ] Ready-made CBOM Secure component template
-- [ ] Ready-made CodeSign Secure component template
+- [x] Ready-made CertSecure Linux component template (`ub-22.04-base`; service setup stubbed)
+- [x] Ready-made CBOM Secure Linux component template (`ub-22.04-base`; service setup stubbed)
+- [x] Ready-made CodeSign Secure Linux component template (`ub-22.04-base`; service setup stubbed)

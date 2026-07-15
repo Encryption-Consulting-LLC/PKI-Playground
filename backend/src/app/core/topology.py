@@ -859,15 +859,24 @@ def compile_plan(
 
         if kind == "createVm":
             template = op.params.get("template")
-            expected = {
+            expected_templates = {
                 TopologyRole.domain_controller: ("domainController", None),
                 TopologyRole.root_ca: ("certificateAuthority", "Root"),
                 TopologyRole.issuing_ca: ("certificateAuthority", "Issuing"),
                 TopologyRole.web_server: ("webServer", None),
                 TopologyRole.client: ("client", None),
-                TopologyRole.standalone: ("standalone", None),
+                TopologyRole.standalone: (
+                    {"standalone", "certsecure", "cbom", "codesign"}, None
+                ),
             }[nodes[op.target].role]
-            if template != expected[0] or (expected[1] and op.params.get("caType") != expected[1]):
+            allowed = expected_templates[0]
+            template_matches = (
+                template in allowed if isinstance(allowed, set) else template == allowed
+            )
+            if not template_matches or (
+                expected_templates[1]
+                and op.params.get("caType") != expected_templates[1]
+            ):
                 error(
                     "operation-role-mismatch",
                     f"createVm for {nodes[op.target].name} does not match role {nodes[op.target].role.value}.",

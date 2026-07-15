@@ -51,6 +51,9 @@ const ROLE_LABELS = {
   rootCa: "Offline root CA",
   issuingCa: "Issuing CA",
   webServer: "Web and OCSP server",
+  certsecure: "CertSecure Manager",
+  cbom: "CBOM Secure",
+  codesign: "CodeSign Secure",
 } as const
 
 const DEFAULT_PROFILES: InfrastructureProfile[] = [

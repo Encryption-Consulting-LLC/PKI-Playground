@@ -36,6 +36,7 @@ import isokit
 from configgen import NetworkConfig
 
 from app.core.ippool import GuestNetwork
+from app.core.infrastructure import LINUX_PRODUCT_TEMPLATES
 
 #: On-disc name for the embedded agent binary — what the install script and the
 #: agent's Windows service expect (see ``assets/firstboot/_agent``).
@@ -62,15 +63,21 @@ class AgentBundle:
 #: mirrors ``frontend/src/constants/templates.ts``. A template without role
 #: scripts (standalone) still gets hostname + network.
 TEMPLATE_IDS: frozenset[str] = frozenset(
-    {"domainController", "certificateAuthority", "webServer", "client", "standalone"}
+    {
+        "domainController", "certificateAuthority", "webServer", "client", "standalone",
+        *LINUX_PRODUCT_TEMPLATES,
+    }
 )
 
 _ASSETS = Path(__file__).parent.parent / "assets" / "firstboot"
 
-#: All current templates clone the Windows Server base (ws-2025-base).
-_PLATFORM = "windows"
-
 _UNSAFE_HOSTNAME_CHARS = re.compile(r"[^A-Za-z0-9-]")
+
+
+def platform_for_template(template: str) -> str:
+    """Return the configgen platform for a server template."""
+
+    return "linux" if template in LINUX_PRODUCT_TEMPLATES else "windows"
 
 
 def hostname_for(vm_name: str) -> str:
@@ -94,12 +101,20 @@ def hostname_for(vm_name: str) -> str:
     return safe[:15].strip("-") or "vm"
 
 
+def linux_hostname_for(vm_name: str) -> str:
+    """Derive a DNS-safe Linux hostname while retaining the project namespace."""
+
+    safe = _UNSAFE_HOSTNAME_CHARS.sub("-", vm_name).strip("-").lower() or "vm"
+    return safe[:63].strip("-") or "vm"
+
+
 def role_scripts_for(template: str) -> list[Path]:
     """The template's fixed role scripts, in manifest order."""
     template_dir = _ASSETS / template
     if not template_dir.is_dir():
         return []
-    return sorted(template_dir.glob("*.ps1"))
+    extension = "*.sh" if platform_for_template(template) == "linux" else "*.ps1"
+    return sorted(template_dir.glob(extension))
 
 
 def build_firstboot_iso(
@@ -128,15 +143,22 @@ def build_firstboot_iso(
     if template not in TEMPLATE_IDS:
         raise KeyError(f"Unknown template '{template}'.")
 
-    hostname_script = dest_dir / "10-hostname.ps1"
+    platform = platform_for_template(template)
+    extension = "sh" if platform == "linux" else "ps1"
+    hostname = linux_hostname_for(vm_name) if platform == "linux" else hostname_for(vm_name)
+
+    if platform == "linux" and agent is not None:
+        raise ValueError("The Windows orchestrator agent cannot be bundled into a Linux template.")
+
+    hostname_script = dest_dir / f"10-hostname.{extension}"
     hostname_script.write_text(
-        configgen.render_hostname(_PLATFORM, hostname_for(vm_name)), encoding="utf-8"
+        configgen.render_hostname(platform, hostname), encoding="utf-8"
     )
 
-    network_script = dest_dir / "20-network.ps1"
+    network_script = dest_dir / f"20-network.{extension}"
     network_script.write_text(
         configgen.render_network(
-            _PLATFORM,
+            platform,
             NetworkConfig(
                 mode="static",
                 ip=ip,
