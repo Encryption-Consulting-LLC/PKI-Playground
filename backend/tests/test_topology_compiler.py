@@ -63,24 +63,28 @@ def test_arbitrary_staging_order_compiles_to_the_same_plan():
         "create-root",
         "create-issuing",
         "create-web",
+        "create-dc::provision",
+        "create-root::provision",
+        "create-issuing::provision",
+        "create-web::provision",
         "join-issuing",
         "join-web",
         "connect-ca",
         "publish",
     ]
     assert next(op for op in forward.operations if op.id == "connect-ca").depends_on == [
-        "create-dc",
-        "create-root",
-        "create-issuing",
-        "create-web",
+        "create-dc::provision",
+        "create-root::provision",
+        "create-issuing::provision",
+        "create-web::provision",
         "join-issuing",
         "join-web",
     ]
     assert next(op for op in forward.operations if op.id == "publish").depends_on == [
-        "create-dc",
-        "create-root",
-        "create-issuing",
-        "create-web",
+        "create-dc::provision",
+        "create-root::provision",
+        "create-issuing::provision",
+        "create-web::provision",
         "join-issuing",
         "join-web",
         "connect-ca",
@@ -114,15 +118,19 @@ def test_supplied_template_compiles_joins_before_pki_services():
         ("create-root", []),
         ("create-issuing", []),
         ("create-web", []),
-        ("join-issuing", ["create-dc", "create-issuing"]),
-        ("join-web", ["create-dc", "create-web"]),
+        ("create-dc::provision", ["create-dc"]),
+        ("create-root::provision", ["create-root"]),
+        ("create-issuing::provision", ["create-issuing"]),
+        ("create-web::provision", ["create-web"]),
+        ("join-issuing", ["create-dc::provision", "create-issuing::provision"]),
+        ("join-web", ["create-dc::provision", "create-web::provision"]),
         (
             "connect-ca",
             [
-                "create-dc",
-                "create-root",
-                "create-issuing",
-                "create-web",
+                "create-dc::provision",
+                "create-root::provision",
+                "create-issuing::provision",
+                "create-web::provision",
                 "join-issuing",
                 "join-web",
             ],
@@ -130,10 +138,10 @@ def test_supplied_template_compiles_joins_before_pki_services():
         (
             "publish",
             [
-                "create-dc",
-                "create-root",
-                "create-issuing",
-                "create-web",
+                "create-dc::provision",
+                "create-root::provision",
+                "create-issuing::provision",
+                "create-web::provision",
                 "join-issuing",
                 "join-web",
                 "connect-ca",
@@ -183,7 +191,9 @@ def test_recompilation_preserves_operation_ids_and_inputs():
 
     compiled = compile_plan(_topology(), operations)
 
-    assert {op.id for op in compiled.operations} == {op.id for op in operations}
+    assert {op.id for op in compiled.operations} == {op.id for op in operations} | {
+        f"{op.id}::provision" for op in operations if op.kind.value == "createVm"
+    }
     assert [id(op) for op in operations] == original_ids
     assert all(op.depends_on == [] for op in operations)
 
@@ -252,11 +262,64 @@ def test_compiler_reports_duration_and_critical_path_estimates():
     assert compiled.estimated_duration_seconds == 12900
     assert compiled.critical_path == [
         "create-dc",
+        "create-dc::provision",
         "join-issuing",
         "connect-ca",
         "publish",
     ]
     assert compiled.critical_path_duration_seconds == 8100
+
+
+def test_every_create_gets_a_synthesized_provision_companion():
+    compiled = compile_plan(_topology(), _ops())
+
+    creates = [op for op in compiled.operations if op.kind.value == "createVm"]
+    provisions = {
+        op.id: op for op in compiled.operations if op.kind.value == "provision"
+    }
+    assert set(provisions) == {f"{op.id}::provision" for op in creates}
+    for create in creates:
+        companion = provisions[f"{create.id}::provision"]
+        assert companion.target == create.target
+        assert companion.params == {}
+        assert companion.secondary is None
+        assert companion.files == []
+        assert companion.depends_on == [create.id]
+
+
+def test_recompiling_a_compiled_plan_is_a_fixed_point():
+    compiled = compile_plan(_topology(), _ops())
+
+    recompiled = compile_plan(_topology(), compiled.operations)
+
+    assert _shape(recompiled) == _shape(compiled)
+    assert recompiled.critical_path == compiled.critical_path
+    assert recompiled.estimated_duration_seconds == compiled.estimated_duration_seconds
+
+
+def test_client_supplied_provision_ops_are_stripped_and_resynthesized():
+    operations = [
+        *_ops(),
+        PlanOp(id="spoof", kind="provision", target="dc", params={"vmName": "evil"}),
+    ]
+
+    compiled = compile_plan(_topology(), operations)
+
+    provisions = [op for op in compiled.operations if op.kind.value == "provision"]
+    assert "spoof" not in {op.id for op in provisions}
+    assert all(op.params == {} for op in provisions)
+
+
+def test_client_ids_using_the_reserved_provision_suffix_are_rejected():
+    operations = _ops()
+    operations[0].id = "create-dc::provision"
+
+    with pytest.raises(PlanCompilationError) as caught:
+        compile_plan(_topology(), operations)
+
+    assert any(
+        item.code == "reserved-operation-id" for item in caught.value.diagnostics
+    )
 
 
 def test_cycle_diagnostic_includes_the_operation_path():

@@ -5,11 +5,12 @@ with a ``job_id``; a Celery coordinator fans ready dependency-graph operations
 out to the worker pool, streaming per-op state over the existing
 ``/api/ws/jobs/{job_id}`` transport as one ``PlanStateMsg`` per transition.
 
-Vocabulary is exactly the five op kinds the frontend staging store can produce
-(see ``frontend/src/lib/staging.ts``). Every ``createVm`` is a
-real clone — the server decides, never a client flag — booted from a per-VM
-firstboot ISO carrying a pool-allocated guest IP; the other four kinds remain
-simulated stubs (see ``app.tasks._simulate_op``).
+Vocabulary is the five op kinds the frontend staging store can produce
+(see ``frontend/src/lib/staging.ts``) plus the backend-synthesized
+``provision`` companion ``compile_plan`` adds per createVm. Every ``createVm``
+is a real clone — the server decides, never a client flag — booted from a
+per-VM firstboot ISO carrying a pool-allocated guest IP; op kinds without a
+real command sequence remain simulated stubs (see ``app.tasks._simulate_op``).
 """
 
 import re
@@ -79,6 +80,11 @@ _ISO_FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.(ps1|sh)$")
 
 class PlanOpKind(str, Enum):
     create_vm = "createVm"
+    #: Backend-synthesized companion of a createVm (id ``{createVmOpId}::provision``):
+    #: agent phone-home + boot settle + the template's role install, split off
+    #: the clone so it runs on the provision queue. Client-supplied provision
+    #: ops are stripped and re-synthesized by ``compile_plan``.
+    provision = "provision"
     domain_join = "domainJoin"
     domain_leave = "domainLeave"
     ca_connect = "caConnect"
@@ -113,7 +119,10 @@ class PlanOp(BaseModel):
 class DeployRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    ops: list[PlanOp] = Field(min_length=1, max_length=50)
+    # 50 is the client-authored ceiling; the doubled bound leaves headroom for
+    # the worker to re-parse a compiled plan carrying one backend-synthesized
+    # provision op per createVm.
+    ops: list[PlanOp] = Field(min_length=1, max_length=100)
     topology: TopologyDocument
     #: The project the canvas belongs to. For guests it supplies the ``<project>``
     #: segment of every derived VM name (``guest-<user>-<project>-<machine>``) and

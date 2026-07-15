@@ -6,7 +6,15 @@ from app.core.infrastructure import infrastructure_profiles_from_doc, role_for_t
 from app.core.sequences.context import dns_records_for_context
 from app.core.sequences.definitions import CA, DC, PRIMARY, ROOT, SECONDARY, WEB, op_sequence, provision_steps
 from app.core.sequences.model import DnsRecordContext, NodeContext, RunContext, Step
-from app.core.topology import TopologyDocument, TopologyRole
+from app.core.topology import PROVISION_SUFFIX, TopologyDocument, TopologyRole
+
+
+#: Role-aware detail for a synthesized provision group's label — what the op
+#: actually installs after the clone's first boot settles.
+_PROVISION_DETAIL = {
+    TopologyRole.domain_controller: "AD DS forest",
+    TopologyRole.root_ca: "Root CA setup",
+}
 
 
 _COMMAND_LABELS = {
@@ -153,6 +161,7 @@ def build_execution_groups(
     """Expand compiled operations into stable, redacted UI groups."""
 
     topology_nodes = {node.id: node for node in topology.nodes}
+    ops_by_id = {op.id: op for op in operations}
     profiles = infrastructure_profiles_from_doc(settings_doc)
     groups = []
     for op in operations:
@@ -161,18 +170,29 @@ def build_execution_groups(
         secondary = topology_nodes.get(op.secondary) if op.secondary else None
         source_base = None
         if kind == "createVm":
-            context = _preview_context(topology, op)
             steps = [
                 {"id": "prepare", "label": "Prepare guest IP and first-boot media", "kind": "backend", "dependsOn": []},
                 {"id": "clone", "label": "Clone and power on virtual machine", "kind": "clone", "dependsOn": ["prepare"]},
-                {"id": "agent-ready", "label": "Wait for orchestrator agent", "kind": "wait", "dependsOn": ["clone"]},
+            ]
+            for item in steps:
+                item["targetNodeId"] = op.target
+            profile_role = role_for_template(op.params["template"], op.params.get("caType"))
+            source_base = profiles[profile_role].base
+            label = "Clone VM"
+        elif kind == "provision":
+            # Synthesized ops carry empty params; the sibling createVm holds
+            # the template/config, exactly as the runtime resolves them.
+            sibling = ops_by_id.get(op.id.removesuffix(PROVISION_SUFFIX), op)
+            context = _preview_context(topology, sibling)
+            steps = [
+                {"id": "agent-ready", "label": "Wait for orchestrator agent", "kind": "wait", "dependsOn": []},
                 {"id": "boot-settle", "label": "Wait for first boot to settle", "kind": "wait", "dependsOn": ["agent-ready"]},
             ]
             for item in steps:
                 item["targetNodeId"] = op.target
             provision = provision_steps(
-                op.params.get("template", ""),
-                ca_type=op.params.get("caType"),
+                sibling.params.get("template", ""),
+                ca_type=sibling.params.get("caType"),
                 node_id=op.target,
                 dns_records=context.dns_records,
             )
@@ -180,9 +200,8 @@ def build_execution_groups(
             if tail:
                 tail[0]["dependsOn"] = ["boot-settle"]
             steps.extend(tail)
-            profile_role = role_for_template(op.params["template"], op.params.get("caType"))
-            source_base = profiles[profile_role].base
-            label = "Clone VM"
+            detail = _PROVISION_DETAIL.get(target.role, "Boot & settle")
+            label = f"Provision {target.name} — {detail}"
         else:
             context = _preview_context(topology, op)
             steps = _manifest_steps(op_sequence(kind, context), context.nodes)

@@ -173,29 +173,38 @@ def _valid_reverse_zone(value: str) -> bool:
     )
 
 
+#: Suffix of backend-synthesized provision op ids: ``{createVmOpId}::provision``.
+#: A pure function of the client op id — scheduler state in
+#: ``plan_runs.scheduler.ops`` and Celery ``task_id=f"{job_id}:{op_id}"`` key
+#: on it, so it must be identical across every recompile.
+PROVISION_SUFFIX = "::provision"
+
 _DURATION_SECONDS = {
-    "createVm": 900,
+    "createVm": 600,
     "domainLeave": 600,
     "domainJoin": 1200,
     "caConnect": 2700,
     "webServerCert": 1800,
 }
 
-_CREATE_DURATION_SECONDS = {
-    TopologyRole.domain_controller: 2400,
-    TopologyRole.root_ca: 1800,
-    TopologyRole.issuing_ca: 900,
-    TopologyRole.web_server: 900,
-    TopologyRole.client: 900,
-    TopologyRole.standalone: 900,
+#: The post-clone role install a synthesized ``provision`` op runs; role-less
+#: templates only wait for the agent and boot settle.
+_PROVISION_DURATION_SECONDS = {
+    TopologyRole.domain_controller: 1800,
+    TopologyRole.root_ca: 1200,
+    TopologyRole.issuing_ca: 300,
+    TopologyRole.web_server: 300,
+    TopologyRole.client: 300,
+    TopologyRole.standalone: 300,
 }
 
 _KIND_RANK = {
     "createVm": 0,
-    "domainLeave": 1,
-    "domainJoin": 2,
-    "caConnect": 3,
-    "webServerCert": 4,
+    "provision": 1,
+    "domainLeave": 2,
+    "domainJoin": 3,
+    "caConnect": 4,
+    "webServerCert": 5,
 }
 
 _ROLE_RANK = {
@@ -696,8 +705,8 @@ def _canonical_order(
 
 
 def _duration(op: CompilableOp, nodes: dict[str, TopologyNode]) -> int:
-    if _kind_value(op) == "createVm":
-        return _CREATE_DURATION_SECONDS[nodes[op.target].role]
+    if _kind_value(op) == "provision":
+        return _PROVISION_DURATION_SECONDS[nodes[op.target].role]
     return _DURATION_SECONDS[_kind_value(op)]
 
 
@@ -731,6 +740,29 @@ def _critical_path(
     return path, totals[end]
 
 
+def _synthesize_provision(create_op: CompilableOp) -> Any:
+    """The backend-only companion op that runs a fresh clone's post-clone
+    provisioning (agent phone-home, boot settle, role install) as its own
+    schedulable unit. Params stay empty on purpose — the runtime resolves
+    everything from the sibling ``createVm`` op, which is already
+    vmName-namespaced by the time the worker sees it."""
+
+    op = create_op.model_copy(deep=True)
+    op.id = f"{create_op.id}{PROVISION_SUFFIX}"
+    # PlanOpKind is a str-enum; coerce through the sibling's own type so the
+    # synthesized kind round-trips model_dump/redelivery identically.
+    try:
+        op.kind = type(create_op.kind)("provision")
+    except ValueError:
+        op.kind = "provision"
+    op.secondary = None
+    op.params = {}
+    op.depends_on = []
+    if hasattr(op, "files"):
+        op.files = []
+    return op
+
+
 def compile_plan(
     topology: TopologyDocument, operations: Sequence[CompilableOp]
 ) -> CompiledPlan:
@@ -740,8 +772,15 @@ def compile_plan(
     payloads are copied unchanged, then only dependencies and list order are
     replaced.  This keeps resume/metrics identities stable across previews,
     persisted-project reloads, and retries where completed creates are absent.
+
+    Every ``createVm`` gets a backend-synthesized ``provision`` companion op
+    (clone and role install run as independent schedulable units on separate
+    worker queues). Incoming ``provision`` ops are stripped first and
+    re-synthesized, so recompiling a compiled plan is a fixed point, a client
+    can never spoof one, and stale params can never ride along.
     """
 
+    operations = [op for op in operations if _kind_value(op) != "provision"]
     validate_topology(topology)
     nodes = {node.id: node for node in topology.nodes}
     diagnostics: list[TopologyDiagnostic] = []
@@ -777,6 +816,11 @@ def compile_plan(
         if op.id in seen_ids:
             error("duplicate-operation-id", f"Plan contains duplicate operation id '{op.id}'.")
         seen_ids.add(op.id)
+        if op.id.endswith(PROVISION_SUFFIX):
+            error(
+                "reserved-operation-id",
+                f"Operation id '{op.id}' uses the reserved '{PROVISION_SUFFIX}' suffix.",
+            )
         if kind not in _KIND_RANK:
             error("unknown-operation-kind", f"Operation '{op.id}' has unknown kind '{kind}'.")
             continue
@@ -880,8 +924,17 @@ def compile_plan(
         raise PlanCompilationError(diagnostics)
 
     cloned = [op.model_copy(deep=True) for op in operations]
+    # One provision companion per createVm — even agent-less (authored-ISO)
+    # clones, which keeps compilation pure; the runtime no-ops when the
+    # registry shows no agent. Realized nodes have no createVm here, so they
+    # get no provision either.
+    provision_ops = [
+        _synthesize_provision(op) for op in cloned if _kind_value(op) == "createVm"
+    ]
+    cloned.extend(provision_ops)
     by_id = {op.id: op for op in cloned}
     creates = {op.target: op.id for op in cloned if _kind_value(op) == "createVm"}
+    provisions = {op.target: op.id for op in provision_ops}
     leaves = {op.target: op.id for op in cloned if _kind_value(op) == "domainLeave"}
     joins = {
         (op.target, op.secondary): op.id
@@ -914,13 +967,23 @@ def compile_plan(
         if candidate is not None and candidate != op_id:
             dependencies[op_id].add(candidate)
 
+    def provisioned(node_id: str | None) -> str | None:
+        """'VM ready and its role installed' — the node's provision op when it
+        is cloned this plan, else its bare createVm (realized nodes: neither)."""
+        if node_id is None:
+            return None
+        return provisions.get(node_id) or creates.get(node_id)
+
     for op in cloned:
         kind = _kind_value(op)
         if kind == "createVm":
             continue
-        require(op.id, creates.get(op.target))
+        if kind == "provision":
+            require(op.id, creates.get(op.target))
+            continue
+        require(op.id, provisioned(op.target))
         if op.secondary:
-            require(op.id, creates.get(op.secondary))
+            require(op.id, provisioned(op.secondary))
         if kind == "domainJoin":
             require(op.id, leaves.get(op.target))
             if nodes[op.target].role is TopologyRole.client:
@@ -932,12 +995,12 @@ def compile_plan(
         elif kind == "caConnect":
             issuing_id = op.target
             dc_id = membership_by_member[issuing_id]
-            require(op.id, creates.get(dc_id))
+            require(op.id, provisioned(dc_id))
             require(op.id, joins.get((issuing_id, dc_id)))
             for web_id in publications_by_ca[issuing_id]:
                 web_dc_id = membership_by_member[web_id]
-                require(op.id, creates.get(web_id))
-                require(op.id, creates.get(web_dc_id))
+                require(op.id, provisioned(web_id))
+                require(op.id, provisioned(web_dc_id))
                 require(op.id, joins.get((web_id, web_dc_id)))
         elif kind == "webServerCert":
             issuing_id = op.target
@@ -945,9 +1008,9 @@ def compile_plan(
             root_id = parent_by_ca[issuing_id]
             issuing_dc_id = membership_by_member[issuing_id]
             web_dc_id = membership_by_member[web_id]
-            require(op.id, creates.get(root_id))
-            require(op.id, creates.get(issuing_dc_id))
-            require(op.id, creates.get(web_dc_id))
+            require(op.id, provisioned(root_id))
+            require(op.id, provisioned(issuing_dc_id))
+            require(op.id, provisioned(web_dc_id))
             require(op.id, joins.get((issuing_id, issuing_dc_id)))
             require(op.id, joins.get((web_id, web_dc_id)))
             require(op.id, ca_connects.get((issuing_id, root_id)))

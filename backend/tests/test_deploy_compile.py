@@ -54,6 +54,10 @@ def test_dry_run_returns_compiled_operations_and_estimates():
         "create-root",
         "create-issuing",
         "create-web",
+        "create-dc::provision",
+        "create-root::provision",
+        "create-issuing::provision",
+        "create-web::provision",
         "join-issuing",
         "join-web",
         "connect",
@@ -62,6 +66,7 @@ def test_dry_run_returns_compiled_operations_and_estimates():
     assert response["operations"][-1]["dependsOn"][-1] == "connect"
     assert response["criticalPath"] == [
         "create-dc",
+        "create-dc::provision",
         "join-issuing",
         "connect",
         "publish",
@@ -74,9 +79,22 @@ def test_dry_run_returns_compiled_operations_and_estimates():
     clone = next(group for group in response["groups"] if group["kind"] == "createVm")
     assert clone["label"] == "Clone VM"
     assert clone["sourceBase"] == "ws-2025-base"
-    assert [step["id"] for step in clone["steps"][:4]] == [
-        "prepare", "clone", "agent-ready", "boot-settle"
+    assert [step["id"] for step in clone["steps"]] == ["prepare", "clone"]
+    dc_provision = next(
+        group for group in response["groups"] if group["id"] == "create-dc::provision"
+    )
+    assert dc_provision["kind"] == "provision"
+    assert dc_provision["label"] == "Provision DC01 — AD DS forest"
+    assert dc_provision["dependsOn"] == ["create-dc"]
+    assert [step["id"] for step in dc_provision["steps"][:2]] == [
+        "agent-ready", "boot-settle"
     ]
+    # The role-install tail moved wholesale onto the provision group.
+    assert any(
+        step["command"] == "dc.install_forest"
+        for step in dc_provision["steps"]
+        if "command" in step
+    )
     assert all(
         "params" not in step
         for group in response["groups"]
