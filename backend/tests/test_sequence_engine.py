@@ -412,6 +412,60 @@ def test_missing_result_artifact_uses_explicit_legacy_agent_default():
     assert ctx.artifacts["cert_filename"] == "dc_Example CA.crt"
 
 
+def test_optional_result_artifact_is_persisted_when_new_agent_reports_it():
+    clock = FakeClock()
+    ctx = _ctx()
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: {"certificateContentB64": "Y2VydA=="},
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+    )
+
+    engine.run(
+        [
+            Step(
+                id="publish", command="ca.publish_crl", target="primary",
+                optional_result_artifacts={
+                    "certificateContentB64": "certificate"
+                },
+            )
+        ],
+        ctx,
+    )
+
+    assert ctx.artifacts["certificate"] == "Y2VydA=="
+
+
+def test_artifact_preproduced_by_publish_skips_legacy_file_read():
+    clock = FakeClock()
+    ctx = _ctx()
+    ctx.artifacts["certificate"] = "Y2VydA=="
+    completed = []
+    engine = SequenceEngine(
+        dispatch=lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("file.read must be skipped")
+        ),
+        wait_for_reconnect=lambda *a, **k: None,
+        sleep=clock.sleep,
+        now_ms=clock.now_ms,
+        on_step_done=lambda step_id, result: completed.append((step_id, result)),
+    )
+
+    result = engine.run(
+        [
+            Step(
+                id="read", command="file.read", target="primary",
+                skip_if_artifacts=("certificate",),
+            )
+        ],
+        ctx,
+    )
+
+    assert result["read"]["skipped"] is True
+    assert completed[0][0] == "read"
+
+
 def test_missing_file_result_artifact_fails_at_the_producer():
     clock = FakeClock()
     engine = SequenceEngine(

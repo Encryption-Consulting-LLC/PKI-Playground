@@ -129,6 +129,11 @@ class Step:
     result_artifact_defaults: ParamResolver | Mapping[str, str] = field(
         default_factory=dict
     )
+    #: Best-effort result field -> artifact key mappings used for richer new
+    #: agent results while retaining compatibility with older agents.
+    optional_result_artifacts: Mapping[str, str] = field(default_factory=dict)
+    #: Skip this step when all named artifacts were already produced upstream.
+    skip_if_artifacts: tuple[str, ...] = ()
     #: Param keys to redact from every progress/error frame (passwords, blobs).
     secret_keys: tuple[str, ...] = ()
     timeout_s: int = 300

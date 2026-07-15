@@ -144,6 +144,10 @@ TEMPLATE_CONFIG_FIELDS: dict[str, dict[str, FieldSpec]] = {
     "certificateAuthority": {
         "caType": FieldSpec(_one_of("Root", "Issuing"), "Root"),
         "commonName": FieldSpec(_matches(_COMMON_NAME), "EC-Root-CA"),
+        "certEnrollPath": FieldSpec(
+            _matches(_CERT_PATH),
+            "C:\\Windows\\System32\\CertSrv\\CertEnroll",
+        ),
         "keyAlgorithm": FieldSpec(_one_of("RSA", "ECDSA", "ML-DSA-87"), "ML-DSA-87"),
         "keyLength": FieldSpec(_one_of("2048", "4096"), "2048"),
         # Display-only label shown for ML-DSA-87 (fixed key size) — accepted so

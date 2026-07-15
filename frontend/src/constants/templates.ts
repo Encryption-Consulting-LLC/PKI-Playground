@@ -140,6 +140,13 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
         placeholder: "EC-Root-CA",
       },
       {
+        key: "certEnrollPath",
+        label: "CA Publication Directory",
+        type: "text",
+        default: "C:\\Windows\\System32\\CertSrv\\CertEnroll",
+        placeholder: "C:\\Windows\\System32\\CertSrv\\CertEnroll",
+      },
+      {
         key: "keyAlgorithm",
         label: "Key Algorithm",
         type: "select",

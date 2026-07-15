@@ -160,6 +160,21 @@ def test_root_crt_read_path_uses_observed_publication_name():
     assert path.endswith("guest-abc12-ca01_EC-Root-CA.crt")
 
 
+def test_root_ca_uses_configured_publication_directory_end_to_end():
+    ctx = _root_ctx()
+    ctx.nodes["primary"].template_config["certEnrollPath"] = "D:\\PKI\\Published"
+    steps = provision_steps("certificateAuthority", ca_type="Root")
+
+    publication = steps[2].resolve_params(ctx)
+    assert "1:D:\\PKI\\Published\\%1_%3%4.crt" in publication["aiaUrls"]
+    assert "1:D:\\PKI\\Published\\%3%8%9.crl" in publication["cdpUrls"]
+    assert steps[3].resolve_params(ctx) == {
+        "certEnrollPath": "D:\\PKI\\Published"
+    }
+    assert steps[4].resolve_params(ctx)["path"].startswith("D:\\PKI\\Published\\")
+    assert steps[5].resolve_params(ctx)["path"].startswith("D:\\PKI\\Published\\")
+
+
 def test_issuing_ca_has_no_createvm_tail():
     assert provision_steps("certificateAuthority", ca_type="Issuing") == []
 

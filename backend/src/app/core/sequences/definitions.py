@@ -170,30 +170,38 @@ def _publication_url(ctx: RunContext, key: str) -> str:
     return quote(_observed_filename(ctx, key), safe="+._-")
 
 
-def _root_aia(pki_host: str) -> str:
+def _ca_publication_dir(rt: StepRuntime) -> str:
+    return rt.node.template_config.get("certEnrollPath", _CERT_ENROLL_DIR)
+
+
+def _root_aia(pki_host: str, publication_dir: str = _CERT_ENROLL_DIR) -> str:
     return "\n".join(
         [
-            f"1:{_CERT_ENROLL_DIR}\\%1_%3%4.crt",
+            f"1:{publication_dir}\\%1_%3%4.crt",
             "2:ldap:///CN=%7,CN=AIA,CN=Public Key Services,CN=Services,%6%11",
             f"2:http://{pki_host}/CertEnroll/%1_%3%4.crt",
         ]
     )
 
 
-def _root_cdp(pki_host: str) -> str:
+def _root_cdp(pki_host: str, publication_dir: str = _CERT_ENROLL_DIR) -> str:
     return "\n".join(
         [
-            f"1:{_CERT_ENROLL_DIR}\\%3%8%9.crl",
+            f"1:{publication_dir}\\%3%8%9.crl",
             "10:ldap:///CN=%7%8,CN=%2,CN=CDP,CN=Public Key Services,CN=Services,%6%10",
             f"2:http://{pki_host}/CertEnroll/%3%8%9.crl",
         ]
     )
 
 
-def _issuing_aia(pki_host: str, ocsp_host: str) -> str:
+def _issuing_aia(
+    pki_host: str,
+    ocsp_host: str,
+    publication_dir: str = _CERT_ENROLL_DIR,
+) -> str:
     return "\n".join(
         [
-            f"1:{_CERT_ENROLL_DIR}\\%1_%3%4.crt",
+            f"1:{publication_dir}\\%1_%3%4.crt",
             "2:ldap:///CN=%7,CN=AIA,CN=Public Key Services,CN=Services,%6%11",
             f"2:http://{pki_host}/CertEnroll/%1_%3%4.crt",
             f"32:http://{ocsp_host}/ocsp",
@@ -201,10 +209,14 @@ def _issuing_aia(pki_host: str, ocsp_host: str) -> str:
     )
 
 
-def _issuing_cdp(pki_host: str, unc_host: str) -> str:
+def _issuing_cdp(
+    pki_host: str,
+    unc_host: str,
+    publication_dir: str = _CERT_ENROLL_DIR,
+) -> str:
     return "\n".join(
         [
-            f"65:{_CERT_ENROLL_DIR}\\%3%8%9.crl",
+            f"65:{publication_dir}\\%3%8%9.crl",
             "79:ldap:///CN=%7%8,CN=%2,CN=CDP,CN=Public Key Services,CN=Services,%6%10",
             f"6:http://{pki_host}/CertEnroll/%3%8%9.crl",
             f"65:\\\\{unc_host}\\CertEnroll\\%3%8%9.crl",
@@ -251,13 +263,17 @@ def _root_ca_provision() -> list[Step]:
 
     def cdp_aia_params(rt: StepRuntime) -> dict[str, str]:
         pki = rt.ctx.pki_host or "pki.local"
-        return {"aiaUrls": _root_aia(pki), "cdpUrls": _root_cdp(pki)}
+        publication_dir = _ca_publication_dir(rt)
+        return {
+            "aiaUrls": _root_aia(pki, publication_dir),
+            "cdpUrls": _root_cdp(pki, publication_dir),
+        }
 
     def root_crt_path(rt: StepRuntime) -> dict[str, str]:
-        return {"path": f"{_CERT_ENROLL_DIR}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"}
+        return {"path": f"{_ca_publication_dir(rt)}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"}
 
     def root_crl_path(rt: StepRuntime) -> dict[str, str]:
-        return {"path": f"{_CERT_ENROLL_DIR}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"}
+        return {"path": f"{_ca_publication_dir(rt)}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"}
 
     def publication_defaults(rt: StepRuntime) -> dict[str, str]:
         ca_name = rt.node.template_config.get("commonName", "")
@@ -280,15 +296,28 @@ def _root_ca_provision() -> list[Step]:
         Step(id="ca-cdp-aia", command="ca.configure_cdp_aia", target=PRIMARY, params=cdp_aia_params),
         Step(
             id="ca-crl", command="ca.publish_crl", target=PRIMARY,
+            params=lambda rt: {"certEnrollPath": _ca_publication_dir(rt)},
             retry_delays_s=_CRL_RETRY,
             result_artifacts={
                 "certificateFileName": _A_ROOT_CERT_FILE,
                 "baseCrlFileName": _A_ROOT_CRL_FILE,
             },
             result_artifact_defaults=publication_defaults,
+            optional_result_artifacts={
+                "certificateContentB64": _A_ROOT_CRT,
+                "baseCrlContentB64": _A_ROOT_CRL,
+            },
         ),
-        Step(id="read-root-crt", command="file.read", target=PRIMARY, params=root_crt_path, produces=(_A_ROOT_CRT,)),
-        Step(id="read-root-crl", command="file.read", target=PRIMARY, params=root_crl_path, produces=(_A_ROOT_CRL,)),
+        Step(
+            id="read-root-crt", command="file.read", target=PRIMARY,
+            params=root_crt_path, produces=(_A_ROOT_CRT,),
+            skip_if_artifacts=(_A_ROOT_CRT,),
+        ),
+        Step(
+            id="read-root-crl", command="file.read", target=PRIMARY,
+            params=root_crl_path, produces=(_A_ROOT_CRL,),
+            skip_if_artifacts=(_A_ROOT_CRL,),
+        ),
     ]
 
 
@@ -851,13 +880,22 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
         }
 
     def issuing_cdp_aia_params(rt: StepRuntime) -> dict[str, str]:
-        aia = _issuing_aia(pki, web_fqdn) if web_fqdn else _root_aia(pki)
-        cdp = _issuing_cdp(pki, web_fqdn) if web_fqdn else _root_cdp(pki)
+        publication_dir = _ca_publication_dir(rt)
+        aia = (
+            _issuing_aia(pki, web_fqdn, publication_dir)
+            if web_fqdn
+            else _root_aia(pki, publication_dir)
+        )
+        cdp = (
+            _issuing_cdp(pki, web_fqdn, publication_dir)
+            if web_fqdn
+            else _root_cdp(pki, publication_dir)
+        )
         return {"aiaUrls": aia, "cdpUrls": cdp}
 
     def issuing_pub_crt_path(rt: StepRuntime) -> dict[str, str]:
         return {
-            "path": f"{_CERT_ENROLL_DIR}\\"
+            "path": f"{_ca_publication_dir(rt)}\\"
             f"{_observed_filename(rt.ctx, _A_ISSUING_CERT_FILE)}"
         }
 
@@ -952,6 +990,7 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
              params=issuing_cdp_aia_params),
         Step(
             id="issuing-crl", command="ca.publish_crl", target=PRIMARY,
+            params=lambda rt: {"certEnrollPath": _ca_publication_dir(rt)},
             retry_delays_s=_CRL_RETRY,
             result_artifacts={
                 "certificateFileName": _A_ISSUING_CERT_FILE,
@@ -959,12 +998,16 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
                 "deltaCrlFileName": _A_ISSUING_DELTA_CRL_FILE,
             },
             result_artifact_defaults=issuing_publication_defaults,
+            optional_result_artifacts={
+                "certificateContentB64": "issuing_pub_crt",
+            },
         ),
     ]
     if has_web:
         steps += [
             Step(id="read-issuing-crt", command="file.read", target=PRIMARY,
-                 params=issuing_pub_crt_path, produces=("issuing_pub_crt",)),
+                 params=issuing_pub_crt_path, produces=("issuing_pub_crt",),
+                 skip_if_artifacts=("issuing_pub_crt",)),
             Step(id="issuing-to-web", command="file.write", target=WEB,
                  params=issuing_web_crt_path, consumes=("issuing_pub_crt",)),
         ]

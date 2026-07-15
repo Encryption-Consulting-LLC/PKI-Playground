@@ -125,6 +125,14 @@ class SequenceEngine:
             # Its artifacts were restored into ctx by the caller from plan_runs.
             return self._resumed_results.get(step.id, {})
 
+        if step.skip_if_artifacts and all(
+            key in ctx.artifacts for key in step.skip_if_artifacts
+        ):
+            result = {"skipped": True, "reason": "artifact already available"}
+            self._completed.add(step.id)
+            self._on_step_done(step.id, result)
+            return result
+
         if step.aggregate is not None:
             result = step.aggregate(
                 StepRuntime(ctx=ctx, node=node),
@@ -175,6 +183,10 @@ class SequenceEngine:
                     f"'{result_field}'"
                 )
             ctx.artifacts[artifact_key] = value
+        for result_field, artifact_key in step.optional_result_artifacts.items():
+            value = result.get(result_field)
+            if isinstance(value, str) and value:
+                ctx.artifacts[artifact_key] = value
 
         if step.expects_disconnect:
             self._wait_for_reconnect(
