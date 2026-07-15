@@ -27,7 +27,6 @@ import {
   type CompiledExecutionGroup,
 } from "@/lib/api"
 import {
-  isPreExecutionPhase,
   prepareDeployPlan,
   useStagingStore,
   type PlanPhase,
@@ -90,29 +89,125 @@ function StatusGlyph({ op }: { op: StagedOp }) {
   }
 }
 
-//: Seconds of pre-execution wait before the button label escalates from the
+//: Seconds of pre-execution wait before the status detail escalates from the
 //: short form to the explain-the-wait form and starts counting elapsed time.
 const PRE_EXECUTION_ESCALATE_SEC = 3
 
-/**
- * What the deploy button says before any per-op progress exists — the label
- * *changes* even though the op counter can't, so a slow preflight or a busy
- * worker queue reads as motion instead of a hang.
- */
-function preExecutionLabel(
+const PLAN_PHASES: PlanPhase[] = ["posting", "queued", "preparing", "executing"]
+
+function deploymentProgressCopy(
   phase: PlanPhase,
   detail: string | null,
   elapsedSec: number,
-): string {
-  const base =
-    phase === "posting"
-      ? elapsedSec < PRE_EXECUTION_ESCALATE_SEC
-        ? "Validating & preflighting…"
-        : "Checking ESXi host — images, capacity, names…"
-      : phase === "queued"
-        ? "Queued — waiting for a deployment worker…"
-        : (detail ?? "Preparing plan…")
-  return elapsedSec >= PRE_EXECUTION_ESCALATE_SEC ? `${base} ${elapsedSec}s` : base
+  doneCount: number,
+  opCount: number,
+): { title: string; detail: string } {
+  switch (phase) {
+    case "posting":
+      return elapsedSec < PRE_EXECUTION_ESCALATE_SEC
+        ? {
+            title: "Validating deployment",
+            detail: "Running infrastructure preflight checks…",
+          }
+        : {
+            title: "Checking ESXi host",
+            detail: "Verifying images, capacity, and VM names…",
+          }
+    case "queued":
+      return {
+        title: "Deployment queued",
+        detail: "Waiting for an available deployment worker…",
+      }
+    case "preparing":
+      return {
+        title: "Preparing deployment",
+        detail: detail ?? "Setting up the deployment worker…",
+      }
+    case "executing":
+      return {
+        title: "Deploying operations",
+        detail: `${doneCount} of ${opCount} operation${opCount === 1 ? "" : "s"} complete`,
+      }
+  }
+}
+
+/**
+ * Progress belongs beside the deployment controls rather than inside one of
+ * them. The four-segment rail gives slow pre-execution phases visible motion,
+ * while the copy has enough width to wrap without changing the button layout.
+ */
+function DeploymentProgress({
+  phase,
+  detail,
+  elapsedSec,
+  doneCount,
+  opCount,
+}: {
+  phase: PlanPhase | null
+  detail: string | null
+  elapsedSec: number
+  doneCount: number
+  opCount: number
+}) {
+  const currentIndex = phase == null ? -1 : PLAN_PHASES.indexOf(phase)
+  const copy = phase
+    ? deploymentProgressCopy(phase, detail, elapsedSec, doneCount, opCount)
+    : {
+        title: "Deployment in progress",
+        detail: "Reconnecting to deployment progress…",
+      }
+
+  return (
+    <div className="border-t px-2 py-2">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="rounded-md border border-sky-500/25 bg-sky-500/5 p-2.5"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-500" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+            {copy.title}
+          </span>
+          {elapsedSec >= PRE_EXECUTION_ESCALATE_SEC && (
+            <span
+              aria-hidden="true"
+              className="shrink-0 text-[10px] tabular-nums text-muted-foreground"
+            >
+              {elapsedSec}s
+            </span>
+          )}
+        </div>
+        <p className="mt-1 break-words text-[10px] leading-snug text-muted-foreground">
+          {copy.detail}
+        </p>
+        <div
+          className="mt-2 flex gap-1"
+          role="progressbar"
+          aria-label="Deployment progress"
+          aria-valuemin={1}
+          aria-valuemax={PLAN_PHASES.length}
+          aria-valuenow={currentIndex >= 0 ? currentIndex + 1 : undefined}
+          aria-valuetext={currentIndex >= 0 ? copy.title : "Current stage unavailable"}
+        >
+          {PLAN_PHASES.map((item, index) => (
+            <span
+              key={item}
+              aria-hidden="true"
+              className={`h-1 flex-1 rounded-full transition-colors ${
+                index < currentIndex
+                  ? "bg-sky-500"
+                  : index === currentIndex
+                    ? "animate-pulse bg-sky-500"
+                    : "bg-muted"
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -142,9 +237,9 @@ export function StagedPanel() {
   const [nowMs, setNowMs] = useState(() => Date.now())
   const previewGeneration = useRef(0)
 
-  // Elapsed-time ticker for the pre-execution label; idle once per-op
-  // progress takes over or no deploy is in flight.
-  const ticking = deploying && isPreExecutionPhase(planPhase) && deployStartedAt != null
+  // The elapsed clock stays in the dedicated progress card for the full run;
+  // resumed jobs have no local start time and simply omit it.
+  const ticking = deploying && deployStartedAt != null
   useEffect(() => {
     if (!ticking) return
     const timer = setInterval(() => setNowMs(Date.now()), 1000)
@@ -335,6 +430,16 @@ export function StagedPanel() {
 
       <PreflightReceipt />
 
+      {deploying && (
+        <DeploymentProgress
+          phase={planPhase}
+          detail={planPhaseDetail}
+          elapsedSec={elapsedSec}
+          doneCount={doneCount}
+          opCount={ops.length}
+        />
+      )}
+
       <div className="mt-auto flex flex-col gap-1.5 border-t p-2">
         <Button
           variant="outline"
@@ -356,11 +461,7 @@ export function StagedPanel() {
           {deploying || compiling ? (
             <>
               <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              {compiling
-                ? "Compiling review…"
-                : isPreExecutionPhase(planPhase)
-                  ? preExecutionLabel(planPhase!, planPhaseDetail, elapsedSec)
-                  : `Deploying ${doneCount}/${ops.length}…`}
+              {compiling ? "Compiling review…" : "Deploying…"}
             </>
           ) : ops.length === 0 ? (
             "Nothing staged"

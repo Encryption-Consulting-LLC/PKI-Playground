@@ -119,7 +119,7 @@ interface StageOpInput {
  */
 export type PlanPhase = "posting" | "queued" | "preparing" | "executing"
 
-/** True while the plan has produced no per-op progress yet — the stretch the deploy button narrates instead of counting ops. */
+/** True while the plan has produced no per-op progress yet. */
 export function isPreExecutionPhase(phase: PlanPhase | null): boolean {
   return phase === "posting" || phase === "queued" || phase === "preparing"
 }
