@@ -57,6 +57,10 @@ def projects_col() -> AsyncCollection:
     return get_db()["projects"]
 
 
+def project_shares_col() -> AsyncCollection:
+    return get_db()["project_shares"]
+
+
 def vm_registry_col() -> AsyncCollection:
     return get_db()["vm_registry"]
 
@@ -89,6 +93,15 @@ async def _ensure_indexes() -> None:
             IndexModel([("updatedAt", DESCENDING)]),
             # Per-owner listing; cheap to create now on all-null owner.
             IndexModel([("owner", ASCENDING), ("updatedAt", DESCENDING)]),
+        ]
+    )
+    await project_shares_col().create_indexes(
+        [
+            # A guest can quickly find/update links they created. Share ids
+            # themselves are the collection's unique ``_id`` values.
+            IndexModel([("owner", ASCENDING), ("updatedAt", DESCENDING)]),
+            # Accepted collaborators may republish a newer snapshot.
+            IndexModel([("collaborators", ASCENDING)]),
         ]
     )
     await vm_registry_col().create_indexes(

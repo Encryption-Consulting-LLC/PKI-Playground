@@ -689,6 +689,31 @@ export const updateProject = (doc: ProjectPayload, init?: RequestInit) =>
 export const deleteProject = (id: string) =>
   request<string>(URLS.projects.one(id), { method: "DELETE" }, true)
 
+// --- /project-shares --------------------------------------------------------
+
+export interface ProjectShareMetadata {
+  projectId: string
+  name: string
+  isOwner: boolean
+  isCollaborator: boolean
+  updatedAt: number
+}
+
+/** Create a guest share or refresh the snapshot behind an existing link. */
+export const publishProjectShare = (doc: ProjectPayload) =>
+  request<ProjectShareMetadata>(URLS.projectShares.one(doc.id), {
+    method: "PUT",
+    body: JSON.stringify(doc),
+  })
+
+/** Metadata-only lookup used before showing the collaboration prompt. */
+export const inspectProjectShare = (id: string) =>
+  request<ProjectShareMetadata>(URLS.projectShares.one(id))
+
+/** Accept the collaboration invitation and receive its current snapshot. */
+export const acceptProjectShare = (id: string) =>
+  request<ProjectDoc>(URLS.projectShares.accept(id), { method: "POST" })
+
 // --- /orchestrator -----------------------------------------------------------
 
 export interface RegisterAgentResponse {

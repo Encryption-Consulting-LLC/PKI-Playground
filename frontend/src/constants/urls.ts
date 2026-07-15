@@ -52,6 +52,10 @@ export const URLS = {
     list: "/projects",
     one: (id: string) => `/projects/${encodeURIComponent(id)}`,
   },
+  projectShares: {
+    one: (id: string) => `/project-shares/${encodeURIComponent(id)}`,
+    accept: (id: string) => `/project-shares/${encodeURIComponent(id)}/accept`,
+  },
   orchestrator: {
     register: "/orchestrator/register",
     command: (vmId: string) => `/orchestrator/${encodeURIComponent(vmId)}/command`,

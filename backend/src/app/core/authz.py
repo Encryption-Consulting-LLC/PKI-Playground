@@ -75,7 +75,8 @@ class Capability(str, Enum):
 #     command route enforces per-VM ownership so it can't target another VM.
 #   PROJECT_* / SETTINGS_* / REGISTRY_* (Mongo persistence) are operator-only:
 #     guests keep client-side (localStorage) persistence, so the shared guest
-#     deploy never exposes a cross-visitor project list.
+#     deploy never exposes a cross-visitor project list. Explicit opaque-id
+#     snapshots are handled separately by the guest-only /project-shares API.
 #   USER_ADMIN (account provisioning) is operator-only by construction.
 ROLE_CAPABILITIES: dict[Role, set[Capability]] = {
     Role.OPERATOR: set(Capability),

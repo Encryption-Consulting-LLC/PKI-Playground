@@ -10,6 +10,7 @@ import { Splash } from "@/components/Splash"
 import { SettingsDialog } from "@/components/SettingsDialog"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { Workspace } from "@/components/canvas/Workspace"
+import { ProjectShareLinkHandler } from "@/components/canvas/ProjectShareLinkHandler"
 import { useApplyTheme } from "@/hooks/useTheme"
 import { useBeforeUnloadWarning } from "@/hooks/useBeforeUnloadWarning"
 import { useMe } from "@/hooks/useMe"
@@ -109,6 +110,7 @@ function App() {
       </header>
 
       {/* Canvas workspace — takes the remaining viewport height */}
+      {isGuest && <ProjectShareLinkHandler />}
       <Workspace />
     </div>
   )

@@ -1,6 +1,8 @@
-import { FilePlus2, Network } from "lucide-react"
+import { CloudCog, FilePlus2, Network } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { ROLES } from "@/constants"
+import { useAuthStore } from "@/store/auth"
 import { useProjectsStore } from "@/store/projects"
 
 /**
@@ -11,10 +13,16 @@ import { useProjectsStore } from "@/store/projects"
 export function ProjectLanding() {
   const addProject = useProjectsStore((s) => s.addProject)
   const addProjectFromTemplate = useProjectsStore((s) => s.addProjectFromTemplate)
+  const isGuest = useAuthStore((s) => s.role === ROLES.guest)
+  // Deployments normally point this at a share URL published by the guest
+  // account that owns the ready-made lab. The stable fallback is useful for
+  // environments that seed that conventional share id directly in Mongo.
+  const predeployedPkiLink =
+    import.meta.env.VITE_PREDEPLOYED_PKI_LINK?.trim() || "/?share=predeployed-pki"
 
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto bg-muted/20 p-6">
-      <div className="flex w-full max-w-2xl flex-col items-center gap-8">
+      <div className="flex w-full max-w-4xl flex-col items-center gap-8">
         <div className="flex flex-col items-center gap-1.5 text-center">
           <h2 className="text-xl font-semibold tracking-tight">
             How do you wish to start?
@@ -24,7 +32,12 @@ export function ProjectLanding() {
           </p>
         </div>
 
-        <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
+        <div
+          className={cn(
+            "grid w-full grid-cols-1 gap-4",
+            isGuest ? "sm:grid-cols-3" : "sm:grid-cols-2",
+          )}
+        >
           <StartCard
             icon={FilePlus2}
             accent="text-sky-500"
@@ -39,6 +52,15 @@ export function ProjectLanding() {
             subtitle="Pre-configured PKI"
             onClick={() => addProjectFromTemplate()}
           />
+          {isGuest && (
+            <StartCard
+              icon={CloudCog}
+              accent="text-emerald-500"
+              title="Predeployed PKI"
+              subtitle="Join a ready-to-use lab"
+              onClick={() => window.location.assign(predeployedPkiLink)}
+            />
+          )}
         </div>
       </div>
     </div>

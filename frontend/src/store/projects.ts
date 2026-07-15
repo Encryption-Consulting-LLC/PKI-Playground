@@ -137,6 +137,8 @@ interface ProjectsState {
   addProject: () => void
   /** Creates a new project pre-populated with a deploy-ready PKI lab topology. */
   addProjectFromTemplate: () => void
+  /** Adds/replaces a project loaded from an accepted guest share and opens it. */
+  openSharedProject: (project: Project) => void
   renameProject: (id: string, name: string) => void
   switchProject: (id: string) => void
   /**
@@ -210,6 +212,19 @@ export const useProjectsStore = create<ProjectsState>()(
           buildPkiTemplateIntoStores(project.id)
         })
         get().saveActiveSnapshot()
+      },
+
+      openSharedProject(project) {
+        get().persistActiveDraft()
+        set((s) => ({
+          projects: s.projects.some((candidate) => candidate.id === project.id)
+            ? s.projects.map((candidate) =>
+                candidate.id === project.id ? project : candidate,
+              )
+            : [...s.projects, project],
+          activeProjectId: project.id,
+        }))
+        activate(project)
       },
 
       renameProject(id, name) {

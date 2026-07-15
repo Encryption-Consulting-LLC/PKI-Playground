@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input"
 import { useProjectsStore } from "@/store/projects"
 import { useStagingStore } from "@/store/staging"
 import { ProjectDeleteDialog } from "./ProjectDeleteDialog"
+import { ProjectShareControl } from "./ProjectShareControl"
+import { useAuthStore } from "@/store/auth"
+import { ROLES } from "@/constants"
 
 export function ProjectTabBar() {
   const projects = useProjectsStore((s) => s.projects)
@@ -17,6 +20,7 @@ export function ProjectTabBar() {
   const deleteProject = useProjectsStore((s) => s.deleteProject)
   const saveActiveSnapshot = useProjectsStore((s) => s.saveActiveSnapshot)
   const deploying = useStagingStore((s) => s.deploying)
+  const isGuest = useAuthStore((s) => s.role === ROLES.guest)
   const isActiveDirty =
     projects.find((p) => p.id === activeProjectId)?.dirty ?? false
 
@@ -137,6 +141,8 @@ export function ProjectTabBar() {
       >
         <Save />
       </Button>
+
+      {isGuest && <ProjectShareControl />}
 
       <ProjectDeleteDialog
         projectName={pendingDelete?.name ?? null}
