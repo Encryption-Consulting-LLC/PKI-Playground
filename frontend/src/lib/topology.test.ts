@@ -337,6 +337,44 @@ describe("service socket compatibility", () => {
     })
   })
 
+  it("keeps persisted-edge handles mounted while endpoints are deploying or failed", () => {
+    const root = machine("root", "CA01", "certificateAuthority", { caType: "Root" })
+    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const web = machine("web", "SRV1", "webServer")
+    root.data.lifecycle = "failed"
+    issuing.data.lifecycle = "deploying"
+    web.data.lifecycle = "deploying"
+
+    const hierarchy = relationship("hierarchy", "root", "issuing", EDGE_TYPE.caHierarchy)
+    hierarchy.sourceHandle = serviceSocketHandleId(SERVICE_SOCKET.issuance, "source")
+    hierarchy.targetHandle = serviceSocketHandleId(SERVICE_SOCKET.issuance, "target")
+    const ocsp = relationship("ocsp", "issuing", "web", EDGE_TYPE.webServerCert)
+    ocsp.sourceHandle = serviceSocketHandleId(SERVICE_SOCKET.ocsp, "source")
+    ocsp.targetHandle = serviceSocketHandleId(SERVICE_SOCKET.ocsp, "target")
+    ocsp.data = { ...ocsp.data, serviceSocket: SERVICE_SOCKET.ocsp }
+    const edges = [hierarchy, ocsp]
+
+    expect(serviceSocketsForNode(root, edges)).toContainEqual({
+      socket: SERVICE_SOCKET.issuance,
+      type: "source",
+    })
+    expect(serviceSocketsForNode(issuing, edges)).toEqual(expect.arrayContaining([
+      { socket: SERVICE_SOCKET.issuance, type: "target" },
+      { socket: SERVICE_SOCKET.ocsp, type: "source" },
+    ]))
+    expect(serviceSocketsForNode(web, edges)).toContainEqual({
+      socket: SERVICE_SOCKET.ocsp,
+      type: "target",
+    })
+
+    // The lifecycle guard still blocks authoring new relationships.
+    expect(canConnectServiceSockets(
+      socketConnection("issuing", "web", SERVICE_SOCKET.publication),
+      [root, issuing, web],
+      edges,
+    ).ok).toBe(false)
+  })
+
   it("resists second parents and hierarchy cycles during the gesture", () => {
     const root = machine("root", "CA01", "certificateAuthority")
     const issuing = machine("issuing", "CA02", "certificateAuthority")

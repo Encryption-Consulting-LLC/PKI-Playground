@@ -39,4 +39,42 @@ describe("project recovery", () => {
       "CA01", "CA02", "DC01", "SRV1",
     ])
   })
+
+  it("persists terminal failure detail while stripping transient progress state", () => {
+    const topology = useTopologyStore.getState()
+    const failedNodes = topology.nodes.map((node, index) => index === 0
+      ? {
+          ...node,
+          data: {
+            ...node.data,
+            lifecycle: "failed" as const,
+            progress: 72,
+            phase: "Installing role",
+            errorDetail: "Access was denied by the remote command",
+          },
+        }
+      : node)
+    const project: Project = {
+      id: "recovery-project",
+      name: "Recoverable PKI lab",
+      nodes: failedNodes,
+      edges: topology.edges,
+      counters: topology.counters,
+      viewport: topology.viewport,
+      stagedOps: [],
+      deployJobId: null,
+      dirty: false,
+      updatedAt: 10,
+    }
+
+    const [restored] = deserializeProject({
+      ...serializeProject(project),
+      createdAt: 1,
+      updatedAt: 10,
+    }).nodes
+
+    expect(restored.data.errorDetail).toBe("Access was denied by the remote command")
+    expect(restored.data.progress).toBeUndefined()
+    expect(restored.data.phase).toBeUndefined()
+  })
 })

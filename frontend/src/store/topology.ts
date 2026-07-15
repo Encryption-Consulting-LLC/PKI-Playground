@@ -97,6 +97,8 @@ export interface MachineData extends Record<string, unknown> {
   progress?: number
   /** Human label of the current configuration step (from the progress stream). */
   phase?: string
+  /** Durable terminal operation detail; unlike progress/phase, survives project saves. */
+  errorDetail?: string
   /**
    * Deploy-confirmed identity of the real VM behind this node, from the
    * createVm op's result (`applyPlanState`): the pool-allocated guest IP and
@@ -200,9 +202,20 @@ function attachJobSocket(
       // clone, so revert to draft (retryable) rather than a hard error; a
       // real backend `error` frame (status > 0) is a genuine failure.
       if (e.status === 0) {
-        patch({ lifecycle: LIFECYCLE.draft, progress: undefined, phase: undefined, jobId: undefined })
+        patch({
+          lifecycle: LIFECYCLE.draft,
+          progress: undefined,
+          phase: undefined,
+          errorDetail: undefined,
+          jobId: undefined,
+        })
       } else {
-        patch({ lifecycle: LIFECYCLE.failed, jobId: undefined })
+        patch({
+          lifecycle: LIFECYCLE.failed,
+          phase: undefined,
+          errorDetail: e.detail || "Deployment failed",
+          jobId: undefined,
+        })
       }
       close()
     },
@@ -645,7 +658,11 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     // draft or failed — stage a fresh createVm op. The wire kind retains its
     // compatibility name, but the user-facing action is the real operation:
     // cloning the configured golden image.
-    patch({ ...(config ? { config } : {}), lifecycle: LIFECYCLE.staged })
+    patch({
+      ...(config ? { config } : {}),
+      lifecycle: LIFECYCLE.staged,
+      errorDetail: undefined,
+    })
     useStagingStore.getState().stageOp({
       kind: OP_KIND.createVm,
       targetNodeId: id,

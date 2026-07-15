@@ -310,29 +310,53 @@ export interface NodeServiceSocket {
   type: ServiceSocketHandleType
 }
 
-/** Service sockets exposed by a configured machine in the current topology. */
+/** Service sockets available for authoring, plus handles required by existing edges. */
 export function serviceSocketsForNode(
   node: Node<MachineData>,
   edges: Edge[],
 ): NodeServiceSocket[] {
-  if (!isConnectable(node.data)) return []
   if (node.data.typeId === "domainController") return []
-  if (node.data.typeId === "certificateAuthority") {
+
+  // An in-flight or failed deployment is not eligible for *new* connections,
+  // but its authored edges still need their exact handles to remain mounted.
+  // React Flow resolves every persisted edge against the rendered handles; if
+  // lifecycle changes remove those handles, it drops the visual edge and emits
+  // error 008 on every render/rehydration pass.
+  const sockets = new Map<string, NodeServiceSocket>()
+  const add = (spec: NodeServiceSocket) => {
+    sockets.set(serviceSocketHandleId(spec.socket, spec.type), spec)
+  }
+
+  if (isConnectable(node.data) && node.data.typeId === "certificateAuthority") {
     const root = node.data.config?.caType === "Root" || caTier(node.id, edges) === "root"
-    return [
+    for (const spec of [
       ...(!root ? [{ socket: SERVICE_SOCKET.issuance, type: "target" } as const] : []),
       { socket: SERVICE_SOCKET.issuance, type: "source" },
       { socket: SERVICE_SOCKET.publication, type: "source" },
       ...(!root ? [{ socket: SERVICE_SOCKET.ocsp, type: "source" } as const] : []),
-    ]
+    ] as NodeServiceSocket[]) add(spec)
   }
-  if (node.data.typeId === "webServer") {
-    return [
+  if (isConnectable(node.data) && node.data.typeId === "webServer") {
+    for (const spec of [
       { socket: SERVICE_SOCKET.publication, type: "target" },
       { socket: SERVICE_SOCKET.ocsp, type: "target" },
-    ]
+    ] as const) add(spec)
   }
-  return []
+
+  for (const edge of edges) {
+    const handleId = edge.source === node.id
+      ? edge.sourceHandle
+      : edge.target === node.id
+        ? edge.targetHandle
+        : null
+    const parsed = parseServiceSocketHandle(handleId)
+    if (!parsed) continue
+    if (edge.source === node.id && parsed.type !== "source") continue
+    if (edge.target === node.id && parsed.type !== "target") continue
+    add(parsed)
+  }
+
+  return [...sockets.values()]
 }
 
 export interface ConnectionGuidance {

@@ -309,7 +309,9 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
   )
   const driftFields = driftedFields(data)
   const warning = evidenceWarning ??
-    (data.lifecycle === LIFECYCLE.failed ? data.phase ?? "Deployment failed" : null) ??
+    (data.lifecycle === LIFECYCLE.failed
+      ? data.errorDetail ?? data.phase ?? "Deployment failed"
+      : null) ??
     (driftFields.length > 0 ? "Configuration changed since deploy" : null)
   const facts = compactFacts({ data, tier, depth, domain, memberCount })
   const activePhase = data.lifecycle === LIFECYCLE.deploying ||
@@ -341,6 +343,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
   const compatibleDestination = gesture && gesture.sourceNodeId !== id &&
     socketSpecs.some((spec) => spec.type === "target" && socketCompatibility(spec.socket)?.ok)
   const dimmedByGesture = gesture && gesture.sourceNodeId !== id && !compatibleDestination
+  const socketsConnectable = isConnectable(data)
   const isDraft = data.lifecycle === LIFECYCLE.draft
   const nodeHeight = machineNodeHeight(socketSpecs, isDraft)
 
@@ -408,11 +411,11 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
               type={spec.type}
               position={placement.position}
               style={placement.handleStyle}
-              isConnectableStart={spec.type === "source"}
-              isConnectableEnd={spec.type === "target"}
+              isConnectableStart={socketsConnectable && spec.type === "source"}
+              isConnectableEnd={socketsConnectable && spec.type === "target"}
               title={`${guidance.label} · ${guidance.intent}`}
               aria-label={`${guidance.label} socket: ${guidance.intent}`}
-              tabIndex={visible ? 0 : -1}
+              tabIndex={visible && socketsConnectable ? 0 : -1}
               onMouseEnter={() => {
                 if (gesture && spec.type === "target") hoverTarget(id, handleId)
               }}
@@ -425,7 +428,8 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
                 // the Handle itself to the visible dot made every relationship
                 // drag needlessly difficult to start.
                 "service-socket machine-node-service-reveal !z-20 !flex !h-6 !w-6 !items-center !justify-center",
-                "!rounded-full !border-0 !bg-transparent !shadow-none cursor-crosshair",
+                "!rounded-full !border-0 !bg-transparent !shadow-none",
+                socketsConnectable ? "cursor-crosshair" : "cursor-default",
                 "transition-opacity duration-150 focus-visible:!outline-none focus-visible:!ring-2 focus-visible:!ring-ring",
                 visible
                   ? "!opacity-100"
@@ -506,9 +510,10 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           <div className="machine-node-reveal px-5 pt-2">
             <div className="flex h-12 min-w-0 items-center">
               {activePhase && (
-                <div className="w-full min-w-0">
+                <div className="mx-auto w-36 min-w-0">
                   <span
-                    className="block min-w-0 whitespace-normal break-words text-[10px] leading-tight text-muted-foreground"
+                    className="block min-w-0 truncate text-center text-[10px] leading-tight text-muted-foreground"
+                    title={data.phase ?? "Starting"}
                   >
                     {data.phase ?? "Starting"}
                   </span>

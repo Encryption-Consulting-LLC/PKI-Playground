@@ -248,6 +248,7 @@ function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: 
           lifecycle: LIFECYCLE.deploying,
           progress: runState.percent,
           phase: runState.phase,
+          errorDetail: undefined,
           // The agent identity rides on running pushes (partial result) so the
           // presence dot can appear while provisioning is still underway.
           ...(typeof runState.result?.agentVmId === "string"
@@ -292,6 +293,10 @@ function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: 
           lifecycle: LIFECYCLE.failed,
           progress: undefined,
           phase: undefined,
+          // The online dot only reports agent presence; retain the terminal
+          // command detail separately so project serialization does not strip
+          // it with transient progress/phase state.
+          errorDetail: runState.detail || "Deployment failed",
         })
       }
       continue
@@ -348,6 +353,7 @@ function revertNonTerminalToStaged(): void {
         lifecycle: LIFECYCLE.staged,
         progress: undefined,
         phase: undefined,
+        errorDetail: undefined,
       })
     }
     for (const edgeId of operationEdgeIds(op)) {
