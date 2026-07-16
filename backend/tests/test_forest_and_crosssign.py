@@ -230,6 +230,49 @@ def test_caconnect_handshake_relays_root_csr_and_signed_cert():
     assert {"issuing_csr", "issuing_crt"} <= produced
 
 
+def test_caconnect_recovers_missing_root_artifacts_from_configured_directory():
+    ctx = _full_lab_ctx()
+    ctx.artifacts.pop("root_cert_filename")
+    ctx.artifacts.pop("root_crl_filename")
+    ctx.nodes["root"].template_config.update(
+        {
+            "commonName": "EC-Root-CA",
+            "certEnrollPath": "C:\\CaConfig",
+        }
+    )
+    by_id = {step.id: step for step in op_sequence("caConnect", ctx)}
+
+    crt = by_id["recover-root-crt"]
+    crl = by_id["recover-root-crl"]
+    assert crt.resolve_params(ctx)["path"] == (
+        "C:\\CaConfig\\guest-abc12-ca01_EC-Root-CA.crt"
+    )
+    assert crl.resolve_params(ctx)["path"] == "C:\\CaConfig\\EC-Root-CA.crl"
+    assert crt.produces == ("root_crt",)
+    assert crl.produces == ("root_crl",)
+    assert crt.resolve_result_artifact_defaults(ctx) == {
+        "sourceFileName": "guest-abc12-ca01_EC-Root-CA.crt"
+    }
+    assert crl.resolve_result_artifact_defaults(ctx) == {
+        "sourceFileName": "EC-Root-CA.crl"
+    }
+
+
+def test_caconnect_recovery_reads_skip_when_root_relay_is_available():
+    ctx = _full_lab_ctx()
+    ctx.artifacts.update({"root_crt": "Y2VydA==", "root_crl": "Y3Js"})
+    by_id = {step.id: step for step in op_sequence("caConnect", ctx)}
+
+    assert by_id["recover-root-crt"].skip_if_artifacts == (
+        "root_crt",
+        "root_cert_filename",
+    )
+    assert by_id["recover-root-crl"].skip_if_artifacts == (
+        "root_crl",
+        "root_crl_filename",
+    )
+
+
 def test_caconnect_preserves_http_publication_filenames():
     ctx = _full_lab_ctx()
     by_id = {step.id: step for step in op_sequence("caConnect", ctx)}

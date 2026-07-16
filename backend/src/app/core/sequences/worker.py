@@ -101,22 +101,31 @@ def _persist_step(
     op_id: str,
     step_id: str,
     result: dict,
-    artifacts: dict[str, str],
+    artifact_updates: dict[str, str],
 ) -> None:
-    """Persist a completed step's cursor, result evidence, and relay artifacts."""
+    """Persist a completed step and only the artifacts it newly produced.
+
+    Plan operations fan out across multiple workers.  Replacing the complete
+    ``artifacts`` document here lets a worker holding an older snapshot erase
+    artifacts concurrently produced by another operation.  Dotted ``$set``
+    updates merge each new relay value atomically instead.
+    """
     ttl_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
         days=_PLAN_RUN_TTL_DAYS
+    )
+    set_values = {
+        f"results.{op_id}.{step_id}": result,
+        "updatedAt": now_ms(),
+        "ttlAt": ttl_at,
+    }
+    set_values.update(
+        {f"artifacts.{key}": value for key, value in artifact_updates.items()}
     )
     db["plan_runs"].update_one(
         {"jobId": plan_job_id},
         {
             "$addToSet": {f"cursor.{op_id}": step_id},
-            "$set": {
-                "artifacts": artifacts,
-                f"results.{op_id}.{step_id}": result,
-                "updatedAt": now_ms(),
-                "ttlAt": ttl_at,
-            },
+            "$set": set_values,
             "$setOnInsert": {"jobId": plan_job_id, "createdAt": now_ms()},
         },
         upsert=True,
@@ -184,6 +193,7 @@ def run_op_sequence(
     completed = set(completed_by_op.get(op_id, []))
     resumed_results = results_by_op.get(op_id, {})
     ctx.artifacts.update(artifacts)
+    persisted_artifacts = dict(ctx.artifacts)
 
     def dispatch(
         job_key, vm_id, command, params, *, role, secret_keys, timeout_s,
@@ -224,7 +234,15 @@ def run_op_sequence(
         agentbus.wait_for_reconnect(vm_id, since_ms, timeout_s, db=db)
 
     def on_step_done(step_id, result):
-        _persist_step(db, plan_job_id, op_id, step_id, result, ctx.artifacts)
+        artifact_updates = {
+            key: value
+            for key, value in ctx.artifacts.items()
+            if persisted_artifacts.get(key) != value
+        }
+        _persist_step(
+            db, plan_job_id, op_id, step_id, result, artifact_updates
+        )
+        persisted_artifacts.update(artifact_updates)
         if on_step_complete is not None:
             on_step_complete(step_id)
 

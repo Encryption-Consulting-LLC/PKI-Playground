@@ -166,6 +166,21 @@ def _observed_filename(ctx: RunContext, key: str) -> str:
     return leaf
 
 
+def _observed_filename_or(ctx: RunContext, key: str, fallback: str) -> str:
+    """Return a safe observed filename, or a deterministic legacy fallback.
+
+    Older/lost plan state may contain the CA files on disk without retaining
+    the filename artifacts.  The fallback mirrors AD CS publication naming so
+    a reconcile can rehydrate the binary relay from the root CA.
+    """
+
+    value = ctx.artifacts.get(key) or fallback
+    leaf = PureWindowsPath(value).name
+    if leaf != value or leaf in ("", ".", ".."):
+        raise ValueError(f"CA publication reported unsafe filename '{value}'")
+    return leaf
+
+
 def _publication_url(ctx: RunContext, key: str) -> str:
     return quote(_observed_filename(ctx, key), safe="+._-")
 
@@ -899,6 +914,44 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
             f"{_observed_filename(rt.ctx, _A_ISSUING_CERT_FILE)}"
         }
 
+    def root_source_crt_path(rt: StepRuntime) -> dict[str, str]:
+        ca_name = rt.node.template_config.get("commonName", "EC-Root-CA")
+        filename = _observed_filename_or(
+            rt.ctx,
+            _A_ROOT_CERT_FILE,
+            f"{rt.node.hostname}_{ca_name}.crt",
+        )
+        return {"path": f"{_ca_publication_dir(rt)}\\{filename}"}
+
+    def root_source_crl_path(rt: StepRuntime) -> dict[str, str]:
+        ca_name = rt.node.template_config.get("commonName", "EC-Root-CA")
+        filename = _observed_filename_or(
+            rt.ctx,
+            _A_ROOT_CRL_FILE,
+            f"{ca_name}.crl",
+        )
+        return {"path": f"{_ca_publication_dir(rt)}\\{filename}"}
+
+    def root_crt_recovery_defaults(rt: StepRuntime) -> dict[str, str]:
+        ca_name = rt.node.template_config.get("commonName", "EC-Root-CA")
+        return {
+            "sourceFileName": _observed_filename_or(
+                rt.ctx,
+                _A_ROOT_CERT_FILE,
+                f"{rt.node.hostname}_{ca_name}.crt",
+            )
+        }
+
+    def root_crl_recovery_defaults(rt: StepRuntime) -> dict[str, str]:
+        ca_name = rt.node.template_config.get("commonName", "EC-Root-CA")
+        return {
+            "sourceFileName": _observed_filename_or(
+                rt.ctx,
+                _A_ROOT_CRL_FILE,
+                f"{ca_name}.crl",
+            )
+        }
+
     def root_web_crt_path(rt: StepRuntime) -> dict[str, str]:
         return {"path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"}
 
@@ -919,8 +972,31 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
 
     steps: list[Step] = []
 
-    # 1) Trust the offline root on CA02 (carried from the relay).
+    # 1) Rehydrate a missing relay from the offline root's configured
+    #    publication directory, then trust the root on CA02.  The recovery
+    #    reads normally skip, but make retry/reconcile self-healing when an
+    #    older parallel worker erased plan artifacts after root provisioning.
     steps += [
+        Step(
+            id="recover-root-crt",
+            command="file.read",
+            target=ROOT,
+            params=root_source_crt_path,
+            produces=(_A_ROOT_CRT,),
+            result_artifacts={"sourceFileName": _A_ROOT_CERT_FILE},
+            result_artifact_defaults=root_crt_recovery_defaults,
+            skip_if_artifacts=(_A_ROOT_CRT, _A_ROOT_CERT_FILE),
+        ),
+        Step(
+            id="recover-root-crl",
+            command="file.read",
+            target=ROOT,
+            params=root_source_crl_path,
+            produces=(_A_ROOT_CRL,),
+            result_artifacts={"sourceFileName": _A_ROOT_CRL_FILE},
+            result_artifact_defaults=root_crl_recovery_defaults,
+            skip_if_artifacts=(_A_ROOT_CRL, _A_ROOT_CRL_FILE),
+        ),
         Step(id="root-to-ca02", command="file.write", target=PRIMARY,
              params={"path": _ROOT_CRT}, consumes=(_A_ROOT_CRT,)),
         Step(id="addstore-root", command="cert.addstore", target=PRIMARY,

@@ -13,7 +13,7 @@ os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhY
 
 from app.core import agentbus
 from app.core.sequences.model import NodeContext, RunContext, Step
-from app.core.sequences.worker import load_step_medians, run_op_sequence
+from app.core.sequences.worker import _persist_step, load_step_medians, run_op_sequence
 from app.tasks import _fmt_duration, _sequence_progress, _step_median_seconds
 
 
@@ -53,7 +53,7 @@ class FakeCollection:
         )
 
     def update_one(self, *_a, **_k):
-        pass
+        self.last_update = _a[1]
 
 
 class FakeDb(dict):
@@ -125,6 +125,30 @@ def test_metrics_write_failure_never_fails_the_step(monkeypatch):
         db, steps, _ctx(), plan_job_id="job-1", op_id="op-1", role="guest"
     )
     assert results["s1"] == {"ok": True}
+
+
+def test_step_persistence_atomically_merges_artifacts_instead_of_replacing_map():
+    db = FakeDb()
+
+    _persist_step(
+        db,
+        "job-1",
+        "root-provision",
+        "read-root-crt",
+        {"contentB64": "Y2VydA=="},
+        {"root_crt": "Y2VydA=="},
+    )
+    update = db["plan_runs"].last_update
+
+    assert update["$set"]["artifacts.root_crt"] == "Y2VydA=="
+    assert "artifacts" not in update["$set"]
+
+    _persist_step(db, "job-1", "dc-provision", "dns-self", {"ok": True}, {})
+    stale_update = db["plan_runs"].last_update
+    assert not any(
+        key == "artifacts" or key.startswith("artifacts.")
+        for key in stale_update["$set"]
+    )
 
 
 # --------------------------------------------------------------------------- #
