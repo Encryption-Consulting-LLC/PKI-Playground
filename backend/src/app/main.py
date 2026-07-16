@@ -15,10 +15,14 @@ routes 503 until an operator sets one via PUT /api/settings.
 import asyncio
 import contextlib
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.agentbus import run_dispatch_subscriber
 from app.core.db import close_db, init_db
@@ -59,6 +63,48 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await close_db()
 
 
+def _frontend_dist() -> Path:
+    """Location of the built SPA. Overridable for split API/static deploys;
+    defaults to the sibling ``frontend/dist`` in a full checkout."""
+    override = os.environ.get("FRONTEND_DIST")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[3] / "frontend" / "dist"
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    """Serve the built SPA from the same origin as the API.
+
+    Registered last, so ``/api``, ``/docs``, and ``/openapi.json`` (added
+    before this call) always win. Real files are served as-is; every other
+    non-``/api`` path falls back to ``index.html`` for client-side routing.
+    No-op when the build is absent (dev without ``pnpm build``, or tests).
+    """
+    dist = _frontend_dist()
+    index = dist / "index.html"
+    if not index.is_file():
+        logger.info("No frontend build at %s — API-only.", dist)
+        return
+
+    assets = dist / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    async def _spa_root() -> FileResponse:
+        return FileResponse(index)
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def _spa_catch_all(path: str) -> FileResponse:
+        if path.startswith("api"):
+            # Unmatched API paths are 404s, not SPA shell.
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = dist / path
+        if candidate.is_file() and candidate.resolve().is_relative_to(dist.resolve()):
+            return FileResponse(candidate)
+        return FileResponse(index)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="pki-deploy-api",
@@ -68,6 +114,7 @@ def create_app() -> FastAPI:
     )
     register_exception_handlers(app)
     app.include_router(api_router)
+    _mount_frontend(app)
     return app
 
 
