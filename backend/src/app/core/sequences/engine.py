@@ -11,16 +11,16 @@ redis, Mongo, or a real agent:
   (:func:`app.core.agentbus.dispatch_and_wait`). ``job_key``
   is the step's stable id, used to derive the deterministic per-step job id
   (idempotency key on redelivery).
-* ``wait_for_reconnect(vm_id, since_ms, timeout_s)`` blocks until the agent's
-  ``lastConnectedAt`` advances past ``since_ms`` (Mongo poll), or raises.
+* ``wait_for_reconnect(vm_id, since_ms, timeout_s)`` blocks until a connection
+  newer than ``since_ms`` is currently live, or raises.
 * ``sleep(seconds)`` / ``now_ms()`` are injected for deterministic tests.
 
 Resume: a ``completed`` set (from the ``plan_runs`` cursor) skips already-run
 steps on Celery redelivery; ``on_step_done(step_id, result)`` persists the
 cursor + any produced artifacts after each step so a mid-sequence redelivery
 picks up where it left off. Reboot waits use a *timestamp compare* (reconnect
-time > dispatch time), immune to a fast reboot that reconnects before the
-engine even starts polling.
+time > dispatch time) plus the current liveness key, immune both to a fast
+reboot that reconnects before polling and a reconnect that immediately drops.
 """
 
 import logging

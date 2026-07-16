@@ -32,6 +32,7 @@ re-checks it locally as a second, structural gate (see ``phonehome.rs``).
 
 import asyncio
 import contextlib
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -54,6 +55,7 @@ from app.core.jobs.models import DoneMsg, ErrorMsg, JobStatus, ProgressMsg, Queu
 from app.routers.ws import send_json_or_disconnect
 
 router = APIRouter(prefix="/orchestrator", tags=["orchestrator"])
+logger = logging.getLogger(__name__)
 
 # Mirrors pki-orchestrator's `authz::Role::capabilities()` / command handlers
 # (`commands/*.rs`) — there is no automated sync between the two languages,
@@ -184,15 +186,28 @@ async def _authenticate(vm_id: str | None, token: str | None) -> bool:
 #: Liveness-key refresh cadence — comfortably inside ``AGENT_CONN_TTL_SECONDS``
 #: so an idle-but-live agent's key never lapses between frames.
 _KEEPALIVE_INTERVAL_S = 30
+_KEEPALIVE_RETRY_S = 5
 
 
-async def _keepalive(vm_id: str) -> None:
+async def _keepalive(vm_id: str, *, sleep=asyncio.sleep) -> None:
     """Re-arm the agent's liveness TTL on a fixed cadence for as long as the
     socket lives (frames are sporadic, so the receive loop can't be relied on
-    to refresh it). Cancelled in the connect handler's ``finally``."""
+    to refresh it). A transient Valkey failure must not kill this task: doing
+    so leaves the in-process socket (and the UI's green presence dot) live while
+    the worker-facing lease expires. Cancelled in the connect handler's
+    ``finally``."""
     while True:
-        await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
-        await agentbus.refresh_agent_live(vm_id)
+        await sleep(_KEEPALIVE_INTERVAL_S)
+        while True:
+            try:
+                await agentbus.refresh_agent_live(vm_id)
+                break
+            except Exception:  # noqa: BLE001 - retry while the socket is live
+                logger.exception(
+                    "failed to refresh liveness lease for agent %s; retrying",
+                    vm_id,
+                )
+                await sleep(_KEEPALIVE_RETRY_S)
 
 
 @router.websocket("/connect")
@@ -226,9 +241,13 @@ async def connect(websocket: WebSocket) -> None:
     # Mark live (liveness key + lastConnectedAt) — the reboot-resume signal the
     # worker's sequence engine polls. A registry-less manual/dev agent still
     # gets its liveness key; the lastConnectedAt update simply matches nothing.
-    await agentbus.mark_agent_live(vm_id)
-    keepalive = asyncio.create_task(_keepalive(vm_id))
+    keepalive: asyncio.Task | None = None
     try:
+        # Keep setup inside the ownership guard. If the initial Valkey/Mongo
+        # write fails, the socket handler exits and the map is cleaned instead
+        # of leaking a permanently green presence entry with no live lease.
+        await agentbus.mark_agent_live(vm_id)
+        keepalive = asyncio.create_task(_keepalive(vm_id))
         while True:
             frame = await websocket.receive_json()
             job_id = frame.get("job_id")
@@ -238,9 +257,10 @@ async def connect(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        keepalive.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await keepalive
+        if keepalive is not None:
+            keepalive.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await keepalive
         # Only clear the shared liveness key if this socket is still the
         # registered one — a connection evicted by a takeover (4409) must not
         # delete the key its replacement just set.

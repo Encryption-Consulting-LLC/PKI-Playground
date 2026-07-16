@@ -20,7 +20,10 @@ class _FakePubSub:
     def get_message(self, timeout=1.0):
         if not self._frames:
             return None
-        return {"type": "message", "data": json.dumps(self._frames.pop(0))}
+        frame = self._frames.pop(0)
+        if frame is None:
+            return None
+        return {"type": "message", "data": json.dumps(frame)}
 
     def close(self):
         pass
@@ -94,3 +97,33 @@ def test_progress_frames_without_a_callback_are_still_skipped():
         ]
     )
     assert result == {}
+
+
+def test_dispatch_waits_through_the_agents_maximum_reconnect_backoff():
+    """A buffered terminal frame may arrive after the agent's 30s retry."""
+
+    class _ReconnectRedis(_FakeRedis):
+        def __init__(self):
+            super().__init__(
+                [None] * 30 + [{"type": "done", "result": {"ok": True}}]
+            )
+            # Existing snapshot check + initial dispatch gate are live. The
+            # lease then disappears for 30 polls and returns on reconnect.
+            self.live = iter([True, True] + [False] * 30 + [True])
+
+        def get(self, key):
+            if key.startswith("agent-conn:"):
+                return b"1" if next(self.live, True) else None
+            return None
+
+    result = agentbus.dispatch_and_wait(
+        "vm-1",
+        "ca.install",
+        {},
+        job_id="job-reconnect",
+        role="operator",
+        timeout_s=60,
+        client=_ReconnectRedis(),
+    )
+
+    assert result == {"ok": True}

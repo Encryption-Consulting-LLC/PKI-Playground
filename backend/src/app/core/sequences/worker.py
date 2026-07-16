@@ -185,7 +185,7 @@ def run_op_sequence(
       the frameless-poll heartbeat to ``on_step_tick(step_id, elapsed_s)``;
     * every successful dispatch's duration is logged and sampled into
       ``step_metrics`` (the priors :func:`load_step_medians` reads);
-    * ``wait_for_reconnect`` → the Mongo ``lastConnectedAt`` poll;
+    * ``wait_for_reconnect`` → the Mongo ``lastConnectedAt`` + live-key gate;
     * completed steps come from the ``plan_runs`` cursor and each step's
       completion is persisted before the next runs.
     """

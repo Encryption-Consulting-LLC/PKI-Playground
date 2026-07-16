@@ -20,8 +20,9 @@ Valkey used for job transport:
 **Liveness / reboot-resume:** the connect handler calls :func:`mark_agent_live`
 (TTL key ``agent-conn:{vm_id}`` + ``$set agent.lastConnectedAt`` on the
 registry). :func:`dispatch_and_wait` refuses to dispatch to an agent whose
-liveness key is absent; :func:`wait_for_reconnect` polls the registry timestamp
-so a reboot step resumes once the agent phones home again.
+liveness key is absent; :func:`wait_for_reconnect` requires both a newer
+registry timestamp and a present liveness key, so a reboot step resumes only
+while the post-reboot connection is still dispatchable.
 """
 
 import json
@@ -50,9 +51,12 @@ def agent_conn_key(vm_id: str) -> str:
 AGENT_CONN_TTL_SECONDS = 90
 
 #: Consecutive ~1s dispatch polls with the liveness key absent before a
-#: non-reboot command is declared dead. Long enough to ride out a redis blip,
-#: far shorter than a step's ``timeout_s`` (which would otherwise hang the op).
-_DISPATCH_LIVENESS_GRACE_POLLS = 10
+#: non-reboot command is declared dead. The bundled agent preserves outbound
+#: progress across reconnects and backs off for as long as 30s, so the worker
+#: must leave enough room for that final retry plus the WebSocket handshake.
+#: This remains far shorter than a step's ``timeout_s`` (which would otherwise
+#: hang the op when the agent process really died).
+_DISPATCH_LIVENESS_GRACE_POLLS = 45
 
 
 class AgentUnreachableError(Exception):
@@ -245,22 +249,35 @@ def wait_for_reconnect(
     timeout_s: int,
     *,
     db,
+    client: "redis.Redis | None" = None,
     sleep=time.sleep,
     now_ms=None,
+    monotonic=time.monotonic,
     poll_interval_s: float = 3.0,
 ) -> None:
-    """Block until the agent's ``lastConnectedAt`` advances past ``since_ms``
-    (it reconnected after the reboot dispatched at ``since_ms``), or raise
-    :class:`ReconnectTimeoutError`. ``db`` is a worker sync database."""
-    import time as _time
+    """Block until a post-reboot agent connection is currently live.
 
-    deadline = _time.monotonic() + timeout_s
-    while _time.monotonic() < deadline:
+    ``lastConnectedAt > since_ms`` proves that the agent connected after the
+    reboot dispatch, while the Valkey liveness key proves that connection has
+    not subsequently dropped.  Requiring both closes a race where a short-lived
+    reconnect advanced Mongo, disconnected, and let the next sequence step fail
+    immediately with ``no live agent``.
+
+    Raises :class:`ReconnectTimeoutError` when no live post-reboot connection
+    appears within the window. ``db`` is a worker sync database.
+    """
+    r = client or transport._client
+    deadline = monotonic() + timeout_s
+    while monotonic() < deadline:
         doc = db["vm_registry"].find_one(
             {"agent.vmId": vm_id}, {"agent.lastConnectedAt": 1}
         )
         last = ((doc or {}).get("agent") or {}).get("lastConnectedAt")
-        if isinstance(last, int) and last > since_ms:
+        if (
+            isinstance(last, int)
+            and last > since_ms
+            and r.get(agent_conn_key(vm_id)) is not None
+        ):
             return
         sleep(poll_interval_s)
     raise ReconnectTimeoutError(
