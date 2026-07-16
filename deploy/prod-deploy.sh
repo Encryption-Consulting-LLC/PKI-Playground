@@ -26,7 +26,7 @@ set -euo pipefail
 # Config
 # ----------------------------------------------------------------------------
 APP_DIR="${APP_DIR:-$HOME/pki-playground}"
-REPO_URL="${REPO_URL:-git@github-ec:Encryption-Consulting-LLC/PKI-Playground.git}"
+REPO_URL="${REPO_URL:-https://github.com/Encryption-Consulting-LLC/PKI-Playground.git}"
 BRANCH="${BRANCH:-master}"
 
 # Origin deployed guest VMs dial home to (baked into each firstboot agent config).
