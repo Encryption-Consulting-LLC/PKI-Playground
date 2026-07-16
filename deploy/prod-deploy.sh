@@ -30,7 +30,7 @@ REPO_URL="${REPO_URL:-git@github-ec:Encryption-Consulting-LLC/PKI-Playground.git
 BRANCH="${BRANCH:-master}"
 
 # Origin deployed guest VMs dial home to (baked into each firstboot agent config).
-BACKEND_PUBLIC_URL="${BACKEND_PUBLIC_URL:-https://pki-lab.4rc.tech}"
+BACKEND_PUBLIC_URL="${BACKEND_PUBLIC_URL:-https://pqc-lab.encryptionconsulting.com}"
 
 # API bind (kept on loopback; the cloudflared tunnel fronts it publicly).
 API_HOST="${API_HOST:-127.0.0.1}"
