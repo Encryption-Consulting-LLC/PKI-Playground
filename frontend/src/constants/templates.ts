@@ -1,7 +1,6 @@
 import {
   Building2,
   Globe,
-  Monitor,
   Server,
   ShieldCheck,
 } from "lucide-react"
