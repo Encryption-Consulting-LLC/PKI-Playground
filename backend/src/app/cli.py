@@ -104,6 +104,29 @@ def worker() -> None:
     sys.exit(exit_code)
 
 
+def admin_exists() -> None:
+    """Exit 0 if any admin account already exists, 1 otherwise (silent).
+
+    Lets ``deploy/prod-deploy.sh`` decide whether the first-admin bootstrap is
+    needed *before* prompting: on a redeploy an admin is already present, so the
+    deploy runs unattended with no credential prompt. Checks for *any* admin
+    (not a specific username) so a first deploy that named its admin something
+    other than the default still counts as bootstrapped on later runs.
+    """
+    from pymongo import MongoClient
+
+    from app.core.settings import settings
+
+    client: MongoClient = MongoClient(settings.mongo_url, serverSelectionTimeoutMS=5000)
+    try:
+        present = (
+            client[settings.mongo_db]["users"].find_one({"role": "admin"}) is not None
+        )
+    finally:
+        client.close()
+    sys.exit(0 if present else 1)
+
+
 def create_admin() -> None:
     """Bootstrap CLI: provision an account (``uv run create-admin``), any role.
 

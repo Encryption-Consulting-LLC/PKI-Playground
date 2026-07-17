@@ -10,9 +10,9 @@
 #   4. Build the frontend and admin app (pnpm build → */dist), both served
 #      same-origin by the API's static mounts.
 #   5. Health-check the already-running MongoDB and Valkey.
-#   6. Seed the first admin account (prompts for credentials interactively,
-#      or auto-generates a password unattended) — a no-op if it already
-#      exists, so re-running never resets it.
+#   6. Seed the first admin account on the FIRST deploy only (prompts for
+#      credentials interactively, or auto-generates a password unattended).
+#      Redeploys detect the existing admin and skip this entirely — no prompt.
 #   7. Install and (re)start systemd *user* services: API and both Celery
 #      workers. Enable linger so they start at boot.
 #
@@ -186,51 +186,61 @@ check_tcp MongoDB "$MONGO_URL"
 check_tcp Valkey "$VALKEY_URL"
 
 # ----------------------------------------------------------------------------
-# 6. Seed the first admin account
+# 6. Seed the first admin account — first deploy only
 #
 #    Admin is a separate role from operator (core/authz.py) — it manages the
 #    ESXi target, base images, and accounts via the /admin console, and has
-#    no access to the operator canvas. `create-admin` (backend/src/app/cli.py)
-#    is idempotent: an existing ADMIN_USERNAME is left untouched, so re-running
-#    this script never resets the password.
+#    no access to the operator canvas.
+#
+#    Redeploys run unattended: `admin-exists` (backend/src/app/cli.py) reports
+#    whether *any* admin account is already present, and if so this whole block
+#    is skipped — no username/password prompt on every upgrade. Only a truly
+#    un-bootstrapped install (no admin at all) provisions one, either from
+#    ADMIN_USERNAME/ADMIN_PASSWORD, an interactive prompt, or an auto-generated
+#    password. Set FORCE_ADMIN_PROVISION=1 to provision even when an admin
+#    exists (e.g. to add another admin non-interactively via ADMIN_USERNAME).
 # ----------------------------------------------------------------------------
-ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
-ADMIN_PASSWORD_GENERATED=0
-
-if [ -z "$ADMIN_PASSWORD" ] && [ -t 0 ]; then
-  log "Provisioning the admin account (press Enter on the password prompt to auto-generate one)"
-  read -r -p "Admin username [$ADMIN_USERNAME]: " admin_username_input
-  ADMIN_USERNAME="${admin_username_input:-$ADMIN_USERNAME}"
-  read -rs -p "Admin password (blank to auto-generate): " admin_password_input
-  echo
-  if [ -n "$admin_password_input" ]; then
-    read -rs -p "Repeat password: " admin_password_confirm
-    echo
-    [ "$admin_password_input" = "$admin_password_confirm" ] || die "Passwords did not match."
-    ADMIN_PASSWORD="$admin_password_input"
-  fi
-fi
-if [ -z "$ADMIN_PASSWORD" ]; then
-  ADMIN_PASSWORD="$(openssl rand -base64 18)"
-  ADMIN_PASSWORD_GENERATED=1
-fi
-
-log "Provisioning admin account '$ADMIN_USERNAME' (no-op if it already exists)"
-CREATE_ADMIN_OUTPUT="$(cd "$BACKEND" && ADMIN_PASSWORD="$ADMIN_PASSWORD" uv run create-admin "$ADMIN_USERNAME" --role admin)"
-printf '%s\n' "$CREATE_ADMIN_OUTPUT"
-
-# Only surface the generated password if the account was actually just
-# created — on a re-run (or an existing username reused for ADMIN_USERNAME)
-# create-admin no-ops, and the freshly-generated string above was never
-# applied, so printing it would show a password that isn't the real one.
 ADMIN_NOTE=""
-if [ "$ADMIN_PASSWORD_GENERATED" -eq 1 ] && printf '%s' "$CREATE_ADMIN_OUTPUT" | grep -qF "Created admin account '$ADMIN_USERNAME'."; then
-  ADMIN_NOTE="  - Generated admin credentials (shown once — store them securely, then rotate via the
+if [ "${FORCE_ADMIN_PROVISION:-0}" != "1" ] && ( cd "$BACKEND" && uv run admin-exists ) 2>/dev/null; then
+  log "Admin account already provisioned — skipping bootstrap (redeploy)."
+else
+  ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
+  ADMIN_PASSWORD_GENERATED=0
+
+  if [ -z "$ADMIN_PASSWORD" ] && [ -t 0 ]; then
+    log "Provisioning the admin account (press Enter on the password prompt to auto-generate one)"
+    read -r -p "Admin username [$ADMIN_USERNAME]: " admin_username_input
+    ADMIN_USERNAME="${admin_username_input:-$ADMIN_USERNAME}"
+    read -rs -p "Admin password (blank to auto-generate): " admin_password_input
+    echo
+    if [ -n "$admin_password_input" ]; then
+      read -rs -p "Repeat password: " admin_password_confirm
+      echo
+      [ "$admin_password_input" = "$admin_password_confirm" ] || die "Passwords did not match."
+      ADMIN_PASSWORD="$admin_password_input"
+    fi
+  fi
+  if [ -z "$ADMIN_PASSWORD" ]; then
+    ADMIN_PASSWORD="$(openssl rand -base64 18)"
+    ADMIN_PASSWORD_GENERATED=1
+  fi
+
+  log "Provisioning admin account '$ADMIN_USERNAME' (no-op if it already exists)"
+  CREATE_ADMIN_OUTPUT="$(cd "$BACKEND" && ADMIN_PASSWORD="$ADMIN_PASSWORD" uv run create-admin "$ADMIN_USERNAME" --role admin)"
+  printf '%s\n' "$CREATE_ADMIN_OUTPUT"
+
+  # Only surface the generated password if the account was actually just
+  # created — if the chosen username happened to already exist, create-admin
+  # no-ops and the freshly-generated string above was never applied, so
+  # printing it would show a password that isn't the real one.
+  if [ "$ADMIN_PASSWORD_GENERATED" -eq 1 ] && printf '%s' "$CREATE_ADMIN_OUTPUT" | grep -qF "Created admin account '$ADMIN_USERNAME'."; then
+    ADMIN_NOTE="  - Generated admin credentials (shown once — store them securely, then rotate via the
     admin console or \`uv run create-admin $ADMIN_USERNAME --role admin\` under a fresh password):
       username: $ADMIN_USERNAME
       password: $ADMIN_PASSWORD
 "
+  fi
 fi
 
 # ----------------------------------------------------------------------------
@@ -327,7 +337,7 @@ systemctl --user --no-pager --no-legend status \
 cat <<EOF
 
 Next steps:
-  - Admin console: $API_HOST:$API_PORT/admin  (account '$ADMIN_USERNAME' provisioned above)
+  - Admin console: $API_HOST:$API_PORT/admin
 ${ADMIN_NOTE}  - Bootstrap an operator or guest (interactive password prompt):
       cd $BACKEND && uv run create-admin <name> --role operator
   - Logs:   journalctl --user -u pki-api -f   (or -worker-esxi / -worker-provision)

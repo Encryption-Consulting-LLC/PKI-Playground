@@ -31,6 +31,7 @@ worker = "app.cli:worker"
 worker-esxi = "app.cli:worker_esxi"
 worker-provision = "app.cli:worker_provision"
 create-admin = "app.cli:create_admin"
+admin-exists = "app.cli:admin_exists"
 
 [build-system]
 requires = ["hatchling"]
