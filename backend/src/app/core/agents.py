@@ -26,12 +26,15 @@ single-API-process constraint as the map itself.
 import asyncio
 import hashlib
 import hmac
+import logging
 import secrets
 import threading
 import uuid
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
 
 _pending: dict[str, str] = {}  # vm_id -> token
 _connected: dict[str, "AgentConnection"] = {}  # vm_id -> live connection
@@ -41,11 +44,20 @@ _presence_queues: set["asyncio.Queue[None]"] = set()  # presence-change signals
 
 @dataclass
 class AgentConnection:
+    vm_id: str
     websocket: WebSocket
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def send(self, payload: dict) -> None:
         async with self.send_lock:
+            # Outbound half of the backend->agent exchange. Params are omitted
+            # deliberately — they can carry secrets (e.g. a domain-join password).
+            logger.info(
+                "-> agent %s: dispatch job_id=%s command=%s",
+                self.vm_id,
+                payload.get("job_id"),
+                payload.get("command"),
+            )
             await self.websocket.send_json(payload)
 
 
@@ -125,7 +137,7 @@ def unsubscribe_presence(queue: "asyncio.Queue[None]") -> None:
 def connect_agent(vm_id: str, websocket: WebSocket) -> AgentConnection:
     """Record the live connection for ``vm_id`` (overwriting any prior entry —
     the caller closes the old socket first for a clean takeover)."""
-    conn = AgentConnection(websocket=websocket)
+    conn = AgentConnection(vm_id=vm_id, websocket=websocket)
     with _lock:
         _connected[vm_id] = conn
         _notify_presence()

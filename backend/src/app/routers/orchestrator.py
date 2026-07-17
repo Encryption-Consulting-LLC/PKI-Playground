@@ -250,6 +250,7 @@ async def connect(websocket: WebSocket) -> None:
         except Exception:  # noqa: BLE001 — the old socket may already be gone
             pass
     conn = agents.connect_agent(vm_id, websocket)
+    logger.info("agent %s connected (phone-home)", vm_id)
 
     # Mark live (liveness key + lastConnectedAt) — the reboot-resume signal the
     # worker's sequence engine polls. A registry-less manual/dev agent still
@@ -270,6 +271,7 @@ async def connect(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        logger.info("agent %s disconnected (phone-home)", vm_id)
         if keepalive is not None:
             keepalive.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -289,6 +291,24 @@ def _relay_progress(job_id: str, state: dict) -> None:
     is ignored rather than guessed at.
     """
     status = state.get("status")
+    # Inbound half of the backend<-agent exchange. Terminal frames at info so the
+    # command round-trip is visible in the default log; running frames (which can
+    # be frequent) at debug.
+    if status in ("done", "error"):
+        logger.info(
+            "<- agent frame job_id=%s status=%s detail=%s",
+            job_id,
+            status,
+            state.get("detail"),
+        )
+    else:
+        logger.debug(
+            "<- agent frame job_id=%s status=%s phase=%s percent=%s",
+            job_id,
+            status,
+            state.get("phase"),
+            state.get("percent"),
+        )
     if status == "running":
         transport.publish(
             job_id,
