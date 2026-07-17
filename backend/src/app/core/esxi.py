@@ -55,7 +55,11 @@ def _target_from_doc(doc: dict | None) -> EsxiTarget | None:
     """Settings document → EsxiTarget; None while host/user/password are unset."""
     if not doc:
         return None
-    host, user, enc = doc.get("esxiHost"), doc.get("esxiUser"), doc.get("esxiPasswordEnc")
+    host, user, enc = (
+        doc.get("esxiHost"),
+        doc.get("esxiUser"),
+        doc.get("esxiPasswordEnc"),
+    )
     if not (host and user and enc):
         return None
     return EsxiTarget(

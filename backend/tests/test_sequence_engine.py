@@ -42,7 +42,17 @@ def test_runs_steps_in_order_and_returns_results():
     clock = FakeClock()
     calls = []
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         calls.append(command)
         return {"ok": command}
 
@@ -65,7 +75,17 @@ def test_reboot_step_waits_for_reconnect_after_dispatch():
     clock = FakeClock()
     reconnect_args = {}
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         clock.t += 1000  # dispatch takes time
         return {}
 
@@ -80,7 +100,14 @@ def test_reboot_step_waits_for_reconnect_after_dispatch():
         now_ms=clock.now_ms,
     )
     engine.run(
-        [Step(id="reboot", command="system.reboot", target="primary", expects_disconnect=True)],
+        [
+            Step(
+                id="reboot",
+                command="system.reboot",
+                target="primary",
+                expects_disconnect=True,
+            )
+        ],
         _ctx(),
     )
     # since_ms is captured BEFORE dispatch, so a fast reconnect still counts.
@@ -92,7 +119,17 @@ def test_verify_retries_until_predicate_passes():
     clock = FakeClock()
     probe_results = iter([{"ready": False}, {"ready": False}, {"ready": True}])
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         if command == "dc.verify":
             return next(probe_results)
         return {}
@@ -117,7 +154,17 @@ def test_verify_retries_until_predicate_passes():
 def test_verify_raises_when_window_elapses():
     clock = FakeClock()
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         return {"ready": False}
 
     engine = SequenceEngine(
@@ -142,7 +189,17 @@ def test_verify_treats_probe_error_as_not_ready():
     clock = FakeClock()
     attempts = {"n": 0}
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         if command == "dc.verify":
             attempts["n"] += 1
             if attempts["n"] < 2:
@@ -171,7 +228,17 @@ def test_verify_retries_production_dispatch_errors_until_ready():
     clock = FakeClock()
     attempts = {"n": 0}
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         if command == "dc.verify":
             attempts["n"] += 1
             if attempts["n"] < 3:
@@ -203,7 +270,17 @@ def test_failed_step_raises_and_stops_the_sequence():
     clock = FakeClock()
     ran = []
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         ran.append(command)
         if command == "domain.join":
             raise SequenceError("bad credentials")
@@ -229,7 +306,17 @@ def test_completed_steps_skip_on_resume():
     clock = FakeClock()
     ran = []
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         ran.append(command)
         return {}
 
@@ -299,7 +386,9 @@ def test_unhealthy_aggregate_fails_sequence_with_reasons():
         },
     )
 
-    with pytest.raises(HealthGateError, match="OCSP response was not verified") as error:
+    with pytest.raises(
+        HealthGateError, match="OCSP response was not verified"
+    ) as error:
         engine.run([gate], _ctx())
 
     assert error.value.step_id == "gate"
@@ -311,7 +400,17 @@ def test_produces_and_consumes_relay_artifacts():
     clock = FakeClock()
     seen_params = {}
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         if command == "file.read":
             return {"contentB64": "Q1NSLWJ5dGVz"}
         if command == "ca.sign_request":
@@ -351,7 +450,9 @@ def test_persists_required_result_fields_as_cross_operation_artifacts():
     engine.run(
         [
             Step(
-                id="publish", command="ca.publish_crl", target="primary",
+                id="publish",
+                command="ca.publish_crl",
+                target="primary",
                 result_artifacts={
                     "certificateFileName": "issuing_cert_filename",
                     "baseCrlFileName": "issuing_crl_filename",
@@ -378,7 +479,9 @@ def test_missing_required_result_artifact_fails_the_step():
         engine.run(
             [
                 Step(
-                    id="publish", command="ca.publish_crl", target="primary",
+                    id="publish",
+                    command="ca.publish_crl",
+                    target="primary",
                     result_artifacts={"certificateFileName": "cert_filename"},
                 )
             ],
@@ -399,11 +502,11 @@ def test_missing_result_artifact_uses_explicit_legacy_agent_default():
     engine.run(
         [
             Step(
-                id="publish", command="ca.publish_crl", target="primary",
+                id="publish",
+                command="ca.publish_crl",
+                target="primary",
                 result_artifacts={"certificateFileName": "cert_filename"},
-                result_artifact_defaults={
-                    "certificateFileName": "dc_Example CA.crt"
-                },
+                result_artifact_defaults={"certificateFileName": "dc_Example CA.crt"},
             )
         ],
         ctx,
@@ -425,10 +528,10 @@ def test_optional_result_artifact_is_persisted_when_new_agent_reports_it():
     engine.run(
         [
             Step(
-                id="publish", command="ca.publish_crl", target="primary",
-                optional_result_artifacts={
-                    "certificateContentB64": "certificate"
-                },
+                id="publish",
+                command="ca.publish_crl",
+                target="primary",
+                optional_result_artifacts={"certificateContentB64": "certificate"},
             )
         ],
         ctx,
@@ -455,7 +558,9 @@ def test_artifact_preproduced_by_publish_skips_legacy_file_read():
     result = engine.run(
         [
             Step(
-                id="read", command="file.read", target="primary",
+                id="read",
+                command="file.read",
+                target="primary",
                 skip_if_artifacts=("certificate",),
             )
         ],
@@ -479,7 +584,9 @@ def test_missing_file_result_artifact_fails_at_the_producer():
         engine.run(
             [
                 Step(
-                    id="read-cert", command="file.read", target="primary",
+                    id="read-cert",
+                    command="file.read",
+                    target="primary",
                     produces=("certificate",),
                 )
             ],
@@ -501,7 +608,9 @@ def test_missing_consumed_artifact_fails_before_dispatch():
         engine.run(
             [
                 Step(
-                    id="write-cert", command="file.write", target="primary",
+                    id="write-cert",
+                    command="file.write",
+                    target="primary",
                     consumes=("certificate",),
                 )
             ],
@@ -516,9 +625,22 @@ def test_param_resolver_sees_context():
     seen = {}
 
     def resolver(rt: StepRuntime):
-        return {"domainName": rt.node.template_config["domainName"], "host": rt.node.hostname}
+        return {
+            "domainName": rt.node.template_config["domainName"],
+            "host": rt.node.hostname,
+        }
 
-    def dispatch(job_key, vm_id, command, params, *, role, secret_keys, timeout_s, expect_disconnect=False):
+    def dispatch(
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
+        expect_disconnect=False,
+    ):
         seen.update(params)
         return {}
 
@@ -528,7 +650,10 @@ def test_param_resolver_sees_context():
         sleep=clock.sleep,
         now_ms=clock.now_ms,
     )
-    engine.run([Step(id="s", command="dc.install_forest", target="primary", params=resolver)], _ctx())
+    engine.run(
+        [Step(id="s", command="dc.install_forest", target="primary", params=resolver)],
+        _ctx(),
+    )
     assert seen == {"domainName": "EC.com", "host": "guest-abc12-dc01"}
 
 
@@ -560,7 +685,9 @@ def test_transient_dispatch_failures_use_bounded_retry_schedule():
     result = engine.run(
         [
             Step(
-                id="publish", command="ca.publish_template", target="primary",
+                id="publish",
+                command="ca.publish_template",
+                target="primary",
                 retry_delays_s=(10, 20),
             )
         ],
@@ -583,7 +710,14 @@ def test_retry_policy_reraises_after_final_attempt():
 
     with pytest.raises(SequenceError, match="still down"):
         engine.run(
-            [Step(id="dns", command="dns.verify", target="primary", retry_delays_s=(5,))],
+            [
+                Step(
+                    id="dns",
+                    command="dns.verify",
+                    target="primary",
+                    retry_delays_s=(5,),
+                )
+            ],
             _ctx(),
         )
     assert clock.t == 5_000

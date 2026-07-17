@@ -285,10 +285,14 @@ def _root_ca_provision() -> list[Step]:
         }
 
     def root_crt_path(rt: StepRuntime) -> dict[str, str]:
-        return {"path": f"{_ca_publication_dir(rt)}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"}
+        return {
+            "path": f"{_ca_publication_dir(rt)}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"
+        }
 
     def root_crl_path(rt: StepRuntime) -> dict[str, str]:
-        return {"path": f"{_ca_publication_dir(rt)}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"}
+        return {
+            "path": f"{_ca_publication_dir(rt)}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"
+        }
 
     def publication_defaults(rt: StepRuntime) -> dict[str, str]:
         ca_name = rt.node.template_config.get("commonName", "")
@@ -307,10 +311,22 @@ def _root_ca_provision() -> list[Step]:
             verify_predicate=lambda r: r.get("ping_ok") is True,
             timeout_s=1800,
         ),
-        Step(id="ca-settings", command="ca.configure_settings", target=PRIMARY, params=settings_params),
-        Step(id="ca-cdp-aia", command="ca.configure_cdp_aia", target=PRIMARY, params=cdp_aia_params),
         Step(
-            id="ca-crl", command="ca.publish_crl", target=PRIMARY,
+            id="ca-settings",
+            command="ca.configure_settings",
+            target=PRIMARY,
+            params=settings_params,
+        ),
+        Step(
+            id="ca-cdp-aia",
+            command="ca.configure_cdp_aia",
+            target=PRIMARY,
+            params=cdp_aia_params,
+        ),
+        Step(
+            id="ca-crl",
+            command="ca.publish_crl",
+            target=PRIMARY,
             params=lambda rt: {"certEnrollPath": _ca_publication_dir(rt)},
             retry_delays_s=_CRL_RETRY,
             result_artifacts={
@@ -324,13 +340,19 @@ def _root_ca_provision() -> list[Step]:
             },
         ),
         Step(
-            id="read-root-crt", command="file.read", target=PRIMARY,
-            params=root_crt_path, produces=(_A_ROOT_CRT,),
+            id="read-root-crt",
+            command="file.read",
+            target=PRIMARY,
+            params=root_crt_path,
+            produces=(_A_ROOT_CRT,),
             skip_if_artifacts=(_A_ROOT_CRT,),
         ),
         Step(
-            id="read-root-crl", command="file.read", target=PRIMARY,
-            params=root_crl_path, produces=(_A_ROOT_CRL,),
+            id="read-root-crl",
+            command="file.read",
+            target=PRIMARY,
+            params=root_crl_path,
+            produces=(_A_ROOT_CRL,),
             skip_if_artifacts=(_A_ROOT_CRL,),
         ),
     ]
@@ -380,6 +402,7 @@ def _domain_controller_provision(*, include_dns: bool = False) -> list[Step]:
         ),
     ]
     if include_dns:
+
         def records(rt: StepRuntime) -> tuple[DnsRecordContext, ...]:
             return _records_for(rt.ctx, rt.node.node_id, ("A", "PTR"))
 
@@ -543,8 +566,12 @@ def _domain_join_sequence(ctx: RunContext) -> list[Step]:
                     "exportPath": "C:\\win11.cer",
                     "refreshPolicy": "true",
                 },
-                verify=Step(id="cert-verify", command="cert.verify", target=PRIMARY,
-                            params={"path": "C:\\win11.cer"}),
+                verify=Step(
+                    id="cert-verify",
+                    command="cert.verify",
+                    target=PRIMARY,
+                    params={"path": "C:\\win11.cer"},
+                ),
                 verify_predicate=lambda r: r.get("chain_ok") is True,
                 verify_window_s=900,
                 retry_delays_s=_ENROLL_RETRY,
@@ -567,12 +594,19 @@ def _domain_leave_sequence(ctx: RunContext) -> list[Step]:
 
     steps = [
         Step(
-            id="domain-leave", command="domain.leave", target=PRIMARY,
-            params=leave_params, secret_keys=("password",), retry_delays_s=_AD_RETRY,
+            id="domain-leave",
+            command="domain.leave",
+            target=PRIMARY,
+            params=leave_params,
+            secret_keys=("password",),
+            retry_delays_s=_AD_RETRY,
         ),
         Step(
-            id="reboot", command="system.reboot", target=PRIMARY,
-            expects_disconnect=True, timeout_s=1200,
+            id="reboot",
+            command="system.reboot",
+            target=PRIMARY,
+            expects_disconnect=True,
+            timeout_s=1200,
             verify=Step(id="domain-verify", command="domain.verify", target=PRIMARY),
             verify_predicate=lambda result: result.get("part_of_domain") is False,
             verify_window_s=600,
@@ -583,12 +617,16 @@ def _domain_leave_sequence(ctx: RunContext) -> list[Step]:
         steps.extend(
             [
                 Step(
-                    id="dns-remove", command="dns.remove_resources", target=DC,
+                    id="dns-remove",
+                    command="dns.remove_resources",
+                    target=DC,
                     params=lambda rt: _dns_params(ctx, records),
                     retry_delays_s=_DNS_RETRY,
                 ),
                 Step(
-                    id="dns-verify-absent", command="dns.verify_absent", target=DC,
+                    id="dns-verify-absent",
+                    command="dns.verify_absent",
+                    target=DC,
                     params=lambda rt: _dns_params(ctx, records),
                     retry_delays_s=_DNS_RETRY,
                 ),
@@ -605,18 +643,24 @@ def teardown_action_sequence(kind: str, ctx: RunContext) -> list[Step]:
     if kind == "web.cleanup":
         return [
             Step(
-                id="ocsp-remove", command="ocsp.remove", target=PRIMARY,
+                id="ocsp-remove",
+                command="ocsp.remove",
+                target=PRIMARY,
                 retry_delays_s=_OCSP_RETRY,
             ),
             Step(
-                id="iis-remove", command="iis.remove_certenroll", target=PRIMARY,
+                id="iis-remove",
+                command="iis.remove_certenroll",
+                target=PRIMARY,
                 retry_delays_s=_AD_RETRY,
             ),
         ]
     if kind == "ca.cleanup":
         return [
             Step(
-                id="ca-uninstall", command="ca.uninstall", target=PRIMARY,
+                id="ca-uninstall",
+                command="ca.uninstall",
+                target=PRIMARY,
                 retry_delays_s=_AD_RETRY,
             )
         ]
@@ -626,12 +670,16 @@ def teardown_action_sequence(kind: str, ctx: RunContext) -> list[Step]:
             return []
         return [
             Step(
-                id="dns-remove-all", command="dns.remove_resources", target=PRIMARY,
+                id="dns-remove-all",
+                command="dns.remove_resources",
+                target=PRIMARY,
                 params=lambda rt: _dns_params(ctx, records),
                 retry_delays_s=_DNS_RETRY,
             ),
             Step(
-                id="dns-verify-all-absent", command="dns.verify_absent", target=PRIMARY,
+                id="dns-verify-all-absent",
+                command="dns.verify_absent",
+                target=PRIMARY,
                 params=lambda rt: _dns_params(ctx, records),
                 retry_delays_s=_DNS_RETRY,
             ),
@@ -640,9 +688,12 @@ def teardown_action_sequence(kind: str, ctx: RunContext) -> list[Step]:
         password = ctx.node(PRIMARY).template_config.get("domainAdminPassword", "")
         return [
             Step(
-                id="forest-remove", command="dc.remove_forest", target=PRIMARY,
+                id="forest-remove",
+                command="dc.remove_forest",
+                target=PRIMARY,
                 params={"localAdminPassword": password},
-                secret_keys=("localAdminPassword",), timeout_s=1800,
+                secret_keys=("localAdminPassword",),
+                timeout_s=1800,
                 retry_delays_s=_AD_RETRY,
             )
         ]
@@ -662,8 +713,12 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
     """
     ca = ctx.nodes.get(CA)
     root = ctx.nodes.get(ROOT)
-    issuing_cn = ca.template_config.get("commonName", "Issuing CA") if ca else "Issuing CA"
-    root_cn = root.template_config.get("commonName", "EC-Root-CA") if root else "EC-Root-CA"
+    issuing_cn = (
+        ca.template_config.get("commonName", "Issuing CA") if ca else "Issuing CA"
+    )
+    root_cn = (
+        root.template_config.get("commonName", "EC-Root-CA") if root else "EC-Root-CA"
+    )
     ca_config = (
         f"{ca.hostname}.{ctx.domain_name}\\{issuing_cn}"
         if ca and ctx.domain_name
@@ -682,8 +737,13 @@ def _web_server_cert_sequence(ctx: RunContext) -> list[Step]:
                 "path": rt.node.template_config.get("certEnrollPath", "C:\\CertEnroll"),
             },
         ),
-        Step(id="ocsp-install", command="ocsp.install", target=PRIMARY,
-             timeout_s=900, retry_delays_s=_OCSP_RETRY),
+        Step(
+            id="ocsp-install",
+            command="ocsp.install",
+            target=PRIMARY,
+            timeout_s=900,
+            retry_delays_s=_OCSP_RETRY,
+        ),
         Step(
             id="enroll-ocsp",
             command="cert.enroll",
@@ -878,7 +938,9 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
         cfg["csrPath"] = _CSR
         dc = ctx.nodes.get(DC)
         cfg["username"] = _admin_username(ctx.netbios)
-        cfg["password"] = (dc.template_config.get("domainAdminPassword", "") if dc else "")
+        cfg["password"] = (
+            dc.template_config.get("domainAdminPassword", "") if dc else ""
+        )
         return {k: v for k, v in cfg.items() if v not in (None, "")}
 
     def issuing_settings_params(rt: StepRuntime) -> dict[str, str]:
@@ -953,13 +1015,19 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
         }
 
     def root_web_crt_path(rt: StepRuntime) -> dict[str, str]:
-        return {"path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"}
+        return {
+            "path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ROOT_CERT_FILE)}"
+        }
 
     def root_web_crl_path(rt: StepRuntime) -> dict[str, str]:
-        return {"path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"}
+        return {
+            "path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ROOT_CRL_FILE)}"
+        }
 
     def issuing_web_crt_path(rt: StepRuntime) -> dict[str, str]:
-        return {"path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ISSUING_CERT_FILE)}"}
+        return {
+            "path": f"{_WEB_CERTENROLL}\\{_observed_filename(rt.ctx, _A_ISSUING_CERT_FILE)}"
+        }
 
     def issuing_publication_defaults(rt: StepRuntime) -> dict[str, str]:
         ca_name = rt.node.template_config.get("commonName", "")
@@ -997,26 +1065,53 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
             result_artifact_defaults=root_crl_recovery_defaults,
             skip_if_artifacts=(_A_ROOT_CRL, _A_ROOT_CRL_FILE),
         ),
-        Step(id="root-to-ca02", command="file.write", target=PRIMARY,
-             params={"path": _ROOT_CRT}, consumes=(_A_ROOT_CRT,)),
-        Step(id="addstore-root", command="cert.addstore", target=PRIMARY,
-             params={"store": "root", "path": _ROOT_CRT}),
+        Step(
+            id="root-to-ca02",
+            command="file.write",
+            target=PRIMARY,
+            params={"path": _ROOT_CRT},
+            consumes=(_A_ROOT_CRT,),
+        ),
+        Step(
+            id="addstore-root",
+            command="cert.addstore",
+            target=PRIMARY,
+            params={"store": "root", "path": _ROOT_CRT},
+        ),
     ]
 
     # 2) Publish the root cert + CRL into AD (on the DC, where LocalSystem is
     #    directory-privileged).
     if has_dc:
         steps += [
-            Step(id="root-to-dc", command="file.write", target=DC,
-                 params={"path": _ROOT_CRT}, consumes=(_A_ROOT_CRT,)),
-            Step(id="dspublish-root", command="cert.dspublish", target=DC,
-                 params={"path": _ROOT_CRT, "attribute": "RootCA"},
-                 retry_delays_s=_AD_RETRY),
-            Step(id="rootcrl-to-dc", command="file.write", target=DC,
-                 params={"path": _ROOT_CRL}, consumes=(_A_ROOT_CRL,)),
-            Step(id="dspublish-rootcrl", command="cert.dspublish", target=DC,
-                 params=lambda rt: {"path": _ROOT_CRL, "attribute": root.hostname},
-                 retry_delays_s=_AD_RETRY),
+            Step(
+                id="root-to-dc",
+                command="file.write",
+                target=DC,
+                params={"path": _ROOT_CRT},
+                consumes=(_A_ROOT_CRT,),
+            ),
+            Step(
+                id="dspublish-root",
+                command="cert.dspublish",
+                target=DC,
+                params={"path": _ROOT_CRT, "attribute": "RootCA"},
+                retry_delays_s=_AD_RETRY,
+            ),
+            Step(
+                id="rootcrl-to-dc",
+                command="file.write",
+                target=DC,
+                params={"path": _ROOT_CRL},
+                consumes=(_A_ROOT_CRL,),
+            ),
+            Step(
+                id="dspublish-rootcrl",
+                command="cert.dspublish",
+                target=DC,
+                params=lambda rt: {"path": _ROOT_CRL, "attribute": root.hostname},
+                retry_delays_s=_AD_RETRY,
+            ),
         ]
 
     # 3) Copy the root cert to the web host's served CertEnroll (HTTP CDP/AIA).
@@ -1041,31 +1136,76 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
     # 4) Stand up the issuing CA (Enterprise Admin via -Credential) and relay
     #    its CSR out to the offline root, signed cert back.
     steps += [
-        Step(id="install-issuing", command="ca.install", target=PRIMARY,
-             params=issuing_install_params, secret_keys=("password",), timeout_s=1800),
-        Step(id="read-csr", command="file.read", target=PRIMARY,
-             params={"path": _CSR}, produces=(_A_ISSUING_CSR,)),
-        Step(id="csr-to-root", command="file.write", target=ROOT,
-             params={"path": _CSR}, consumes=(_A_ISSUING_CSR,)),
-        Step(id="sign-csr", command="ca.sign_request", target=ROOT,
-             params={"csrPath": _CSR, "certPath": _ISSUING_CRT}),
-        Step(id="read-signed", command="file.read", target=ROOT,
-             params={"path": _ISSUING_CRT}, produces=(_A_ISSUING_CRT,)),
-        Step(id="signed-to-ca02", command="file.write", target=PRIMARY,
-             params={"path": _ISSUING_CRT}, consumes=(_A_ISSUING_CRT,)),
-        Step(id="install-issuing-cert", command="ca.install_cert", target=PRIMARY,
-             params={"certPath": _ISSUING_CRT},
-             verify=_ca_verify_step(), verify_predicate=lambda r: r.get("ping_ok") is True),
+        Step(
+            id="install-issuing",
+            command="ca.install",
+            target=PRIMARY,
+            params=issuing_install_params,
+            secret_keys=("password",),
+            timeout_s=1800,
+        ),
+        Step(
+            id="read-csr",
+            command="file.read",
+            target=PRIMARY,
+            params={"path": _CSR},
+            produces=(_A_ISSUING_CSR,),
+        ),
+        Step(
+            id="csr-to-root",
+            command="file.write",
+            target=ROOT,
+            params={"path": _CSR},
+            consumes=(_A_ISSUING_CSR,),
+        ),
+        Step(
+            id="sign-csr",
+            command="ca.sign_request",
+            target=ROOT,
+            params={"csrPath": _CSR, "certPath": _ISSUING_CRT},
+        ),
+        Step(
+            id="read-signed",
+            command="file.read",
+            target=ROOT,
+            params={"path": _ISSUING_CRT},
+            produces=(_A_ISSUING_CRT,),
+        ),
+        Step(
+            id="signed-to-ca02",
+            command="file.write",
+            target=PRIMARY,
+            params={"path": _ISSUING_CRT},
+            consumes=(_A_ISSUING_CRT,),
+        ),
+        Step(
+            id="install-issuing-cert",
+            command="ca.install_cert",
+            target=PRIMARY,
+            params={"certPath": _ISSUING_CRT},
+            verify=_ca_verify_step(),
+            verify_predicate=lambda r: r.get("ping_ok") is True,
+        ),
     ]
 
     # 5) Finish CA02 config + publish templates + grant the web host enroll.
     steps += [
-        Step(id="issuing-settings", command="ca.configure_settings", target=PRIMARY,
-             params=issuing_settings_params),
-        Step(id="issuing-cdp-aia", command="ca.configure_cdp_aia", target=PRIMARY,
-             params=issuing_cdp_aia_params),
         Step(
-            id="issuing-crl", command="ca.publish_crl", target=PRIMARY,
+            id="issuing-settings",
+            command="ca.configure_settings",
+            target=PRIMARY,
+            params=issuing_settings_params,
+        ),
+        Step(
+            id="issuing-cdp-aia",
+            command="ca.configure_cdp_aia",
+            target=PRIMARY,
+            params=issuing_cdp_aia_params,
+        ),
+        Step(
+            id="issuing-crl",
+            command="ca.publish_crl",
+            target=PRIMARY,
             params=lambda rt: {"certEnrollPath": _ca_publication_dir(rt)},
             retry_delays_s=_CRL_RETRY,
             result_artifacts={
@@ -1081,29 +1221,53 @@ def _ca_connect_sequence(ctx: RunContext) -> list[Step]:
     ]
     if has_web:
         steps += [
-            Step(id="read-issuing-crt", command="file.read", target=PRIMARY,
-                 params=issuing_pub_crt_path, produces=("issuing_pub_crt",),
-                 skip_if_artifacts=("issuing_pub_crt",)),
-            Step(id="issuing-to-web", command="file.write", target=WEB,
-                 params=issuing_web_crt_path, consumes=("issuing_pub_crt",)),
+            Step(
+                id="read-issuing-crt",
+                command="file.read",
+                target=PRIMARY,
+                params=issuing_pub_crt_path,
+                produces=("issuing_pub_crt",),
+                skip_if_artifacts=("issuing_pub_crt",),
+            ),
+            Step(
+                id="issuing-to-web",
+                command="file.write",
+                target=WEB,
+                params=issuing_web_crt_path,
+                consumes=("issuing_pub_crt",),
+            ),
         ]
     steps.append(
-        Step(id="publish-templates", command="ca.publish_template", target=PRIMARY,
-             params={"templates": "OCSPResponseSigning,Workstation"},
-             retry_delays_s=_TEMPLATE_RETRY)
+        Step(
+            id="publish-templates",
+            command="ca.publish_template",
+            target=PRIMARY,
+            params={"templates": "OCSPResponseSigning,Workstation"},
+            retry_delays_s=_TEMPLATE_RETRY,
+        )
     )
     if has_web and has_dc:
         steps += [
-            Step(id="grant-ocsp", command="template.grant_access", target=DC,
-                 params=lambda rt: {
-                     "template": "OCSPResponseSigning",
-                     "computer": ctx.node(WEB).hostname,
-                 }, retry_delays_s=_TEMPLATE_RETRY),
-            Step(id="grant-health-probe", command="template.grant_access", target=DC,
-                 params=lambda rt: {
-                     "template": "Workstation",
-                     "computer": ctx.node(WEB).hostname,
-                 }, retry_delays_s=_TEMPLATE_RETRY),
+            Step(
+                id="grant-ocsp",
+                command="template.grant_access",
+                target=DC,
+                params=lambda rt: {
+                    "template": "OCSPResponseSigning",
+                    "computer": ctx.node(WEB).hostname,
+                },
+                retry_delays_s=_TEMPLATE_RETRY,
+            ),
+            Step(
+                id="grant-health-probe",
+                command="template.grant_access",
+                target=DC,
+                params=lambda rt: {
+                    "template": "Workstation",
+                    "computer": ctx.node(WEB).hostname,
+                },
+                retry_delays_s=_TEMPLATE_RETRY,
+            ),
         ]
     return steps
 

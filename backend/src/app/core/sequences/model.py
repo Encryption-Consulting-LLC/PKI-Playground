@@ -156,7 +156,5 @@ class Step:
     def resolve_result_artifact_defaults(self, ctx: RunContext) -> dict[str, str]:
         node = ctx.node(self.target)
         if callable(self.result_artifact_defaults):
-            return dict(
-                self.result_artifact_defaults(StepRuntime(ctx=ctx, node=node))
-            )
+            return dict(self.result_artifact_defaults(StepRuntime(ctx=ctx, node=node)))
         return dict(self.result_artifact_defaults)

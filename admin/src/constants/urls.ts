@@ -1,0 +1,34 @@
+/**
+ * All backend API paths relative to the API base.
+ *
+ * One entry per backend route the admin app calls — renaming a route is a
+ * single-line change here. Mirrors the shape of
+ * frontend/src/constants/urls.ts (same convention, admin-relevant subset).
+ */
+
+export const API_BASE = "/api"
+
+export const URLS = {
+  health: "/health",
+  auth: {
+    login: "/auth/login",
+    logout: "/auth/logout",
+    me: "/auth/me",
+    config: "/auth/config",
+    oidcLogin: "/auth/oidc/login",
+    oidcCallback: "/auth/oidc/callback",
+  },
+  adminUsers: {
+    list: "/admin/users",
+    create: "/admin/users",
+    patch: (username: string) => `/admin/users/${encodeURIComponent(username)}`,
+  },
+  settings: {
+    root: "/settings",
+    validateGoldenImage: "/settings/golden-image/validate",
+    validateInfrastructure: "/settings/infrastructure/validate",
+    validateEnvironment: "/settings/environment/validate",
+  },
+  ipPool: "/ip-pool",
+  vmRegistry: "/vm-registry",
+} as const

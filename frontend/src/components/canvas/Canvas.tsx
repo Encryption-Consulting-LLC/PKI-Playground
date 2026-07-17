@@ -103,8 +103,10 @@ export function Canvas() {
     edges: typeof edges
     evidence: LabEvidence
   } | null>(null)
-  const displayedNodes = evidenceActive && evidenceSnapshot ? evidenceSnapshot.nodes : nodes
-  const displayedEdges = evidenceActive && evidenceSnapshot ? evidenceSnapshot.edges : edges
+  const displayedNodes =
+    evidenceActive && evidenceSnapshot ? evidenceSnapshot.nodes : nodes
+  const displayedEdges =
+    evidenceActive && evidenceSnapshot ? evidenceSnapshot.edges : edges
   const journeyProjection = useMemo(
     () => projectCertificateJourney(nodes, edges),
     [nodes, edges],
@@ -164,9 +166,12 @@ export function Canvas() {
   // the circle (geometry) and membership in agreement.
   const dragStart = useRef<DragSnapshot | null>(null)
   const connectionSucceeded = useRef(false)
-  const [pendingChanges, setPendingChanges] = useState<DomainSyncChange[] | null>(null)
+  const [pendingChanges, setPendingChanges] = useState<
+    DomainSyncChange[] | null
+  >(null)
   const [pendingOperations, setPendingOperations] = useState<string[]>([])
-  const [domainDragPreview, setDomainDragPreview] = useState<DomainDragPreview | null>(null)
+  const [domainDragPreview, setDomainDragPreview] =
+    useState<DomainDragPreview | null>(null)
 
   // Backspace/Delete is handled here instead of via React Flow's built-in
   // `deleteKeyCode` (disabled below) — that default path deletes through
@@ -183,7 +188,10 @@ export function Canvas() {
       if (deploying || evidenceActive) return
       const target = nodes.find((n) => n.id === nodeId)
       if (!target) return
-      const affected = opsReferencingNode(useStagingStore.getState().ops, nodeId)
+      const affected = opsReferencingNode(
+        useStagingStore.getState().ops,
+        nodeId,
+      )
       // A real VM may exist even before the node is a confirmed deployment —
       // a `provisioning` node (or any node carrying a deploy-confirmed vmName)
       // needs the same "this leaves a VM behind" warning as a deployed one.
@@ -209,7 +217,12 @@ export function Canvas() {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Backspace" && e.key !== "Delete") return
       const target = e.target as HTMLElement | null
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
         return
       }
       if (!selectedNodeId) return
@@ -229,14 +242,19 @@ export function Canvas() {
     (changes: EdgeChange[]) => {
       for (const change of changes) {
         if (change.type !== "remove") continue
-        const edge = useTopologyStore.getState().edges.find((candidate) => candidate.id === change.id)
+        const edge = useTopologyStore
+          .getState()
+          .edges.find((candidate) => candidate.id === change.id)
         if (!edge) continue
-        const op = useStagingStore.getState().ops.find((candidate) =>
-          candidate.edgeId === edge.id ||
-          (candidate.kind === OP_KIND.webServerCert &&
-            candidate.targetNodeId === edge.source &&
-            candidate.secondaryNodeId === edge.target),
-        )
+        const op = useStagingStore
+          .getState()
+          .ops.find(
+            (candidate) =>
+              candidate.edgeId === edge.id ||
+              (candidate.kind === OP_KIND.webServerCert &&
+                candidate.targetNodeId === edge.source &&
+                candidate.secondaryNodeId === edge.target),
+          )
         if (op) useStagingStore.getState().removeOpCascade(op.id)
       }
       applyEdgeChanges(changes)
@@ -270,12 +288,16 @@ export function Canvas() {
       gesture?.targetNodeId &&
       gesture.targetHandleId
     ) {
-      const validation = canConnectServiceSockets({
-        source: gesture.sourceNodeId,
-        sourceHandle: gesture.sourceHandleId,
-        target: gesture.targetNodeId,
-        targetHandle: gesture.targetHandleId,
-      }, useTopologyStore.getState().nodes, useTopologyStore.getState().edges)
+      const validation = canConnectServiceSockets(
+        {
+          source: gesture.sourceNodeId,
+          sourceHandle: gesture.sourceHandleId,
+          target: gesture.targetNodeId,
+          targetHandle: gesture.targetHandleId,
+        },
+        useTopologyStore.getState().nodes,
+        useTopologyStore.getState().edges,
+      )
       if (validation.reason) toast.error(validation.reason)
     }
     endConnectionGesture()
@@ -310,12 +332,20 @@ export function Canvas() {
       const members =
         node.data.typeId === "domainController"
           ? edges
-              .filter((e) => e.target === node.id && e.data?.edgeType === EDGE_TYPE.domainJoin)
+              .filter(
+                (e) =>
+                  e.target === node.id &&
+                  e.data?.edgeType === EDGE_TYPE.domainJoin,
+              )
               .map((e) => nodes.find((n) => n.id === e.source))
               .filter((n): n is Node<MachineData> => !!n)
               .map((n) => ({ id: n.id, position: { ...n.position } }))
           : []
-      dragStart.current = { id: node.id, position: { ...node.position }, members }
+      dragStart.current = {
+        id: node.id,
+        position: { ...node.position },
+        members,
+      }
       setOverlapNode(null)
       setDomainDragPreview(null)
     },
@@ -349,13 +379,19 @@ export function Canvas() {
         )
       }
 
-      const others = nodes.filter((n) => n.id !== node.id && !memberIds.includes(n.id))
+      const others = nodes.filter(
+        (n) => n.id !== node.id && !memberIds.includes(n.id),
+      )
       setOverlapNode(findOverlappingId(node, others) ? node.id : null)
 
-      const dragNodes = nodes.map((candidate) => candidate.id === node.id ? node : candidate)
+      const dragNodes = nodes.map((candidate) =>
+        candidate.id === node.id ? node : candidate,
+      )
       const dc = findDomainForNode(node, dragNodes, edges)
       const currentDomain = edges.find(
-        (edge) => edge.source === node.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+        (edge) =>
+          edge.source === node.id &&
+          edge.data?.edgeType === EDGE_TYPE.domainJoin,
       )?.target
       if (!dc || currentDomain === dc.id) {
         setDomainDragPreview(null)
@@ -387,7 +423,9 @@ export function Canvas() {
 
       const start = dragStart.current
       const memberIds = start?.members.map((m) => m.id) ?? []
-      const others = nodes.filter((n) => n.id !== node.id && !memberIds.includes(n.id))
+      const others = nodes.filter(
+        (n) => n.id !== node.id && !memberIds.includes(n.id),
+      )
 
       if (findOverlappingId(node, others)) {
         const freePosition = nearestFreePosition(node, others, node.position)
@@ -404,7 +442,10 @@ export function Canvas() {
           corrections.push({
             id,
             type: "position",
-            position: { x: member.position.x + delta.x, y: member.position.y + delta.y },
+            position: {
+              x: member.position.x + delta.x,
+              y: member.position.y + delta.y,
+            },
           })
         }
         applyNodeChanges(corrections)
@@ -422,11 +463,14 @@ export function Canvas() {
       )
       const dropDomain = findDomainForNode(droppedNode, dragNodes, edges)
       const currentDomain = edges.find(
-        (edge) => edge.source === node.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+        (edge) =>
+          edge.source === node.id &&
+          edge.data?.edgeType === EDGE_TYPE.domainJoin,
       )?.target
-      const invalidReason = dropDomain && currentDomain !== dropDomain.id
-        ? domainJoinBlockReason(droppedNode, dropDomain, edges)
-        : null
+      const invalidReason =
+        dropDomain && currentDomain !== dropDomain.id
+          ? domainJoinBlockReason(droppedNode, dropDomain, edges)
+          : null
       if (invalidReason) {
         if (start) {
           applyNodeChanges([
@@ -451,7 +495,9 @@ export function Canvas() {
         return
       }
       setPendingOperations(
-        dropDomain ? domainJoinOperations(droppedNode, dropDomain, dragNodes) : [],
+        dropDomain
+          ? domainJoinOperations(droppedNode, dropDomain, dragNodes)
+          : [],
       )
       setPendingChanges(changes)
     },
@@ -624,15 +670,21 @@ export function Canvas() {
             />
           </div>
         </Panel>
-        {!journeyActive && !evidenceActive && <Panel position="top-left">
-          <TopologyGuidance />
-        </Panel>}
-        {!journeyActive && !evidenceActive && <Panel position="top-center">
-          <ConnectionPreview />
-        </Panel>}
-        {!journeyActive && !evidenceActive && <Panel position="bottom-center">
-          <DomainJoinAction onRequest={requestAccessibleDomainJoin} />
-        </Panel>}
+        {!journeyActive && !evidenceActive && (
+          <Panel position="top-left">
+            <TopologyGuidance />
+          </Panel>
+        )}
+        {!journeyActive && !evidenceActive && (
+          <Panel position="top-center">
+            <ConnectionPreview />
+          </Panel>
+        )}
+        {!journeyActive && !evidenceActive && (
+          <Panel position="bottom-center">
+            <DomainJoinAction onRequest={requestAccessibleDomainJoin} />
+          </Panel>
+        )}
         {journeyActive && journeyProjection && (
           <Panel position="bottom-center">
             <CertificateJourneyLens projection={journeyProjection} />
@@ -675,14 +727,23 @@ export function Canvas() {
 function miniMapColor(node: Node<MachineData>): string {
   const typeId = (node.data as MachineData).typeId
   switch (typeId) {
-    case "domainController": return "#3b82f6"
-    case "certificateAuthority": return "#f59e0b"
-    case "webServer": return "#10b981"
-    case "client": return "#a78bfa"
-    case "standalone": return "#94a3b8"
-    case "certsecure": return "#06b6d4"
-    case "cbom": return "#14b8a6"
-    case "codesign": return "#6366f1"
-    default: return "#94a3b8"
+    case "domainController":
+      return "#3b82f6"
+    case "certificateAuthority":
+      return "#f59e0b"
+    case "webServer":
+      return "#10b981"
+    case "client":
+      return "#a78bfa"
+    case "standalone":
+      return "#94a3b8"
+    case "certsecure":
+      return "#06b6d4"
+    case "cbom":
+      return "#14b8a6"
+    case "codesign":
+      return "#6366f1"
+    default:
+      return "#94a3b8"
   }
 }

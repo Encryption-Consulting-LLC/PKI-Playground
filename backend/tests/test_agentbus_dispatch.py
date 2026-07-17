@@ -104,9 +104,7 @@ def test_dispatch_waits_through_the_agents_maximum_reconnect_backoff():
 
     class _ReconnectRedis(_FakeRedis):
         def __init__(self):
-            super().__init__(
-                [None] * 30 + [{"type": "done", "result": {"ok": True}}]
-            )
+            super().__init__([None] * 30 + [{"type": "done", "result": {"ok": True}}])
             # Existing snapshot check + initial dispatch gate are live. The
             # lease then disappears for 30 polls and returns on reconnect.
             self.live = iter([True, True] + [False] * 30 + [True])

@@ -40,12 +40,13 @@ export function formatApiErrorDetail(detail: unknown): string | null {
   if (!detail || typeof detail !== "object") return null
 
   const structured = detail as StructuredErrorDetail
-  const summary = typeof structured.message === "string"
-    ? structured.message
-    : null
+  const summary =
+    typeof structured.message === "string" ? structured.message : null
   const failedChecks = Array.isArray(structured.preflight?.checks)
     ? structured.preflight.checks
-        .filter((check) => check?.ok === false && typeof check.detail === "string")
+        .filter(
+          (check) => check?.ok === false && typeof check.detail === "string",
+        )
         .map((check) => check.detail as string)
     : []
 
@@ -283,7 +284,14 @@ export const validateGoldenImage = (cloneCount = 1) =>
   })
 
 export interface InfrastructurePreflightCheck {
-  key: "vmNames" | "image" | "guestOs" | "network" | "datastore" | "capacity" | "qualification"
+  key:
+    | "vmNames"
+    | "image"
+    | "guestOs"
+    | "network"
+    | "datastore"
+    | "capacity"
+    | "qualification"
   ok: boolean
   detail: string
   role: PkiRole | null
@@ -295,13 +303,15 @@ export interface InfrastructurePreflight {
   checkedAt: number
   snapshotId: string
   esxiInstanceUuid: string | null
-  machines: Array<InfrastructureProfile & {
-    name: string
-    baseMoid: string | null
-    baseChangeVersion: string | null
-    actualGuestOs: string | null
-    reservedBytes: number | null
-  }>
+  machines: Array<
+    InfrastructureProfile & {
+      name: string
+      baseMoid: string | null
+      baseChangeVersion: string | null
+      actualGuestOs: string | null
+      reservedBytes: number | null
+    }
+  >
   datastores: Array<{
     datastore: string
     capacityBytes: number | null
@@ -530,7 +540,11 @@ export const compileDeployPlan = (
 ) =>
   request<CompiledDeployPlan>(URLS.deploy.compile, {
     method: "POST",
-    body: JSON.stringify({ ops, topology, ...(projectId ? { projectId } : {}) }),
+    body: JSON.stringify({
+      ops,
+      topology,
+      ...(projectId ? { projectId } : {}),
+    }),
     ...init,
   })
 
@@ -566,7 +580,11 @@ export const deployPlan = (
     // The backend derives guest VM names as guest-<user>-<project>-<machine>,
     // so the active project rides along as the <project> segment (required for
     // guest clones; ignored for operators, who keep free-form names).
-    body: JSON.stringify({ ops, topology, ...(projectId ? { projectId } : {}) }),
+    body: JSON.stringify({
+      ops,
+      topology,
+      ...(projectId ? { projectId } : {}),
+    }),
   })
 
 export interface DownloadedEvidence {
@@ -576,7 +594,9 @@ export interface DownloadedEvidence {
 }
 
 /** Fetch the access-controlled evidence archive without dropping auth headers. */
-export async function downloadDeployEvidence(jobId: string): Promise<DownloadedEvidence> {
+export async function downloadDeployEvidence(
+  jobId: string,
+): Promise<DownloadedEvidence> {
   const token = useAuthStore.getState().token
   const res = await fetch(`${API_BASE}${URLS.deploy.evidence(jobId)}`, {
     headers: token ? { "x-session-token": token } : {},
@@ -586,16 +606,19 @@ export async function downloadDeployEvidence(jobId: string): Promise<DownloadedE
     let message = `${res.status} ${res.statusText}`
     try {
       const body = await res.json()
-      if (body?.detail) message = typeof body.detail === "string"
-        ? body.detail
-        : JSON.stringify(body.detail)
+      if (body?.detail)
+        message =
+          typeof body.detail === "string"
+            ? body.detail
+            : JSON.stringify(body.detail)
     } catch {
       // Keep the HTTP status when the response is not JSON.
     }
     throw new ApiError(res.status, message)
   }
   const disposition = res.headers.get("content-disposition") ?? ""
-  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ??
+  const filename =
+    disposition.match(/filename="?([^";]+)"?/i)?.[1] ??
     `pki-evidence-${jobId}.zip`
   return {
     blob: await res.blob(),

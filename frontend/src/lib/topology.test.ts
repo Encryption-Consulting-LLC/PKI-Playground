@@ -116,24 +116,38 @@ describe("connection capability guidance", () => {
   })
 
   it("maps operation progress to the five connection health states", () => {
-    expect(connectionHealthForOperation("staged")).toBe(CONNECTION_HEALTH.planned)
-    expect(connectionHealthForOperation("running")).toBe(CONNECTION_HEALTH.applying)
-    expect(connectionHealthForOperation("done")).toBe(CONNECTION_HEALTH.verified)
-    expect(connectionHealthForOperation("cancelled")).toBe(CONNECTION_HEALTH.degraded)
+    expect(connectionHealthForOperation("staged")).toBe(
+      CONNECTION_HEALTH.planned,
+    )
+    expect(connectionHealthForOperation("running")).toBe(
+      CONNECTION_HEALTH.applying,
+    )
+    expect(connectionHealthForOperation("done")).toBe(
+      CONNECTION_HEALTH.verified,
+    )
+    expect(connectionHealthForOperation("cancelled")).toBe(
+      CONNECTION_HEALTH.degraded,
+    )
     expect(connectionHealthForOperation("error")).toBe(CONNECTION_HEALTH.broken)
   })
 
   it("colors publication and OCSP edges and dots offline root publication", () => {
-    expect(edgeStyle(EDGE_TYPE.webServerCert, {
-      serviceSocket: SERVICE_SOCKET.publication,
-    }).style.stroke).toBe("#10b981")
-    expect(edgeStyle(EDGE_TYPE.webServerCert, {
-      serviceSocket: SERVICE_SOCKET.ocsp,
-    }).style.stroke).toBe("#8b5cf6")
-    expect(edgeStyle(EDGE_TYPE.webServerCert, {
-      rootIssuer: true,
-      serviceSocket: SERVICE_SOCKET.publication,
-    }).style).toMatchObject({
+    expect(
+      edgeStyle(EDGE_TYPE.webServerCert, {
+        serviceSocket: SERVICE_SOCKET.publication,
+      }).style.stroke,
+    ).toBe("#10b981")
+    expect(
+      edgeStyle(EDGE_TYPE.webServerCert, {
+        serviceSocket: SERVICE_SOCKET.ocsp,
+      }).style.stroke,
+    ).toBe("#8b5cf6")
+    expect(
+      edgeStyle(EDGE_TYPE.webServerCert, {
+        rootIssuer: true,
+        serviceSocket: SERVICE_SOCKET.publication,
+      }).style,
+    ).toMatchObject({
       strokeDasharray: "1 6",
       strokeLinecap: "round",
     })
@@ -218,7 +232,8 @@ describe("topology relationship linter", () => {
       expect.objectContaining({
         code: "probe-ocsp-path-unverified",
         severity: "error",
-        message: "SRV1 can enroll its probe, but no verified OCSP path reaches its certificate.",
+        message:
+          "SRV1 can enroll its probe, but no verified OCSP path reaches its certificate.",
       }),
     )
   })
@@ -233,7 +248,9 @@ describe("living domain model", () => {
   it("uses one eligibility explanation for spatial and accessible joins", () => {
     const draft = machine("draft", "SRV2", "webServer")
     draft.data.lifecycle = "draft"
-    const root = machine("root", "CA01", "certificateAuthority", { caType: "Root" })
+    const root = machine("root", "CA01", "certificateAuthority", {
+      caType: "Root",
+    })
 
     expect(domainJoinBlockReason(draft, dc, [])).toBe(
       "Configure SRV2 before joining it to a domain.",
@@ -241,10 +258,14 @@ describe("living domain model", () => {
     expect(domainJoinBlockReason(root, dc, [])).toBe(
       "CA01 is an offline root CA and must remain outside Active Directory.",
     )
-    expect(domainJoinBlockReason(machine("product", "CBOM01", "cbom"), dc, [])).toBe(
+    expect(
+      domainJoinBlockReason(machine("product", "CBOM01", "cbom"), dc, []),
+    ).toBe(
       "CBOM01 is a Linux product server; domain integration is not implemented yet.",
     )
-    expect(domainJoinBlockReason(machine("web", "SRV1", "webServer"), dc, [])).toBeNull()
+    expect(
+      domainJoinBlockReason(machine("web", "SRV1", "webServer"), dc, []),
+    ).toBeNull()
   })
 
   it("starts with a large domain boundary before members expand it", () => {
@@ -252,7 +273,9 @@ describe("living domain model", () => {
   })
 
   it("previews the exact role-specific domain join command sequence", () => {
-    expect(domainJoinOperations(machine("web", "SRV1", "webServer"), dc, [])).toEqual([
+    expect(
+      domainJoinOperations(machine("web", "SRV1", "webServer"), dc, []),
+    ).toEqual([
       "dns.set_client · use DC01",
       "domain.join · encon.pki",
       "system.reboot → domain.verify",
@@ -263,7 +286,13 @@ describe("living domain model", () => {
 
   it("summarizes forest, member, and domain reach health for the rim", () => {
     const summary = domainRegionSummary(dc, [
-      relationship("member", "web", "dc", EDGE_TYPE.domainJoin, CONNECTION_HEALTH.degraded),
+      relationship(
+        "member",
+        "web",
+        "dc",
+        EDGE_TYPE.domainJoin,
+        CONNECTION_HEALTH.degraded,
+      ),
     ])
 
     expect(summary).toMatchObject({
@@ -277,19 +306,30 @@ describe("living domain model", () => {
 
 describe("PKI trust gravity", () => {
   it("settles CA descendants into stable hierarchy tiers", () => {
-    const root = { ...machine("root", "CA01", "certificateAuthority"), position: { x: 500, y: 80 } }
+    const root = {
+      ...machine("root", "CA01", "certificateAuthority"),
+      position: { x: 500, y: 80 },
+    }
     const issuingB = machine("issuing-b", "CA03", "certificateAuthority")
     const issuingA = machine("issuing-a", "CA02", "certificateAuthority")
     const web = machine("web", "SRV1", "webServer")
-    const dc = { ...machine("dc", "DC01", "domainController"), position: { x: 40, y: 40 } }
+    const dc = {
+      ...machine("dc", "DC01", "domainController"),
+      position: { x: 40, y: 40 },
+    }
     const edges = [
       relationship("root-b", "root", "issuing-b", EDGE_TYPE.caHierarchy),
       relationship("root-a", "root", "issuing-a", EDGE_TYPE.caHierarchy),
       relationship("publish", "issuing-a", "web", EDGE_TYPE.webServerCert),
     ]
 
-    const settled = trustGravityLayout([root, issuingB, issuingA, web, dc], edges, "issuing-a")
-    const position = (id: string) => settled.find((node) => node.id === id)!.position
+    const settled = trustGravityLayout(
+      [root, issuingB, issuingA, web, dc],
+      edges,
+      "issuing-a",
+    )
+    const position = (id: string) =>
+      settled.find((node) => node.id === id)!.position
 
     expect(position("root")).toEqual({ x: 500, y: 80 })
     expect(position("issuing-a")).toEqual({ x: 328, y: 424 })
@@ -300,9 +340,15 @@ describe("PKI trust gravity", () => {
 
   it("leaves unrelated standalone CAs untouched", () => {
     const root = machine("root", "CA01", "certificateAuthority")
-    const standalone = { ...machine("other", "CA99", "certificateAuthority"), position: { x: 900, y: 700 } }
+    const standalone = {
+      ...machine("other", "CA99", "certificateAuthority"),
+      position: { x: 900, y: 700 },
+    }
 
-    expect(trustGravityLayout([root, standalone], [], "root")).toEqual([root, standalone])
+    expect(trustGravityLayout([root, standalone], [], "root")).toEqual([
+      root,
+      standalone,
+    ])
   })
 })
 
@@ -319,32 +365,45 @@ describe("service socket compatibility", () => {
   })
 
   it("accepts only matching role-specific service sockets", () => {
-    const root = machine("root", "CA01", "certificateAuthority", { caType: "Root" })
-    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const root = machine("root", "CA01", "certificateAuthority", {
+      caType: "Root",
+    })
+    const issuing = machine("issuing", "CA02", "certificateAuthority", {
+      caType: "Issuing",
+    })
     const web = machine("web", "SRV1", "webServer")
 
-    expect(canConnectServiceSockets(
-      socketConnection("root", "issuing", SERVICE_SOCKET.issuance),
-      [root, issuing, web],
-      [],
-    )).toEqual({ ok: true })
-    expect(canConnectServiceSockets(
-      socketConnection("root", "web", SERVICE_SOCKET.issuance),
-      [root, issuing, web],
-      [],
-    ).ok).toBe(false)
+    expect(
+      canConnectServiceSockets(
+        socketConnection("root", "issuing", SERVICE_SOCKET.issuance),
+        [root, issuing, web],
+        [],
+      ),
+    ).toEqual({ ok: true })
+    expect(
+      canConnectServiceSockets(
+        socketConnection("root", "web", SERVICE_SOCKET.issuance),
+        [root, issuing, web],
+        [],
+      ).ok,
+    ).toBe(false)
   })
 
   it("exposes only non-spatial service sockets on their supported roles", () => {
-    const root = machine("root", "CA01", "certificateAuthority", { caType: "Root" })
-    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const root = machine("root", "CA01", "certificateAuthority", {
+      caType: "Root",
+    })
+    const issuing = machine("issuing", "CA02", "certificateAuthority", {
+      caType: "Issuing",
+    })
     const web = machine("web", "SRV1", "webServer")
     const dc = machine("dc", "DC01", "domainController")
 
-    expect(serviceSocketsForNode(root, []).map(({ socket, type }) => `${socket}:${type}`)).toEqual([
-      "issuance:source",
-      "publication:source",
-    ])
+    expect(
+      serviceSocketsForNode(root, []).map(
+        ({ socket, type }) => `${socket}:${type}`,
+      ),
+    ).toEqual(["issuance:source", "publication:source"])
     expect(serviceSocketsForNode(issuing, [])).not.toContainEqual(
       expect.objectContaining({ socket: "domain" }),
     )
@@ -365,16 +424,31 @@ describe("service socket compatibility", () => {
   })
 
   it("keeps persisted-edge handles mounted while endpoints are deploying or failed", () => {
-    const root = machine("root", "CA01", "certificateAuthority", { caType: "Root" })
-    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const root = machine("root", "CA01", "certificateAuthority", {
+      caType: "Root",
+    })
+    const issuing = machine("issuing", "CA02", "certificateAuthority", {
+      caType: "Issuing",
+    })
     const web = machine("web", "SRV1", "webServer")
     root.data.lifecycle = "failed"
     issuing.data.lifecycle = "deploying"
     web.data.lifecycle = "deploying"
 
-    const hierarchy = relationship("hierarchy", "root", "issuing", EDGE_TYPE.caHierarchy)
-    hierarchy.sourceHandle = serviceSocketHandleId(SERVICE_SOCKET.issuance, "source")
-    hierarchy.targetHandle = serviceSocketHandleId(SERVICE_SOCKET.issuance, "target")
+    const hierarchy = relationship(
+      "hierarchy",
+      "root",
+      "issuing",
+      EDGE_TYPE.caHierarchy,
+    )
+    hierarchy.sourceHandle = serviceSocketHandleId(
+      SERVICE_SOCKET.issuance,
+      "source",
+    )
+    hierarchy.targetHandle = serviceSocketHandleId(
+      SERVICE_SOCKET.issuance,
+      "target",
+    )
     const ocsp = relationship("ocsp", "issuing", "web", EDGE_TYPE.webServerCert)
     ocsp.sourceHandle = serviceSocketHandleId(SERVICE_SOCKET.ocsp, "source")
     ocsp.targetHandle = serviceSocketHandleId(SERVICE_SOCKET.ocsp, "target")
@@ -385,21 +459,25 @@ describe("service socket compatibility", () => {
       socket: SERVICE_SOCKET.issuance,
       type: "source",
     })
-    expect(serviceSocketsForNode(issuing, edges)).toEqual(expect.arrayContaining([
-      { socket: SERVICE_SOCKET.issuance, type: "target" },
-      { socket: SERVICE_SOCKET.ocsp, type: "source" },
-    ]))
+    expect(serviceSocketsForNode(issuing, edges)).toEqual(
+      expect.arrayContaining([
+        { socket: SERVICE_SOCKET.issuance, type: "target" },
+        { socket: SERVICE_SOCKET.ocsp, type: "source" },
+      ]),
+    )
     expect(serviceSocketsForNode(web, edges)).toContainEqual({
       socket: SERVICE_SOCKET.ocsp,
       type: "target",
     })
 
     // The lifecycle guard still blocks authoring new relationships.
-    expect(canConnectServiceSockets(
-      socketConnection("issuing", "web", SERVICE_SOCKET.publication),
-      [root, issuing, web],
-      edges,
-    ).ok).toBe(false)
+    expect(
+      canConnectServiceSockets(
+        socketConnection("issuing", "web", SERVICE_SOCKET.publication),
+        [root, issuing, web],
+        edges,
+      ).ok,
+    ).toBe(false)
   })
 
   it("resists second parents and hierarchy cycles during the gesture", () => {
@@ -411,49 +489,77 @@ describe("service socket compatibility", () => {
       relationship("child", "other", "issuing", EDGE_TYPE.caHierarchy),
     ]
 
-    expect(canConnectServiceSockets(
-      socketConnection("root", "issuing", SERVICE_SOCKET.issuance),
-      [root, issuing, other],
-      hierarchy,
-    ).reason).toContain("already has an issuer")
-    expect(canConnectServiceSockets(
-      socketConnection("issuing", "root", SERVICE_SOCKET.issuance),
-      [root, issuing, other],
-      hierarchy,
-    ).reason).toBe("3+ Tier PKI is not supported yet.")
+    expect(
+      canConnectServiceSockets(
+        socketConnection("root", "issuing", SERVICE_SOCKET.issuance),
+        [root, issuing, other],
+        hierarchy,
+      ).reason,
+    ).toContain("already has an issuer")
+    expect(
+      canConnectServiceSockets(
+        socketConnection("issuing", "root", SERVICE_SOCKET.issuance),
+        [root, issuing, other],
+        hierarchy,
+      ).reason,
+    ).toBe("3+ Tier PKI is not supported yet.")
   })
 
   it("allows CDP/AIA and OCSP between the same issuing CA and web host", () => {
-    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const issuing = machine("issuing", "CA02", "certificateAuthority", {
+      caType: "Issuing",
+    })
     const web = machine("web", "SRV1", "webServer")
-    const publication = relationship("publication", "issuing", "web", EDGE_TYPE.webServerCert)
-    publication.sourceHandle = serviceSocketHandleId(SERVICE_SOCKET.publication, "source")
-    publication.targetHandle = serviceSocketHandleId(SERVICE_SOCKET.publication, "target")
-    publication.data = { ...publication.data, serviceSocket: SERVICE_SOCKET.publication }
+    const publication = relationship(
+      "publication",
+      "issuing",
+      "web",
+      EDGE_TYPE.webServerCert,
+    )
+    publication.sourceHandle = serviceSocketHandleId(
+      SERVICE_SOCKET.publication,
+      "source",
+    )
+    publication.targetHandle = serviceSocketHandleId(
+      SERVICE_SOCKET.publication,
+      "target",
+    )
+    publication.data = {
+      ...publication.data,
+      serviceSocket: SERVICE_SOCKET.publication,
+    }
 
-    expect(canConnectServiceSockets(
-      socketConnection("issuing", "web", SERVICE_SOCKET.ocsp),
-      [issuing, web],
-      [publication],
-    )).toEqual({ ok: true })
-    expect(canConnectServiceSockets(
-      socketConnection("issuing", "web", SERVICE_SOCKET.publication),
-      [issuing, web],
-      [publication],
-    ).reason).toBe("CDP/AIA is already connected.")
+    expect(
+      canConnectServiceSockets(
+        socketConnection("issuing", "web", SERVICE_SOCKET.ocsp),
+        [issuing, web],
+        [publication],
+      ),
+    ).toEqual({ ok: true })
+    expect(
+      canConnectServiceSockets(
+        socketConnection("issuing", "web", SERVICE_SOCKET.publication),
+        [issuing, web],
+        [publication],
+      ).reason,
+    ).toBe("CDP/AIA is already connected.")
   })
 
   it("reports concrete missing publication prerequisites", () => {
-    const issuing = machine("issuing", "CA02", "certificateAuthority", { caType: "Issuing" })
+    const issuing = machine("issuing", "CA02", "certificateAuthority", {
+      caType: "Issuing",
+    })
     const web = machine("web", "SRV1", "webServer", { enableOcsp: "Disabled" })
 
-    expect(connectionMissingRequirements(
-      EDGE_TYPE.webServerCert,
-      "issuing",
-      "web",
-      [issuing, web],
-      [],
-    )).toEqual([
+    expect(
+      connectionMissingRequirements(
+        EDGE_TYPE.webServerCert,
+        "issuing",
+        "web",
+        [issuing, web],
+        [],
+      ),
+    ).toEqual([
       "CA02 still needs a root CA parent",
       "CA02 and SRV1 must share an AD domain",
       "SRV1 must enable Online Responder",

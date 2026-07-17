@@ -34,7 +34,11 @@ export function EvidenceModeToggle({
       variant={active ? "default" : "outline"}
       disabled={!available}
       aria-pressed={active}
-      title={available ? "Freeze the verified audit snapshot" : "Deploy and verify the lab first"}
+      title={
+        available
+          ? "Freeze the verified audit snapshot"
+          : "Deploy and verify the lab first"
+      }
       onClick={onToggle}
       className="h-8 gap-2 bg-background/95 text-[10px] data-[active=true]:bg-primary"
       data-active={active}
@@ -53,7 +57,10 @@ function countChecks(value: unknown): { passed: number; total: number } {
   return Object.values(value).reduce(
     (sum, item) => {
       const nested = countChecks(item)
-      return { passed: sum.passed + nested.passed, total: sum.total + nested.total }
+      return {
+        passed: sum.passed + nested.passed,
+        total: sum.total + nested.total,
+      }
     },
     { passed: 0, total: 0 },
   )
@@ -62,7 +69,8 @@ function countChecks(value: unknown): { passed: number; total: number } {
 function compactValue(value: unknown): string {
   if (value === null || value === undefined) return "Not reported"
   if (typeof value === "string") return value
-  if (typeof value === "boolean" || typeof value === "number") return String(value)
+  if (typeof value === "boolean" || typeof value === "number")
+    return String(value)
   const serialized = JSON.stringify(value)
   return serialized.length > 110 ? `${serialized.slice(0, 107)}…` : serialized
 }
@@ -110,7 +118,9 @@ export function EvidenceModePanel({
           : "Evidence bundle downloaded.",
       )
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Evidence download failed.")
+      toast.error(
+        error instanceof Error ? error.message : "Evidence download failed.",
+      )
     } finally {
       setDownloading(false)
     }
@@ -120,11 +130,17 @@ export function EvidenceModePanel({
     <div className="w-[min(980px,calc(100vw-20rem))] overflow-hidden rounded-2xl border bg-background/97 shadow-2xl backdrop-blur">
       <div className="flex items-center justify-between gap-4 border-b px-4 py-2.5 text-[10px]">
         <span className="flex items-center gap-2 font-semibold uppercase tracking-wider">
-          <ShieldCheck className={cn("h-3.5 w-3.5", evidence.health.healthy ? "text-emerald-500" : "text-red-500")} />
+          <ShieldCheck
+            className={cn(
+              "h-3.5 w-3.5",
+              evidence.health.healthy ? "text-emerald-500" : "text-red-500",
+            )}
+          />
           Frozen audit snapshot
         </span>
         <span className="text-muted-foreground">
-          {new Date(evidence.verifiedAt).toLocaleString()} · job {evidence.deploymentJobId.slice(0, 12)}
+          {new Date(evidence.verifiedAt).toLocaleString()} · job{" "}
+          {evidence.deploymentJobId.slice(0, 12)}
         </span>
       </div>
 
@@ -148,27 +164,56 @@ export function EvidenceModePanel({
         <EvidenceFact
           icon={Fingerprint}
           label="Fingerprints"
-          value={fingerprints.length ? `${fingerprints.length} captured` : "Stored in full bundle"}
+          value={
+            fingerprints.length
+              ? `${fingerprints.length} captured`
+              : "Stored in full bundle"
+          }
         />
       </div>
 
       <div className="grid grid-cols-[1fr_1.35fr_auto] items-center gap-4 px-4 py-3 text-[10px]">
         <div className="min-w-0">
           <p className="font-semibold">CRL / OCSP freshness</p>
-          <p className="mt-1 truncate text-muted-foreground" title={freshness}>{freshness}</p>
+          <p className="mt-1 truncate text-muted-foreground" title={freshness}>
+            {freshness}
+          </p>
         </div>
         <div className="min-w-0">
           <p className="font-semibold">Verification output</p>
-          <p className={cn("mt-1 truncate", evidence.health.healthy ? "text-emerald-500" : "text-red-500")}>
-            {evidence.health.failures.length ? evidence.health.failures.join(" · ") : "All required PKI paths verified"}
+          <p
+            className={cn(
+              "mt-1 truncate",
+              evidence.health.healthy ? "text-emerald-500" : "text-red-500",
+            )}
+          >
+            {evidence.health.failures.length
+              ? evidence.health.failures.join(" · ")
+              : "All required PKI paths verified"}
           </p>
         </div>
         <div className="flex gap-2">
-          <Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 text-[10px]" onClick={copySnapshot}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-[10px]"
+            onClick={copySnapshot}
+          >
             <ClipboardCheck className="h-3.5 w-3.5" /> Copy snapshot
           </Button>
-          <Button type="button" size="sm" className="h-8 gap-1.5 text-[10px]" disabled={downloading} onClick={downloadBundle}>
-            {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 gap-1.5 text-[10px]"
+            disabled={downloading}
+            onClick={downloadBundle}
+          >
+            {downloading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
             Evidence ZIP
           </Button>
         </div>
@@ -190,10 +235,17 @@ function EvidenceFact({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2.5 px-4 py-3">
-      <Icon className={cn("h-4 w-4 shrink-0", bad ? "text-red-500" : "text-emerald-500")} />
+      <Icon
+        className={cn(
+          "h-4 w-4 shrink-0",
+          bad ? "text-red-500" : "text-emerald-500",
+        )}
+      />
       <span className="min-w-0">
         <span className="block font-semibold">{label}</span>
-        <span className="block truncate text-muted-foreground" title={value}>{value}</span>
+        <span className="block truncate text-muted-foreground" title={value}>
+          {value}
+        </span>
       </span>
     </div>
   )

@@ -9,7 +9,9 @@ import os
 import pytest
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
-os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+os.environ.setdefault(
+    "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+)
 
 from app.core import agentbus
 from app.core.sequences.model import NodeContext, RunContext, Step
@@ -83,9 +85,20 @@ def test_run_op_sequence_records_metrics_and_threads_ticks(monkeypatch):
     db = FakeDb()
     ticks = []
 
-    def fake_dispatch(vm_id, command, params, *, job_id, role, timeout_s,
-                      secret_keys=(), expect_disconnect=False,
-                      on_progress=None, on_tick=None, client=None):
+    def fake_dispatch(
+        vm_id,
+        command,
+        params,
+        *,
+        job_id,
+        role,
+        timeout_s,
+        secret_keys=(),
+        expect_disconnect=False,
+        on_progress=None,
+        on_tick=None,
+        client=None,
+    ):
         # Two frameless poll ticks, then the terminal result.
         if on_tick is not None:
             on_tick(1.0)
@@ -96,8 +109,12 @@ def test_run_op_sequence_records_metrics_and_threads_ticks(monkeypatch):
 
     steps = [Step(id="install-forest", command="dc.install_forest", target="primary")]
     run_op_sequence(
-        db, steps, _ctx(),
-        plan_job_id="job-1", op_id="op-1", role="guest",
+        db,
+        steps,
+        _ctx(),
+        plan_job_id="job-1",
+        op_id="op-1",
+        role="guest",
         on_step_tick=lambda step_id, elapsed: ticks.append((step_id, elapsed)),
     )
 
@@ -117,9 +134,7 @@ def test_metrics_write_failure_never_fails_the_step(monkeypatch):
     db["step_metrics"].insert_one = lambda _doc: (_ for _ in ()).throw(
         RuntimeError("mongo down")
     )
-    monkeypatch.setattr(
-        agentbus, "dispatch_and_wait", lambda *a, **k: {"ok": True}
-    )
+    monkeypatch.setattr(agentbus, "dispatch_and_wait", lambda *a, **k: {"ok": True})
     steps = [Step(id="s1", command="dc.verify", target="primary")]
     results = run_op_sequence(
         db, steps, _ctx(), plan_job_id="job-1", op_id="op-1", role="guest"
@@ -232,9 +247,7 @@ def test_tick_with_a_median_estimates_percent():
 
 
 def test_estimate_is_capped_below_completion():
-    (_, _, on_step_tick), pushes = _progress(
-        medians={"install-forest": 100.0}, total=1
-    )
+    (_, _, on_step_tick), pushes = _progress(medians={"install-forest": 100.0}, total=1)
     on_step_tick("install-forest", 900.0)  # 9x the median
     last = pushes[-1]
     assert "~95%" in last.phase

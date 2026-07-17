@@ -138,26 +138,39 @@ def preflight_control_plane(
 
     checks = [
         EnvironmentCheck(
-            key="mongo", ok=mongo_ready,
-            detail="MongoDB responded to ping." if mongo_ready else "MongoDB ping failed.",
+            key="mongo",
+            ok=mongo_ready,
+            detail="MongoDB responded to ping."
+            if mongo_ready
+            else "MongoDB ping failed.",
         )
     ]
     try:
         valkey_ready = bool(transport._client.ping())  # noqa: SLF001 - shared client
     except Exception as exc:  # noqa: BLE001
-        checks.append(EnvironmentCheck(key="valkey", ok=False, detail=f"Valkey ping failed: {exc}"))
+        checks.append(
+            EnvironmentCheck(
+                key="valkey", ok=False, detail=f"Valkey ping failed: {exc}"
+            )
+        )
     else:
-        checks.append(EnvironmentCheck(key="valkey", ok=valkey_ready, detail="Valkey responded to ping."))
+        checks.append(
+            EnvironmentCheck(
+                key="valkey", ok=valkey_ready, detail="Valkey responded to ping."
+            )
+        )
 
     callback = settings.backend_public_url or ""
     parsed = urlparse(callback)
     callback_ok = parsed.scheme in ("http", "https") and bool(parsed.netloc)
     checks.append(
         EnvironmentCheck(
-            key="backendCallback", ok=callback_ok,
+            key="backendCallback",
+            ok=callback_ok,
             detail=(
                 f"Guest callback URL is '{callback}'."
-                if callback_ok else "BACKEND_PUBLIC_URL must be an absolute HTTP(S) URL."
+                if callback_ok
+                else "BACKEND_PUBLIC_URL must be an absolute HTTP(S) URL."
             ),
         )
     )
@@ -177,14 +190,20 @@ def preflight_control_plane(
         try:
             replies = celery_app.control.inspect(timeout=2.0).ping() or {}
         except Exception as exc:  # noqa: BLE001
-            checks.append(EnvironmentCheck(key="worker", ok=False, detail=f"Worker ping failed: {exc}"))
+            checks.append(
+                EnvironmentCheck(
+                    key="worker", ok=False, detail=f"Worker ping failed: {exc}"
+                )
+            )
         else:
             checks.append(
                 EnvironmentCheck(
-                    key="worker", ok=bool(replies),
+                    key="worker",
+                    ok=bool(replies),
                     detail=(
                         f"{len(replies)} Celery worker(s) responded."
-                        if replies else "No Celery worker responded to ping."
+                        if replies
+                        else "No Celery worker responded to ping."
                     ),
                 )
             )

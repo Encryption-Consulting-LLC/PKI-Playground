@@ -32,8 +32,8 @@ export function ProjectDeleteDialog({
           </AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-xs text-muted-foreground">
             The project and its saved topology are permanently removed. Any VMs
-            already deployed to the host are left running — this only deletes the
-            project. This cannot be undone.
+            already deployed to the host are left running — this only deletes
+            the project. This cannot be undone.
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={onCancel}>

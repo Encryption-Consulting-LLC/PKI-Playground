@@ -12,7 +12,9 @@ import os
 import pytest
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
-os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+os.environ.setdefault(
+    "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+)
 
 from app.core import agentbus
 from app.core.agentbus import (
@@ -164,10 +166,7 @@ def test_missed_trigger_forces_a_reboot(monkeypatch):
     assert kwargs["expect_disconnect"] is True
     assert kwargs["job_id"].startswith("job-op-bootprobe:bootkick:")
     assert len(reconnect_waits) == 1
-    assert (
-        "Finalize still pending after 600s — forcing a recovery reboot"
-        in phases
-    )
+    assert "Finalize still pending after 600s — forcing a recovery reboot" in phases
 
 
 def test_a_running_finalize_task_is_not_kicked():
@@ -181,9 +180,7 @@ def test_a_running_finalize_task_is_not_kicked():
 
 def test_forced_reboot_cap_fails_the_op(monkeypatch):
     clock = FakeClock()
-    monkeypatch.setattr(
-        agentbus, "wait_for_reconnect", lambda *a, **k: None
-    )
+    monkeypatch.setattr(agentbus, "wait_for_reconnect", lambda *a, **k: None)
     dispatch = ScriptedDispatch(
         [_info(700 + i * 100, pending=True, running=False) for i in range(4)]
     )
@@ -284,9 +281,7 @@ def test_unparseable_result_keeps_probing():
 
 def test_overall_timeout_raises_agent_unreachable():
     clock = FakeClock()
-    dispatch = ScriptedDispatch(
-        [_info(30 + i, pending=True) for i in range(100)]
-    )
+    dispatch = ScriptedDispatch([_info(30 + i, pending=True) for i in range(100)])
     with pytest.raises(AgentUnreachableError, match="did not settle within 100s"):
         _wait(dispatch, clock, timeout_s=100)
 

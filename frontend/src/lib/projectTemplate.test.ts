@@ -14,9 +14,7 @@ function operationShape(ops: StagedOp[]) {
   return ops.map((op) => ({
     kind: op.kind,
     target: names.get(op.targetNodeId),
-    secondary: op.secondaryNodeId
-      ? names.get(op.secondaryNodeId)
-      : undefined,
+    secondary: op.secondaryNodeId ? names.get(op.secondaryNodeId) : undefined,
   }))
 }
 
@@ -44,7 +42,9 @@ describe("supplied PKI project template", () => {
 
   it("preserves authored node positions while relationships are connected", () => {
     const positions = Object.fromEntries(
-      useTopologyStore.getState().nodes.map((node) => [node.data.name, node.position]),
+      useTopologyStore
+        .getState()
+        .nodes.map((node) => [node.data.name, node.position]),
     )
 
     expect(positions).toEqual({
@@ -71,7 +71,9 @@ describe("supplied PKI project template", () => {
 
     const indexes = new Map(ops.map((op, index) => [op.id, index]))
     for (const [index, op] of ops.entries()) {
-      expect(op.dependsOn.every((id) => (indexes.get(id) ?? index) < index)).toBe(true)
+      expect(
+        op.dependsOn.every((id) => (indexes.get(id) ?? index) < index),
+      ).toBe(true)
     }
   })
 
@@ -101,9 +103,27 @@ describe("supplied PKI project template", () => {
         ports: edge.ports,
       })),
     ).toEqual([
-      { kind: "domainMembership", source: "CA02", target: "DC01", state: "planned", ports: ["domainBoundary"] },
-      { kind: "domainMembership", source: "SRV1", target: "DC01", state: "planned", ports: ["domainBoundary"] },
-      { kind: "caParent", source: "CA01", target: "CA02", state: "planned", ports: ["caParent"] },
+      {
+        kind: "domainMembership",
+        source: "CA02",
+        target: "DC01",
+        state: "planned",
+        ports: ["domainBoundary"],
+      },
+      {
+        kind: "domainMembership",
+        source: "SRV1",
+        target: "DC01",
+        state: "planned",
+        ports: ["domainBoundary"],
+      },
+      {
+        kind: "caParent",
+        source: "CA01",
+        target: "CA02",
+        state: "planned",
+        ports: ["caParent"],
+      },
       {
         kind: "caPublication",
         source: "CA02",
@@ -122,28 +142,60 @@ describe("supplied PKI project template", () => {
         name: record.name,
       })),
     ).toEqual([
-      { kind: "A", server: "DC01", subject: "CA02", zone: "encon.pki", name: undefined },
-      { kind: "A", server: "DC01", subject: "DC01", zone: "encon.pki", name: undefined },
-      { kind: "A", server: "DC01", subject: "SRV1", zone: "encon.pki", name: undefined },
-      { kind: "CNAME", server: "DC01", subject: "SRV1", zone: "encon.pki", name: "pki" },
+      {
+        kind: "A",
+        server: "DC01",
+        subject: "CA02",
+        zone: "encon.pki",
+        name: undefined,
+      },
+      {
+        kind: "A",
+        server: "DC01",
+        subject: "DC01",
+        zone: "encon.pki",
+        name: undefined,
+      },
+      {
+        kind: "A",
+        server: "DC01",
+        subject: "SRV1",
+        zone: "encon.pki",
+        name: undefined,
+      },
+      {
+        kind: "CNAME",
+        server: "DC01",
+        subject: "SRV1",
+        zone: "encon.pki",
+        name: "pki",
+      },
     ])
   })
 
   it("requires both issuing service sockets before exporting publication", () => {
     const { nodes, edges } = useTopologyStore.getState()
-    const withoutOcsp = edges.filter((edge) => edge.data?.serviceSocket !== "ocsp")
+    const withoutOcsp = edges.filter(
+      (edge) => edge.data?.serviceSocket !== "ocsp",
+    )
     const topology = buildDeployTopology(nodes, withoutOcsp)
 
-    expect(topology.edges.some((edge) => edge.kind === "caPublication")).toBe(false)
-    expect(topology.dnsRecords.some((record) => record.kind === "CNAME")).toBe(false)
+    expect(topology.edges.some((edge) => edge.kind === "caPublication")).toBe(
+      false,
+    )
+    expect(topology.dnsRecords.some((record) => record.kind === "CNAME")).toBe(
+      false,
+    )
   })
 
   it("upgrades a legacy aggregate service edge on snapshot load", () => {
     const { nodes, edges, counters, viewport } = useTopologyStore.getState()
-    const publication = edges.find((edge) =>
-      edge.data?.edgeType === EDGE_TYPE.webServerCert &&
-      edge.data?.serviceSocket === "publication" &&
-      nodes.find((node) => node.id === edge.source)?.data.config?.caType === "Issuing",
+    const publication = edges.find(
+      (edge) =>
+        edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+        edge.data?.serviceSocket === "publication" &&
+        nodes.find((node) => node.id === edge.source)?.data.config?.caType ===
+          "Issuing",
     )
     expect(publication).toBeDefined()
     const legacy = {
@@ -151,12 +203,16 @@ describe("supplied PKI project template", () => {
       data: { ...publication!.data, serviceSocket: undefined },
     }
 
-    useTopologyStore.getState().loadSnapshot(nodes, [legacy], counters, viewport)
+    useTopologyStore
+      .getState()
+      .loadSnapshot(nodes, [legacy], counters, viewport)
 
-    expect(useTopologyStore.getState().edges.map((edge) => edge.data?.serviceSocket).sort()).toEqual([
-      "ocsp",
-      "publication",
-    ])
+    expect(
+      useTopologyStore
+        .getState()
+        .edges.map((edge) => edge.data?.serviceSocket)
+        .sort(),
+    ).toEqual(["ocsp", "publication"])
   })
 
   it("keeps domain membership edges logical-only on snapshot load", () => {
@@ -167,11 +223,13 @@ describe("supplied PKI project template", () => {
         : edge,
     )
 
-    useTopologyStore.getState().loadSnapshot(nodes, persistedEdges, counters, viewport)
+    useTopologyStore
+      .getState()
+      .loadSnapshot(nodes, persistedEdges, counters, viewport)
 
-    const domainEdges = useTopologyStore.getState().edges.filter(
-      (edge) => edge.data?.edgeType === EDGE_TYPE.domainJoin,
-    )
+    const domainEdges = useTopologyStore
+      .getState()
+      .edges.filter((edge) => edge.data?.edgeType === EDGE_TYPE.domainJoin)
     expect(domainEdges).toHaveLength(2)
     expect(domainEdges.every((edge) => edge.hidden === true)).toBe(true)
   })
@@ -190,6 +248,8 @@ describe("supplied PKI project template", () => {
 
     const { nodes, edges } = useTopologyStore.getState()
     const topology = buildDeployTopology(nodes, edges)
-    expect(topology.dnsRecords.filter((record) => record.kind === "PTR")).toHaveLength(3)
+    expect(
+      topology.dnsRecords.filter((record) => record.kind === "PTR"),
+    ).toHaveLength(3)
   })
 })

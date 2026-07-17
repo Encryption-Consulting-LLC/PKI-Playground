@@ -51,7 +51,9 @@ def test_share_hides_snapshot_until_another_guest_accepts(monkeypatch):
     project_id = "12345678-abcd-4321-abcd-123456789abc"
 
     published = asyncio.run(
-        project_shares.publish_project(project_id, _project(project_id), _guest("alice"))
+        project_shares.publish_project(
+            project_id, _project(project_id), _guest("alice")
+        )
     )
     inspected = asyncio.run(project_shares.inspect_share(project_id, _guest("bob")))
 
@@ -76,7 +78,9 @@ def test_only_owner_or_accepted_collaborator_can_refresh_share(monkeypatch):
     monkeypatch.setattr(project_shares, "project_shares_col", lambda: collection)
     project_id = "87654321-abcd-4321-abcd-123456789abc"
     asyncio.run(
-        project_shares.publish_project(project_id, _project(project_id), _guest("alice"))
+        project_shares.publish_project(
+            project_id, _project(project_id), _guest("alice")
+        )
     )
 
     with pytest.raises(HTTPException) as exc:

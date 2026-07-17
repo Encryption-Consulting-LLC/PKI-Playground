@@ -4,7 +4,9 @@ cross-sign handshake — shape + param resolution (pure)."""
 import os
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
-os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+os.environ.setdefault(
+    "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+)
 
 from app.core.sequences.definitions import (  # noqa: E402
     _ds_config_dn,
@@ -26,9 +28,7 @@ def test_forest_mode_maps_levels():
 
 
 def test_ds_config_dn_from_domain():
-    assert _ds_config_dn("encon.pki") == (
-        "CN=Configuration,DC=encon,DC=pki"
-    )
+    assert _ds_config_dn("encon.pki") == ("CN=Configuration,DC=encon,DC=pki")
 
 
 def test_dc_provision_promotes_reboots_and_points_dns_at_self():
@@ -46,8 +46,12 @@ def test_dc_provision_promotes_reboots_and_points_dns_at_self():
 
 def test_dc_forest_params_map_config():
     node = NodeContext(
-        node_id="dc", vm_name="guest-abc12-dc01", hostname="guest-abc12-dc01",
-        agent_vm_id="v", ip="192.168.1.90", template_id="domainController",
+        node_id="dc",
+        vm_name="guest-abc12-dc01",
+        hostname="guest-abc12-dc01",
+        agent_vm_id="v",
+        ip="192.168.1.90",
+        template_id="domainController",
         template_config={
             "domainName": "encon.pki",
             "netbiosName": "ENCON",
@@ -61,7 +65,10 @@ def test_dc_forest_params_map_config():
     assert p["forestMode"] == "Win2025"
     assert p["safeModePassword"] == "Str0ng-Lab-Pass!"
     # dns.set_client points at the DC's own IP.
-    assert provision_steps("domainController")[2].resolve_params(ctx)["servers"] == "192.168.1.90"
+    assert (
+        provision_steps("domainController")[2].resolve_params(ctx)["servers"]
+        == "192.168.1.90"
+    )
 
 
 def test_dc_applies_its_a_record_and_verifies_ad_srv_records():
@@ -102,8 +109,11 @@ def test_dc_applies_its_a_record_and_verifies_ad_srv_records():
 
 def _root_ctx():
     node = NodeContext(
-        node_id="ca01", vm_name="guest-abc12-ca01", hostname="guest-abc12-ca01",
-        agent_vm_id="v", template_id="certificateAuthority",
+        node_id="ca01",
+        vm_name="guest-abc12-ca01",
+        hostname="guest-abc12-ca01",
+        agent_vm_id="v",
+        template_id="certificateAuthority",
         template_config={"caType": "Root", "commonName": "EC-Root-CA"},
     )
     return RunContext(
@@ -138,7 +148,9 @@ def test_root_ca_tail_full_sequence():
 
 def test_root_ca_settings_include_dsconfigdn_and_periods():
     ctx = _root_ctx()
-    settings = provision_steps("certificateAuthority", ca_type="Root")[1].resolve_params(ctx)
+    settings = provision_steps("certificateAuthority", ca_type="Root")[
+        1
+    ].resolve_params(ctx)
     assert settings["dsConfigDn"] == "CN=Configuration,DC=encon,DC=pki"
     assert settings["crlPeriodUnits"] == "52"
     assert settings["validityPeriodUnits"] == "10"
@@ -168,9 +180,7 @@ def test_root_ca_uses_configured_publication_directory_end_to_end():
     publication = steps[2].resolve_params(ctx)
     assert "1:D:\\PKI\\Published\\%1_%3%4.crt" in publication["aiaUrls"]
     assert "1:D:\\PKI\\Published\\%3%8%9.crl" in publication["cdpUrls"]
-    assert steps[3].resolve_params(ctx) == {
-        "certEnrollPath": "D:\\PKI\\Published"
-    }
+    assert steps[3].resolve_params(ctx) == {"certEnrollPath": "D:\\PKI\\Published"}
     assert steps[4].resolve_params(ctx)["path"].startswith("D:\\PKI\\Published\\")
     assert steps[5].resolve_params(ctx)["path"].startswith("D:\\PKI\\Published\\")
 
@@ -182,19 +192,39 @@ def test_issuing_ca_has_no_createvm_tail():
 def _full_lab_ctx():
     def node(nid, vm, template, cfg=None):
         return NodeContext(
-            node_id=nid, vm_name=vm, hostname=vm, agent_vm_id=f"v-{nid}",
-            ip="192.168.1.1", template_id=template, template_config=cfg or {},
+            node_id=nid,
+            vm_name=vm,
+            hostname=vm,
+            agent_vm_id=f"v-{nid}",
+            ip="192.168.1.1",
+            template_id=template,
+            template_config=cfg or {},
         )
 
-    dc = node("dc01", "guest-abc12-dc01", "domainController",
-              {"domainName": "encon.pki", "netbiosName": "ENCON",
-               "domainAdminPassword": "Str0ng-Lab-Pass!"})
+    dc = node(
+        "dc01",
+        "guest-abc12-dc01",
+        "domainController",
+        {
+            "domainName": "encon.pki",
+            "netbiosName": "ENCON",
+            "domainAdminPassword": "Str0ng-Lab-Pass!",
+        },
+    )
     return RunContext(
         nodes={
-            "primary": node("ca02", "guest-abc12-ca02", "certificateAuthority",
-                            {"caType": "Issuing", "commonName": "EncryptionConsulting Issuing CA"}),
-            "secondary": node("ca01", "guest-abc12-ca01", "certificateAuthority", {"caType": "Root"}),
-            "root": node("ca01", "guest-abc12-ca01", "certificateAuthority", {"caType": "Root"}),
+            "primary": node(
+                "ca02",
+                "guest-abc12-ca02",
+                "certificateAuthority",
+                {"caType": "Issuing", "commonName": "EncryptionConsulting Issuing CA"},
+            ),
+            "secondary": node(
+                "ca01", "guest-abc12-ca01", "certificateAuthority", {"caType": "Root"}
+            ),
+            "root": node(
+                "ca01", "guest-abc12-ca01", "certificateAuthority", {"caType": "Root"}
+            ),
             "dc": dc,
             "web": node("srv1", "guest-abc12-srv1", "webServer"),
         },
@@ -277,20 +307,26 @@ def test_caconnect_preserves_http_publication_filenames():
     ctx = _full_lab_ctx()
     by_id = {step.id: step for step in op_sequence("caConnect", ctx)}
 
-    assert by_id["root-to-web"].resolve_params(ctx)["path"].endswith(
-        "guest-abc12-ca01_EC-Root-CA.crt"
+    assert (
+        by_id["root-to-web"]
+        .resolve_params(ctx)["path"]
+        .endswith("guest-abc12-ca01_EC-Root-CA.crt")
     )
-    assert by_id["rootcrl-to-web"].resolve_params(ctx)["path"].endswith(
-        "EC-Root-CA.crl"
+    assert (
+        by_id["rootcrl-to-web"].resolve_params(ctx)["path"].endswith("EC-Root-CA.crl")
     )
-    assert by_id["issuing-to-web"].resolve_params(ctx)["path"].endswith(
-        "guest-abc12-ca02_EncryptionConsulting Issuing CA.crt"
+    assert (
+        by_id["issuing-to-web"]
+        .resolve_params(ctx)["path"]
+        .endswith("guest-abc12-ca02_EncryptionConsulting Issuing CA.crt")
     )
 
 
 def test_caconnect_issuing_install_is_credentialed_and_secret():
     ctx = _full_lab_ctx()
-    install = next(s for s in op_sequence("caConnect", ctx) if s.id == "install-issuing")
+    install = next(
+        s for s in op_sequence("caConnect", ctx) if s.id == "install-issuing"
+    )
     params = install.resolve_params(ctx)
     assert params["caType"] == "Issuing"
     assert params["username"] == "ENCON\\Administrator"
@@ -316,7 +352,9 @@ def test_caconnect_grant_targets_the_web_computer_on_the_dc():
 
 def test_caconnect_issuing_cdp_includes_unc_and_ocsp_when_web_present():
     ctx = _full_lab_ctx()
-    cdp_aia = next(s for s in op_sequence("caConnect", ctx) if s.id == "issuing-cdp-aia")
+    cdp_aia = next(
+        s for s in op_sequence("caConnect", ctx) if s.id == "issuing-cdp-aia"
+    )
     p = cdp_aia.resolve_params(ctx)
     assert "/ocsp" in p["aiaUrls"]  # 32: OCSP AIA entry
     assert "\\\\guest-abc12-srv1.encon.pki\\CertEnroll\\" in p["cdpUrls"]

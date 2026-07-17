@@ -24,7 +24,8 @@ def test_reconcile_source_filter_excludes_destructive_lifecycle_ops():
     ]
 
     selected = [
-        item["id"] for item in operations
+        item["id"]
+        for item in operations
         if item["kind"] not in ("createVm", "provision", "domainLeave")
     ]
 

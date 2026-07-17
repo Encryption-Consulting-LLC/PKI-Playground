@@ -99,7 +99,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     from app.core.secrets import SecretDecryptionError
 
     @app.exception_handler(SecretDecryptionError)
-    async def _secret_error(request: Request, exc: SecretDecryptionError) -> JSONResponse:
+    async def _secret_error(
+        request: Request, exc: SecretDecryptionError
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=503,
             content={

@@ -46,10 +46,13 @@ export type ServiceHealth = Partial<Record<ConnectionPort, ConnectionHealth>>
 export function isLabHealthReport(value: unknown): value is LabHealthReport {
   if (!value || typeof value !== "object") return false
   const report = value as Partial<LabHealthReport>
-  return typeof report.healthy === "boolean" &&
+  return (
+    typeof report.healthy === "boolean" &&
     Array.isArray(report.failures) &&
     report.failures.every((failure) => typeof failure === "string") &&
-    !!report.checks && typeof report.checks === "object"
+    !!report.checks &&
+    typeof report.checks === "object"
+  )
 }
 
 export function createLabEvidence(
@@ -66,7 +69,9 @@ export function createLabEvidence(
   }
 }
 
-export function findLabEvidence(nodes: Node<MachineData>[]): LabEvidence | null {
+export function findLabEvidence(
+  nodes: Node<MachineData>[],
+): LabEvidence | null {
   return nodes.find((node) => node.data.labEvidence)?.data.labEvidence ?? null
 }
 
@@ -77,8 +82,11 @@ function check(report: LabHealthReport, path: string): boolean {
     if (!value || typeof value !== "object") return false
     value = (value as Record<string, unknown>)[part]
   }
-  return !!value && typeof value === "object" &&
+  return (
+    !!value &&
+    typeof value === "object" &&
     (value as Partial<HealthCheck>).ok === true
+  )
 }
 
 function health(report: LabHealthReport, ...paths: string[]): ConnectionHealth {
@@ -87,7 +95,9 @@ function health(report: LabHealthReport, ...paths: string[]): ConnectionHealth {
     : CONNECTION_HEALTH.broken
 }
 
-function runtimeRole(node: Node<MachineData>): "dc" | "root" | "issuing" | "web" | null {
+function runtimeRole(
+  node: Node<MachineData>,
+): "dc" | "root" | "issuing" | "web" | null {
   if (node.data.typeId === "domainController") return "dc"
   if (node.data.typeId === "webServer") return "web"
   if (node.data.typeId !== "certificateAuthority") return null
@@ -117,7 +127,8 @@ export function serviceHealthForEdge(
     const source = nodes.find((node) => node.id === edge.source)
     const role = source ? runtimeRole(source) : null
     const paths = role ? [`runtimeIdentities.${role}`] : []
-    if (role === "web" || role === "issuing") paths.push(`dnsPublication.${role}`)
+    if (role === "web" || role === "issuing")
+      paths.push(`dnsPublication.${role}`)
     if (role === "issuing") paths.push("enterprisePki.containers")
     return {
       [CONNECTION_PORT.domainBoundary]: health(report, ...paths),
@@ -184,9 +195,8 @@ export function aggregateServiceHealth(
   fallback: ConnectionHealth,
 ): ConnectionHealth {
   return Object.values(services).reduce(
-    (worst, state) => state && HEALTH_PRIORITY[state] > HEALTH_PRIORITY[worst]
-      ? state
-      : worst,
+    (worst, state) =>
+      state && HEALTH_PRIORITY[state] > HEALTH_PRIORITY[worst] ? state : worst,
     fallback,
   )
 }
@@ -221,7 +231,9 @@ export function nodeHealthWarning(
   if (!evidence) return null
   const role = runtimeRole(node)
   if (!role) return null
-  const failed = NODE_CHECKS[role].find(([path]) => !check(evidence.health, path))
+  const failed = NODE_CHECKS[role].find(
+    ([path]) => !check(evidence.health, path),
+  )
   return failed?.[1] ?? null
 }
 
@@ -230,7 +242,10 @@ function collectFingerprints(value: unknown, output: string[] = []): string[] {
     for (const item of value) collectFingerprints(item, output)
   } else if (value && typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
-      if (/(fingerprint|thumbprint|sha256)/i.test(key) && typeof item === "string") {
+      if (
+        /(fingerprint|thumbprint|sha256)/i.test(key) &&
+        typeof item === "string"
+      ) {
         output.push(item)
       } else {
         collectFingerprints(item, output)

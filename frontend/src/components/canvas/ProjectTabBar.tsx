@@ -27,7 +27,10 @@ export function ProjectTabBar() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState("")
   // Project pending deletion — drives the confirm dialog.
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
@@ -96,7 +99,10 @@ export function ProjectTabBar() {
             >
               {project.name}
               {project.dirty && (
-                <span className="ml-1 text-muted-foreground" aria-label="Unsaved changes">
+                <span
+                  className="ml-1 text-muted-foreground"
+                  aria-label="Unsaved changes"
+                >
                   *
                 </span>
               )}
@@ -104,7 +110,9 @@ export function ProjectTabBar() {
             <button
               type="button"
               disabled={deploying}
-              onClick={() => setPendingDelete({ id: project.id, name: project.name })}
+              onClick={() =>
+                setPendingDelete({ id: project.id, name: project.name })
+              }
               aria-label={`Delete ${project.name}`}
               title="Delete project"
               className={cn(

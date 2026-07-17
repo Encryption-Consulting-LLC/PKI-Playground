@@ -8,8 +8,13 @@ from app.core.settings import settings
 
 
 PkiRole = Literal[
-    "domainController", "rootCa", "issuingCa", "webServer",
-    "certsecure", "cbom", "codesign",
+    "domainController",
+    "rootCa",
+    "issuingCa",
+    "webServer",
+    "certsecure",
+    "cbom",
+    "codesign",
 ]
 PKI_ROLES: tuple[PkiRole, ...] = (
     "domainController",
@@ -21,10 +26,18 @@ PRODUCT_ROLES: tuple[PkiRole, ...] = ("certsecure", "cbom", "codesign")
 LINUX_PRODUCT_TEMPLATES = frozenset(PRODUCT_ROLES)
 LINUX_PRODUCT_BASE = "ub-22.04-base"
 LINUX_PRODUCT_GUEST_OS = "ubuntu-64"
-REQUIRED_AGENT_COMMANDS = frozenset({
-    "ca.publish_crl", "ca.uninstall", "dc.remove_forest", "dns.remove_resources",
-    "dns.verify_absent", "domain.leave", "iis.remove_certenroll", "ocsp.remove",
-})
+REQUIRED_AGENT_COMMANDS = frozenset(
+    {
+        "ca.publish_crl",
+        "ca.uninstall",
+        "dc.remove_forest",
+        "dns.remove_resources",
+        "dns.verify_absent",
+        "domain.leave",
+        "iis.remove_certenroll",
+        "ocsp.remove",
+    }
+)
 ASSUMED_TESTED_BASE_CHANGE_VERSION = "assumed-current"
 ASSUMED_TESTED_RUNNER_VERSION = "assumed-tested"
 
@@ -104,7 +117,9 @@ def default_infrastructure_profiles() -> list[InfrastructureProfile]:
     return profiles
 
 
-def assumed_tested_qualification(role: PkiRole, digest: str, validated_at: int) -> ImageQualification:
+def assumed_tested_qualification(
+    role: PkiRole, digest: str, validated_at: int
+) -> ImageQualification:
     """Build a dev qualification from an operator-accepted bundled agent."""
 
     return ImageQualification(
@@ -124,7 +139,9 @@ def assumed_tested_qualification(role: PkiRole, digest: str, validated_at: int) 
     )
 
 
-def infrastructure_profiles_from_doc(doc: dict | None) -> dict[PkiRole, InfrastructureProfile]:
+def infrastructure_profiles_from_doc(
+    doc: dict | None,
+) -> dict[PkiRole, InfrastructureProfile]:
     """Resolve the complete role map, backfilling legacy settings documents."""
 
     doc = doc or {}
@@ -137,20 +154,24 @@ def infrastructure_profiles_from_doc(doc: dict | None) -> dict[PkiRole, Infrastr
         "maxUsagePct": doc.get("cloneMaxUsagePct") or settings.clone_max_usage_pct,
     }
     for role, profile in list(defaults.items()):
-        defaults[role] = profile.model_copy(update={
-            "base": legacy["base"],
-            "datastore": legacy["datastore"],
-            "expected_guest_os": legacy["expectedGuestOs"],
-            "network": legacy["network"],
-            "max_usage_pct": legacy["maxUsagePct"],
-        })
+        defaults[role] = profile.model_copy(
+            update={
+                "base": legacy["base"],
+                "datastore": legacy["datastore"],
+                "expected_guest_os": legacy["expectedGuestOs"],
+                "network": legacy["network"],
+                "max_usage_pct": legacy["maxUsagePct"],
+            }
+        )
     for raw in doc.get("infrastructureProfiles") or []:
         profile = InfrastructureProfile(**raw)
         defaults[profile.role] = profile
     return defaults
 
 
-def deployment_profiles_from_doc(doc: dict | None) -> dict[PkiRole, InfrastructureProfile]:
+def deployment_profiles_from_doc(
+    doc: dict | None,
+) -> dict[PkiRole, InfrastructureProfile]:
     """Resolve guided Windows profiles plus fixed Ubuntu product profiles.
 
     Product services intentionally do not extend the operator's Windows image
@@ -172,9 +193,7 @@ def deployment_profiles_from_doc(doc: dict | None) -> dict[PkiRole, Infrastructu
             cpus=cpus,
             memoryMb=memory_mb,
             systemDiskGb=disk_gb,
-            maxUsagePct=(
-                doc.get("cloneMaxUsagePct") or settings.clone_max_usage_pct
-            ),
+            maxUsagePct=(doc.get("cloneMaxUsagePct") or settings.clone_max_usage_pct),
         )
     return profiles
 

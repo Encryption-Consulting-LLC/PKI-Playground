@@ -2,9 +2,17 @@
 
 ``ROLE_CAPABILITIES`` is the single allowlist, and ``require_capability`` the
 authoritative server-side gate. A role is a property of the authenticated
-**user** (``get_current_user``). Login is always required: both operators and
-guests are accounts in the users collection, and the account's ``role`` decides
-the feature set. There is no anonymous session.
+**user** (``get_current_user``). Login is always required: admins, operators,
+and guests are all accounts in the users collection, and the account's ``role``
+decides the feature set. There is no anonymous session.
+
+Admin is a platform-management role, deliberately disjoint from operator:
+admins configure the shared ESXi target, base images, and accounts (the
+``/admin`` console), but never touch what happens inside a deployed VM —
+that surface (canvas builds, deploys, provisioning) belongs to operators and
+guests. The frontend enforces this split further by refusing to render the
+canvas app at all for an admin account (a cosmetic mirror of the same
+disjoint-capability design, not a substitute for it).
 
 The ``X-Session-Token`` header (and ``?token=`` on WebSockets) now carries a
 backend-signed JWT (``core/identity.py``). For account-backed tokens the user
@@ -30,6 +38,7 @@ from app.core.identity import AuthProvenance, decode_token
 
 
 class Role(str, Enum):
+    ADMIN = "admin"
     OPERATOR = "operator"
     GUEST = "guest"
 
@@ -56,7 +65,12 @@ class Capability(str, Enum):
 
 
 # Tune the allowlist here.
-# Operator → everything.
+# Admin    → platform management only (the /admin console): accounts, the
+#            shared ESXi target, base images, IP pool and VM-registry
+#            oversight. Deliberately excludes every VM/PKI-building
+#            capability — admins configure the playground, they don't build
+#            in it.
+# Operator → everything that isn't admin's — the canvas, deploys, VM ops.
 # Guest    → read/guided VM subset only.
 #   CONFIG_GENERATE is operator-only: config is produced server-side on the
 #     guest's behalf (not via a guest-invoked endpoint).
@@ -73,13 +87,29 @@ class Capability(str, Enum):
 #   VM_PROVISION is guest-eligible for the same reason: a guest
 #     provisioning its *own* throwaway CA/DC is the point; the orchestrator
 #     command route enforces per-VM ownership so it can't target another VM.
-#   PROJECT_* / SETTINGS_* / REGISTRY_* (Mongo persistence) are operator-only:
-#     guests keep client-side (localStorage) persistence, so the shared guest
-#     deploy never exposes a cross-visitor project list. Explicit opaque-id
-#     snapshots are handled separately by the guest-only /project-shares API.
-#   USER_ADMIN (account provisioning) is operator-only by construction.
+#   PROJECT_* (Mongo project persistence) is operator-only: guests keep
+#     client-side (localStorage) persistence, so the shared guest deploy never
+#     exposes a cross-visitor project list. Explicit opaque-id snapshots are
+#     handled separately by the guest-only /project-shares API.
+#   SETTINGS_* / REGISTRY_* / USER_ADMIN are admin-only: the shared ESXi
+#     target, base-image profiles, and account provisioning are platform
+#     concerns, not something an operator building a topology touches.
 ROLE_CAPABILITIES: dict[Role, set[Capability]] = {
-    Role.OPERATOR: set(Capability),
+    Role.ADMIN: {
+        Capability.SETTINGS_READ,
+        Capability.SETTINGS_WRITE,
+        Capability.REGISTRY_READ,
+        Capability.REGISTRY_WRITE,
+        Capability.USER_ADMIN,
+    },
+    Role.OPERATOR: set(Capability)
+    - {
+        Capability.SETTINGS_READ,
+        Capability.SETTINGS_WRITE,
+        Capability.REGISTRY_READ,
+        Capability.REGISTRY_WRITE,
+        Capability.USER_ADMIN,
+    },
     Role.GUEST: {
         Capability.VM_LIST,
         Capability.VM_READ,
@@ -121,12 +151,16 @@ async def resolve_user_token(token: str | None) -> AuthedUser | None:
     if payload is None:
         return None
 
-    from app.core.db import users_col  # deferred: keep authz importable without Mongo init
+    from app.core.db import (
+        users_col,
+    )  # deferred: keep authz importable without Mongo init
 
     doc = await users_col().find_one({"username": payload["sub"]})
     if doc is None or doc.get("disabled"):
         return None
-    return AuthedUser(username=doc["username"], role=Role(doc["role"]), auth=payload["auth"])
+    return AuthedUser(
+        username=doc["username"], role=Role(doc["role"]), auth=payload["auth"]
+    )
 
 
 async def get_current_user(x_session_token: str = Header(...)) -> AuthedUser:
@@ -154,8 +188,7 @@ def require_capability(cap: Capability):
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    f"Role '{user.role.value}' does not have"
-                    f" capability '{cap.value}'."
+                    f"Role '{user.role.value}' does not have capability '{cap.value}'."
                 ),
             )
 
@@ -226,7 +259,7 @@ def enforce_guest_vm_name(
     if user.role != Role.GUEST:
         return name
     prefix = _guest_namespace(user)
-    raw = name[len(prefix):] if name.startswith(prefix) else name
+    raw = name[len(prefix) :] if name.startswith(prefix) else name
     machine = _name_slug(raw, _GUEST_MACHINE_MAX)
     if not machine:
         raise HTTPException(422, detail="Invalid VM name.")

@@ -24,10 +24,25 @@ def _topology():
             {"id": "web", "name": "SRV1", "role": "webServer"},
         ],
         edges=[
-            {"id": "join-ca", "kind": "domainMembership", "source": "issuing", "target": "dc"},
-            {"id": "join-web", "kind": "domainMembership", "source": "web", "target": "dc"},
+            {
+                "id": "join-ca",
+                "kind": "domainMembership",
+                "source": "issuing",
+                "target": "dc",
+            },
+            {
+                "id": "join-web",
+                "kind": "domainMembership",
+                "source": "web",
+                "target": "dc",
+            },
             {"id": "parent", "kind": "caParent", "source": "root", "target": "issuing"},
-            {"id": "publish", "kind": "caPublication", "source": "issuing", "target": "web"},
+            {
+                "id": "publish",
+                "kind": "caPublication",
+                "source": "issuing",
+                "target": "web",
+            },
         ],
         dnsRecords=[],
     )
@@ -48,13 +63,17 @@ def test_teardown_orders_services_membership_dns_and_vm_destruction():
 
 def test_teardown_sequences_remove_role_services():
     node = NodeContext(
-        node_id="web", vm_name="SRV1", hostname="srv1", agent_vm_id="agent",
+        node_id="web",
+        vm_name="SRV1",
+        hostname="srv1",
+        agent_vm_id="agent",
         template_id="webServer",
     )
     ctx = RunContext(nodes={"primary": node})
 
     assert [step.command for step in teardown_action_sequence("web.cleanup", ctx)] == [
-        "ocsp.remove", "iis.remove_certenroll"
+        "ocsp.remove",
+        "iis.remove_certenroll",
     ]
     assert teardown_action_sequence("ca.cleanup", ctx)[0].command == "ca.uninstall"
 

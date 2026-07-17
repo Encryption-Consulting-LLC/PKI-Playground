@@ -25,7 +25,8 @@ export function DomainJoinAction({
   const domains = useMemo(
     () =>
       nodes.filter(
-        (node) => node.data.typeId === "domainController" && isConnectable(node.data),
+        (node) =>
+          node.data.typeId === "domainController" && isConnectable(node.data),
       ),
     [nodes],
   )
@@ -33,7 +34,8 @@ export function DomainJoinAction({
   const currentDomainId = selectedNode
     ? edges.find(
         (edge) =>
-          edge.source === selectedNode.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+          edge.source === selectedNode.id &&
+          edge.data?.edgeType === EDGE_TYPE.domainJoin,
       )?.target
     : undefined
   const availableDomains = useMemo(
@@ -41,13 +43,16 @@ export function DomainJoinAction({
     [domains, currentDomainId],
   )
   const [requestedDomainId, setRequestedDomainId] = useState("")
-  const domainId = availableDomains.some((domain) => domain.id === requestedDomainId)
+  const domainId = availableDomains.some(
+    (domain) => domain.id === requestedDomainId,
+  )
     ? requestedDomainId
     : (availableDomains[0]?.id ?? "")
 
   if (!selectedNode || domains.length === 0) return null
 
-  const domain = availableDomains.find((candidate) => candidate.id === domainId) ?? null
+  const domain =
+    availableDomains.find((candidate) => candidate.id === domainId) ?? null
   const reason = domain
     ? domainJoinBlockReason(selectedNode, domain, edges)
     : currentDomainId
@@ -60,11 +65,15 @@ export function DomainJoinAction({
         <Building2 className="h-3.5 w-3.5 text-sky-500" />
         <div className="min-w-0">
           <p className="font-semibold">Join domain</p>
-          <p className="truncate text-muted-foreground">Accessible action for {selectedNode.data.name}</p>
+          <p className="truncate text-muted-foreground">
+            Accessible action for {selectedNode.data.name}
+          </p>
         </div>
       </div>
       <div className="flex gap-1.5">
-        <label className="sr-only" htmlFor="accessible-domain-target">Target domain</label>
+        <label className="sr-only" htmlFor="accessible-domain-target">
+          Target domain
+        </label>
         <select
           id="accessible-domain-target"
           value={domainId}
@@ -77,7 +86,9 @@ export function DomainJoinAction({
               {domainLabel(candidate)}
             </option>
           ))}
-          {availableDomains.length === 0 && <option>No available domain</option>}
+          {availableDomains.length === 0 && (
+            <option>No available domain</option>
+          )}
         </select>
         <Button
           type="button"

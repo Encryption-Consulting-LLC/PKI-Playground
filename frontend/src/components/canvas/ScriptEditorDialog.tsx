@@ -63,7 +63,9 @@ function ScriptEditorForm({
   function save() {
     const trimmed = name.trim()
     if (!ISO_FILE_NAME_RE.test(trimmed)) {
-      toast.error("Filename must be letters/digits/._- with a .ps1 or .sh extension.")
+      toast.error(
+        "Filename must be letters/digits/._- with a .ps1 or .sh extension.",
+      )
       return
     }
     if (trimmed !== file.name && siblings.includes(trimmed)) {
@@ -88,9 +90,13 @@ function ScriptEditorForm({
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
         <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(600px,calc(100vh-2rem))] w-[min(640px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-xl border bg-popover p-5 text-popover-foreground shadow-lg ring-1 ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
-          <Dialog.Title className="text-sm font-semibold">Edit firstboot script</Dialog.Title>
+          <Dialog.Title className="text-sm font-semibold">
+            Edit firstboot script
+          </Dialog.Title>
           <div className="grid gap-1.5">
-            <Label className="text-[11px] text-muted-foreground">Filename</Label>
+            <Label className="text-[11px] text-muted-foreground">
+              Filename
+            </Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}

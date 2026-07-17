@@ -43,12 +43,19 @@ export function buildDeployTopology(
       .map((edge) => [edge.source, edge.target]),
   )
   const dnsRecords: TopologyPayload["dnsRecords"] = []
-  const servicePairs = new Map<string, { source: string; target: string; edges: Edge[] }>()
+  const servicePairs = new Map<
+    string,
+    { source: string; target: string; edges: Edge[] }
+  >()
   for (const edge of webServiceEdges(edges)) {
     const source = nodes.find((node) => node.id === edge.source)
     if (source?.data.config?.caType !== "Issuing") continue
     const key = `${edge.source}\u0000${edge.target}`
-    const pair = servicePairs.get(key) ?? { source: edge.source, target: edge.target, edges: [] }
+    const pair = servicePairs.get(key) ?? {
+      source: edge.source,
+      target: edge.target,
+      edges: [],
+    }
     pair.edges.push(edge)
     servicePairs.set(key, pair)
   }
@@ -58,10 +65,15 @@ export function buildDeployTopology(
 
   for (const node of nodes) {
     const role = topologyRole(node.data)
-    if (!(["domainController", "issuingCa", "webServer"] as TopologyRole[]).includes(role)) {
+    if (
+      !(
+        ["domainController", "issuingCa", "webServer"] as TopologyRole[]
+      ).includes(role)
+    ) {
       continue
     }
-    const dcId = role === "domainController" ? node.id : memberships.get(node.id)
+    const dcId =
+      role === "domainController" ? node.id : memberships.get(node.id)
     const dc = dcId ? domainControllers.get(dcId) : undefined
     const zone = dc?.data.config?.domainName?.trim()
     if (!dcId || !zone) continue
@@ -121,14 +133,19 @@ export function buildDeployTopology(
               ? "caParent"
               : null
         return kind && edgeType
-          ? [{
-              id: edge.id,
-              kind,
-              source: edge.source,
-              target: edge.target,
-              state: edge.data?.staged === true ? "planned" as const : "realized" as const,
-              ports: connectionPorts(edgeType),
-            }]
+          ? [
+              {
+                id: edge.id,
+                kind,
+                source: edge.source,
+                target: edge.target,
+                state:
+                  edge.data?.staged === true
+                    ? ("planned" as const)
+                    : ("realized" as const),
+                ports: connectionPorts(edgeType),
+              },
+            ]
           : []
       }),
       ...completeServicePairs.map((pair) => ({
@@ -137,8 +154,8 @@ export function buildDeployTopology(
         source: pair.source,
         target: pair.target,
         state: pair.edges.some((edge) => edge.data?.staged === true)
-          ? "planned" as const
-          : "realized" as const,
+          ? ("planned" as const)
+          : ("realized" as const),
         ports: connectionPorts(EDGE_TYPE.webServerCert),
       })),
     ],

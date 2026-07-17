@@ -19,8 +19,20 @@ import { toast } from "sonner"
 import { TEMPLATE_BY_ID } from "@/constants/templates"
 import type { ConfigField } from "@/constants/templates"
 import { LIFECYCLE } from "@/constants/topology"
-import { ISO_DRIFT_FIELD, caTier, caDepth, domainMembership, driftedFields, isDeployed, isDrifted } from "@/lib/topology"
-import { PASSWORD_MASK, isPasswordValid, passwordRules } from "@/lib/passwordPolicy"
+import {
+  ISO_DRIFT_FIELD,
+  caTier,
+  caDepth,
+  domainMembership,
+  driftedFields,
+  isDeployed,
+  isDrifted,
+} from "@/lib/topology"
+import {
+  PASSWORD_MASK,
+  isPasswordValid,
+  passwordRules,
+} from "@/lib/passwordPolicy"
 import { projectNetbiosPrefix } from "@/lib/projectNaming"
 import { OP_KIND, OP_STATUS } from "@/lib/staging"
 import type { StagedOp } from "@/lib/staging"
@@ -89,7 +101,9 @@ function isHiddenIn(field: ConfigField, values: Record<string, string>) {
 /** The currently-visible field values — the set that gets committed/persisted (hidden fields never leak). */
 function visibleValues(fields: ConfigField[], values: Record<string, string>) {
   return Object.fromEntries(
-    fields.filter((f) => !isHiddenIn(f, values)).map((f) => [f.key, values[f.key]]),
+    fields
+      .filter((f) => !isHiddenIn(f, values))
+      .map((f) => [f.key, values[f.key]]),
   )
 }
 
@@ -170,7 +184,9 @@ function ConfigForm({
     <div className="flex flex-col gap-3">
       {visibleFields.map((field) => (
         <div key={field.key} className="grid gap-1.5">
-          <Label className="text-[11px] text-muted-foreground">{field.label}</Label>
+          <Label className="text-[11px] text-muted-foreground">
+            {field.label}
+          </Label>
           {field.type === "fixed" ? (
             <div className="flex h-7 items-center rounded-md border bg-muted/40 px-3 text-xs text-muted-foreground">
               {values[field.key]}
@@ -329,7 +345,9 @@ function OrchestratorPanel({
         })
       })
       .catch((err) => {
-        finish(err instanceof Error ? err.message : "Failed to dispatch command.")
+        finish(
+          err instanceof Error ? err.message : "Failed to dispatch command.",
+        )
       })
   }
 
@@ -573,7 +591,8 @@ export function Inspector() {
   // Only pre-deploy nodes can be deleted (a real VM is never touched from the
   // canvas). A bare draft with nothing staged deletes with no dialog — that's
   // the low-friction path; anything with staged ops confirms the cascade.
-  const canDelete = !data.vmName && !isConfigured && !isConfiguring && !isDestroying
+  const canDelete =
+    !data.vmName && !isConfigured && !isConfiguring && !isDestroying
 
   function handleDelete() {
     const affected = opsReferencingNode(useStagingStore.getState().ops, nodeId)
@@ -600,18 +619,29 @@ export function Inspector() {
 
   const hasConfigFields = !!(def?.configFields && def.configFields.length > 0)
   const showConfigForm =
-    !isConfigured && !isConfiguring && !isProvisioning && !isStaged && !isDestroying
+    !isConfigured &&
+    !isConfiguring &&
+    !isProvisioning &&
+    !isStaged &&
+    !isDestroying
 
   return (
     <aside className="flex w-64 shrink-0 flex-col gap-0 overflow-x-hidden overflow-y-auto border-l bg-sidebar transition-[width] duration-200 ease-in-out">
       {/* Header */}
       <div className="flex items-center gap-2 border-b px-3 py-3">
         {def?.logo ? (
-          <img src={def.logo} alt="" className="h-5 w-5 shrink-0" draggable={false} />
+          <img
+            src={def.logo}
+            alt=""
+            className="h-5 w-5 shrink-0"
+            draggable={false}
+          />
         ) : (
           <Icon className={cn("h-4 w-4 shrink-0", def?.accent)} />
         )}
-        <span className="flex-1 text-sm font-semibold truncate">{data.name}</span>
+        <span className="flex-1 text-sm font-semibold truncate">
+          {data.name}
+        </span>
         <button
           onClick={() => store.selectNode(null)}
           className="text-muted-foreground hover:text-foreground transition-colors"
@@ -632,7 +662,9 @@ export function Inspector() {
             <span className="text-muted-foreground">Role</span>
             <span>{def?.label ?? data.typeId}</span>
             <span className="text-muted-foreground">Platform</span>
-            <span>{def?.platform === "linux" ? "Linux · Ubuntu 22.04" : "Windows"}</span>
+            <span>
+              {def?.platform === "linux" ? "Linux · Ubuntu 22.04" : "Windows"}
+            </span>
             {def?.cloneBase && (
               <>
                 <span className="text-muted-foreground">Clone image</span>
@@ -652,7 +684,10 @@ export function Inspector() {
                 {isOperator && data.ip && (
                   <>
                     <span className="text-muted-foreground">Mgmt IP</span>
-                    <span className="font-mono text-muted-foreground" title="operator-only: real management address">
+                    <span
+                      className="font-mono text-muted-foreground"
+                      title="operator-only: real management address"
+                    >
                       {data.ip}
                     </span>
                   </>
@@ -673,7 +708,9 @@ export function Inspector() {
             {isOperator && data.vmName && (
               <>
                 <span className="text-muted-foreground">VM name</span>
-                <span className="truncate font-mono" title={data.vmName}>{data.vmName}</span>
+                <span className="truncate font-mono" title={data.vmName}>
+                  {data.vmName}
+                </span>
               </>
             )}
             {(!isConfigured || isConfiguring || isDrifted(data)) && (
@@ -681,25 +718,42 @@ export function Inspector() {
                 <span className="text-muted-foreground">Status</span>
                 <span className="flex items-center gap-1">
                   {data.lifecycle === LIFECYCLE.draft && (
-                    <><AlertTriangle className="h-3 w-3 text-amber-500" /> draft</>
+                    <>
+                      <AlertTriangle className="h-3 w-3 text-amber-500" /> draft
+                    </>
                   )}
                   {isStaged && (
-                    <><Clock className="h-3 w-3 text-sky-500" /> staged</>
+                    <>
+                      <Clock className="h-3 w-3 text-sky-500" /> staged
+                    </>
                   )}
                   {isConfiguring && (
-                    <><Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> deploying…</>
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />{" "}
+                      deploying…
+                    </>
                   )}
                   {isProvisioning && (
-                    <><Loader2 className="h-3 w-3 animate-spin text-emerald-500" /> awaiting orchestrator…</>
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin text-emerald-500" />{" "}
+                      awaiting orchestrator…
+                    </>
                   )}
                   {isFailed && (
-                    <><AlertTriangle className="h-3 w-3 text-red-500" /> failed</>
+                    <>
+                      <AlertTriangle className="h-3 w-3 text-red-500" /> failed
+                    </>
                   )}
                   {isDestroying && (
-                    <><Loader2 className="h-3 w-3 animate-spin text-red-500" /> removing…</>
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin text-red-500" />{" "}
+                      removing…
+                    </>
                   )}
                   {isDrifted(data) && (
-                    <><RefreshCw className="h-3 w-3 text-orange-500" /> drifted</>
+                    <>
+                      <RefreshCw className="h-3 w-3 text-orange-500" /> drifted
+                    </>
                   )}
                 </span>
               </>
@@ -708,22 +762,34 @@ export function Inspector() {
 
           {/* Derived chips */}
           {tier === "root" && (
-            <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-500 self-start">
+            <Badge
+              variant="outline"
+              className="text-[10px] border-amber-500/50 text-amber-500 self-start"
+            >
               CA: Root
             </Badge>
           )}
           {tier === "intermediate" && (
-            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400 self-start">
+            <Badge
+              variant="outline"
+              className="text-[10px] border-amber-500/40 text-amber-400 self-start"
+            >
               CA: Intermediate · T{depth}
             </Badge>
           )}
           {tier === "issuing" && (
-            <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-300 self-start">
+            <Badge
+              variant="outline"
+              className="text-[10px] border-amber-500/30 text-amber-300 self-start"
+            >
               CA: Issuing · T{depth}
             </Badge>
           )}
           {domain && (
-            <Badge variant="outline" className="text-[10px] border-blue-500/40 text-blue-400 self-start">
+            <Badge
+              variant="outline"
+              className="text-[10px] border-blue-500/40 text-blue-400 self-start"
+            >
               Domain: {domain}
             </Badge>
           )}
@@ -752,7 +818,11 @@ export function Inspector() {
                 className="h-7 text-xs"
                 autoFocus
               />
-              <Button size="sm" className="h-7 px-2 text-xs" onClick={commitRename}>
+              <Button
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={commitRename}
+              >
                 OK
               </Button>
             </div>
@@ -800,23 +870,28 @@ export function Inspector() {
         )}
 
         {/* Simple configure (no config fields) */}
-        {!isConfigured && !isConfiguring && !isProvisioning && !isStaged && !isDestroying && !hasConfigFields && (
-          <section className="flex flex-col gap-2">
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-600">
-              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-              Configure this VM before connecting it or taking actions.
-            </div>
-            <Button
-              size="sm"
-              className="w-full"
-              disabled={deploying}
-              onClick={() => handleConfigure()}
-            >
-              <Settings className="mr-2 h-3.5 w-3.5" />
-              Configure
-            </Button>
-          </section>
-        )}
+        {!isConfigured &&
+          !isConfiguring &&
+          !isProvisioning &&
+          !isStaged &&
+          !isDestroying &&
+          !hasConfigFields && (
+            <section className="flex flex-col gap-2">
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-600">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                Configure this VM before connecting it or taking actions.
+              </div>
+              <Button
+                size="sm"
+                className="w-full"
+                disabled={deploying}
+                onClick={() => handleConfigure()}
+              >
+                <Settings className="mr-2 h-3.5 w-3.5" />
+                Configure
+              </Button>
+            </section>
+          )}
 
         {/* Operator-only ISO authoring — available while the node is
             still configurable (draft/failed/reconfiguring) or staged (deploy
@@ -868,7 +943,9 @@ export function Inspector() {
               <div className="flex flex-col gap-1">
                 <span>Deploy failed.</span>
                 {failedDetail && (
-                  <span className="text-[11px] text-muted-foreground">{failedDetail}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {failedDetail}
+                  </span>
                 )}
                 {failedOp?.trace && (
                   <details>
@@ -905,7 +982,10 @@ export function Inspector() {
                 {driftedFields(data).map((key) => {
                   if (key === ISO_DRIFT_FIELD) {
                     return (
-                      <span key={key} className="text-[11px] text-muted-foreground">
+                      <span
+                        key={key}
+                        className="text-[11px] text-muted-foreground"
+                      >
                         ISO contents changed
                       </span>
                     )
@@ -914,10 +994,18 @@ export function Inspector() {
                   const fieldLabel = field?.label ?? key
                   // A password's value is never shown — only that it changed.
                   const mask = (v: string | undefined) =>
-                    field?.type === "password" ? (v ? PASSWORD_MASK : "—") : (v ?? "—")
+                    field?.type === "password"
+                      ? v
+                        ? PASSWORD_MASK
+                        : "—"
+                      : (v ?? "—")
                   return (
-                    <span key={key} className="text-[11px] text-muted-foreground">
-                      {fieldLabel}: {mask(data.lastDeployedConfig?.[key])} → {mask(data.config?.[key])}
+                    <span
+                      key={key}
+                      className="text-[11px] text-muted-foreground"
+                    >
+                      {fieldLabel}: {mask(data.lastDeployedConfig?.[key])} →{" "}
+                      {mask(data.config?.[key])}
                     </span>
                   )
                 })}
@@ -938,7 +1026,11 @@ export function Inspector() {
                 const fieldLabel = field?.label ?? key
                 // Secrets show only as a mask — the value never reaches the DOM.
                 const shown =
-                  field?.type === "password" ? (value ? PASSWORD_MASK : "—") : value
+                  field?.type === "password"
+                    ? value
+                      ? PASSWORD_MASK
+                      : "—"
+                    : value
                 return (
                   <Fragment key={key}>
                     <span className="text-muted-foreground">{fieldLabel}</span>

@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react"
-import { AlertTriangle, CheckCircle2, ChevronRight, XCircle } from "lucide-react"
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  XCircle,
+} from "lucide-react"
 
 import type { DeployPreflightReceipt } from "@/lib/api"
 import { useStagingStore } from "@/store/staging"
@@ -61,13 +66,18 @@ function ReceiptCard({ receipt }: { receipt: DeployPreflightReceipt }) {
       {!collapsed && (
         <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto pl-0.5">
           {checks.map((check, i) => (
-            <li key={`${check.key}-${check.role ?? ""}-${check.datastore ?? ""}-${i}`} className="flex items-start gap-1.5">
+            <li
+              key={`${check.key}-${check.role ?? ""}-${check.datastore ?? ""}-${i}`}
+              className="flex items-start gap-1.5"
+            >
               {check.ok ? (
                 <CheckCircle2 className="mt-px h-2.5 w-2.5 shrink-0 text-emerald-500/70" />
               ) : (
                 <XCircle className="mt-px h-2.5 w-2.5 shrink-0 text-red-500" />
               )}
-              <span className={`min-w-0 break-words leading-snug ${check.ok ? "text-muted-foreground" : ""}`}>
+              <span
+                className={`min-w-0 break-words leading-snug ${check.ok ? "text-muted-foreground" : ""}`}
+              >
                 {check.detail}
               </span>
             </li>

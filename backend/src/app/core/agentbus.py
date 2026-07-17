@@ -189,9 +189,7 @@ def dispatch_and_wait(
             raise DispatchError(
                 f"agent command '{command}' failed: {payload.get('detail', 'unknown error')}"
             )
-        raise DispatchError(
-            f"agent command '{command}' timed out after {timeout_s}s"
-        )
+        raise DispatchError(f"agent command '{command}' timed out after {timeout_s}s")
     finally:
         pubsub.close()
 
@@ -470,9 +468,7 @@ def wait_for_settled_boot(
 
         if pending:
             candidate = None
-            _phase(
-                f"Waiting for boot to settle — finalize pending (up {int(uptime)}s)"
-            )
+            _phase(f"Waiting for boot to settle — finalize pending (up {int(uptime)}s)")
             if (
                 uptime >= settings.agent_boot_force_reboot_uptime_s
                 and running is not True
@@ -596,7 +592,7 @@ async def run_dispatch_subscriber() -> None:
                 continue
             try:
                 request = json.loads(message["data"])
-            except (ValueError, KeyError):
+            except ValueError, KeyError:
                 logger.warning("malformed agent-dispatch frame")
                 continue
             vm_id = request.get("vm_id")

@@ -48,6 +48,9 @@ def test_bundle_contains_manifest_health_and_public_artifacts():
         assert "artifacts/root-ca.crt" in names
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["evidenceSha256"] == digest
-        assert json.loads(archive.read("verification.json"))["publish"][
-            "lab-health"
-        ]["healthy"] is True
+        assert (
+            json.loads(archive.read("verification.json"))["publish"]["lab-health"][
+                "healthy"
+            ]
+            is True
+        )

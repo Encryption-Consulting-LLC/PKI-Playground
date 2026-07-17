@@ -16,23 +16,36 @@ from app.core.sequences.model import DnsRecordContext, NodeContext, RunContext  
 
 def _context():
     member = NodeContext(
-        node_id="web", vm_name="SRV1", hostname="srv1",
-        agent_vm_id="web-agent", ip="192.168.1.20", template_id="webServer",
+        node_id="web",
+        vm_name="SRV1",
+        hostname="srv1",
+        agent_vm_id="web-agent",
+        ip="192.168.1.20",
+        template_id="webServer",
     )
     dc = NodeContext(
-        node_id="dc", vm_name="DC01", hostname="dc01",
-        agent_vm_id="dc-agent", ip="192.168.1.10", template_id="domainController",
+        node_id="dc",
+        vm_name="DC01",
+        hostname="dc01",
+        agent_vm_id="dc-agent",
+        ip="192.168.1.10",
+        template_id="domainController",
         template_config={
-            "domainName": "encon.pki", "netbiosName": "ENCON",
+            "domainName": "encon.pki",
+            "netbiosName": "ENCON",
             "domainAdminPassword": "Str0ng-Lab-Pass!",
         },
     )
     return RunContext(
         nodes={"primary": member, "web": member, "dc": dc},
-        domain_name="encon.pki", netbios="ENCON",
+        domain_name="encon.pki",
+        netbios="ENCON",
         dns_records=(
             DnsRecordContext(
-                id="dns:a:dc:web", kind="A", server="dc", subject="web",
+                id="dns:a:dc:web",
+                kind="A",
+                server="dc",
+                subject="web",
                 zone="encon.pki",
             ),
         ),

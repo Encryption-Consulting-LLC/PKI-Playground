@@ -121,6 +121,4 @@ def test_wrong_runtime_identity_fails_the_gate() -> None:
     report = aggregate_lab_health(_runtime(), results)
 
     assert report["healthy"] is False
-    assert "expected Windows Server host guest-lab-web" in "; ".join(
-        report["failures"]
-    )
+    assert "expected Windows Server host guest-lab-web" in "; ".join(report["failures"])

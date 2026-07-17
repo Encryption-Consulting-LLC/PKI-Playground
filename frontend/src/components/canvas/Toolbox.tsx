@@ -9,8 +9,12 @@ const DRAG_TYPE = "application/reactflow"
 
 type Tab = "templates" | "staged"
 
-const COMPONENT_TEMPLATES = TEMPLATE_CATALOG.filter((def) => def.category !== "product")
-const PRODUCT_TEMPLATES = TEMPLATE_CATALOG.filter((def) => def.category === "product")
+const COMPONENT_TEMPLATES = TEMPLATE_CATALOG.filter(
+  (def) => def.category !== "product",
+)
+const PRODUCT_TEMPLATES = TEMPLATE_CATALOG.filter(
+  (def) => def.category === "product",
+)
 
 export function Toolbox() {
   const [tab, setTab] = useState<Tab>("templates")
@@ -106,7 +110,12 @@ export function Toolbox() {
                   )}
                 >
                   {product.logo ? (
-                    <img src={product.logo} alt="" className="h-8 w-8 shrink-0" draggable={false} />
+                    <img
+                      src={product.logo}
+                      alt=""
+                      className="h-8 w-8 shrink-0"
+                      draggable={false}
+                    />
                   ) : (
                     <Icon className={cn("h-8 w-8 shrink-0", product.accent)} />
                   )}

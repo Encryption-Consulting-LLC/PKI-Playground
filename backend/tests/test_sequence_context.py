@@ -44,12 +44,8 @@ def test_web_publication_context_targets_the_web_host(monkeypatch):
     monkeypatch.setattr(
         sequence_context, "_find_by_template", lambda db, name, template: web
     )
-    monkeypatch.setattr(
-        sequence_context, "_find_issuing_ca", lambda db, name: ca
-    )
-    monkeypatch.setattr(
-        sequence_context, "_find_root_ca", lambda db, name: root
-    )
+    monkeypatch.setattr(sequence_context, "_find_issuing_ca", lambda db, name: ca)
+    monkeypatch.setattr(sequence_context, "_find_root_ca", lambda db, name: root)
     op = SimpleNamespace(
         kind=SimpleNamespace(value="webServerCert"),
         target="ca02",

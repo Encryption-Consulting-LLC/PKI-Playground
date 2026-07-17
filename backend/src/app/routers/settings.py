@@ -86,12 +86,16 @@ class GoldenImageValidationRequest(BaseModel):
 class InfrastructureValidationRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    machines: list[PlannedMachine] = Field(default_factory=lambda: [
-        PlannedMachine(role="domainController", name="DC01"),
-        PlannedMachine(role="rootCa", name="CA01"),
-        PlannedMachine(role="issuingCa", name="CA02"),
-        PlannedMachine(role="webServer", name="SRV1"),
-    ], min_length=1, max_length=50)
+    machines: list[PlannedMachine] = Field(
+        default_factory=lambda: [
+            PlannedMachine(role="domainController", name="DC01"),
+            PlannedMachine(role="rootCa", name="CA01"),
+            PlannedMachine(role="issuingCa", name="CA02"),
+            PlannedMachine(role="webServer", name="SRV1"),
+        ],
+        min_length=1,
+        max_length=50,
+    )
 
 
 def _present(doc: dict) -> dict:
@@ -180,7 +184,10 @@ async def update_settings(body: SettingsUpdate) -> dict:
     fields = body.model_dump(by_alias=True, exclude_unset=True)
     profiles = fields.get("infrastructureProfiles")
     if profiles is not None and {profile["role"] for profile in profiles} != {
-        "domainController", "rootCa", "issuingCa", "webServer"
+        "domainController",
+        "rootCa",
+        "issuingCa",
+        "webServer",
     }:
         raise HTTPException(
             status_code=422,

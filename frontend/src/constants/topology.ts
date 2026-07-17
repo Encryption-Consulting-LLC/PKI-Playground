@@ -45,8 +45,7 @@ export const SERVICE_SOCKET = {
   ocsp: "ocsp",
 } as const
 
-export type ServiceSocket =
-  (typeof SERVICE_SOCKET)[keyof typeof SERVICE_SOCKET]
+export type ServiceSocket = (typeof SERVICE_SOCKET)[keyof typeof SERVICE_SOCKET]
 
 export const CONNECTION_HEALTH = {
   planned: "planned",

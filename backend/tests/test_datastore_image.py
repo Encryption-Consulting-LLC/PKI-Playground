@@ -14,7 +14,7 @@ from app.core import datastore_image as subject  # noqa: E402
 def test_parse_datastore_vmx_extracts_guest_networks_and_revision():
     facts = subject.parse_datastore_vmx(
         "[datastore1] ws-2025-base/ws-2025-base.vmx",
-        '\n'.join(
+        "\n".join(
             [
                 'guestOS = "windows2022srvNext-64"',
                 'ethernet0.present = "TRUE"',
@@ -51,7 +51,12 @@ def test_read_datastore_vmx_uses_connection_credentials(monkeypatch):
 
     assert calls == [
         (
-            "esxi.test", "root", "secret", 443, "datastore1", "ha-datacenter",
+            "esxi.test",
+            "root",
+            "secret",
+            443,
+            "datastore1",
+            "ha-datacenter",
             "ws-2025-base/ws-2025-base.vmx",
         )
     ]

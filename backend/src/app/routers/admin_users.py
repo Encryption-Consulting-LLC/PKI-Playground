@@ -1,4 +1,5 @@
-"""Account provisioning — operator-only, API-only (no admin portal UI yet).
+"""Account provisioning — admin-only (``Capability.USER_ADMIN``), backing the
+``/admin`` console's Accounts section.
 
 Accounts are admin-inserted for both employees and guests; there is no
 self-serve signup. OIDC accounts appear here too (upserted at first SSO
@@ -15,7 +16,13 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.authz import AuthedUser, Capability, Role, get_current_user, require_capability
+from app.core.authz import (
+    AuthedUser,
+    Capability,
+    Role,
+    get_current_user,
+    require_capability,
+)
 from app.core.db import now_ms, to_mongo, users_col
 from app.core.db.models import UserDoc
 from app.core.identity import hash_password

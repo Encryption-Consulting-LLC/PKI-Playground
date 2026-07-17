@@ -57,7 +57,9 @@ function StatusGlyph({ op }: { op: StagedOp }) {
         <span className="flex shrink-0 items-center gap-1">
           <Loader2 className="h-3 w-3 animate-spin text-sky-500" />
           {op.progress != null && (
-            <span className="text-[10px] text-muted-foreground">{Math.round(op.progress)}%</span>
+            <span className="text-[10px] text-muted-foreground">
+              {Math.round(op.progress)}%
+            </span>
           )}
         </span>
       )
@@ -95,7 +97,9 @@ function StatusGlyph({ op }: { op: StagedOp }) {
         </Popover.Root>
       )
     case OP_STATUS.cancelled:
-      return <MinusCircle className="h-3 w-3 shrink-0 text-muted-foreground/30" />
+      return (
+        <MinusCircle className="h-3 w-3 shrink-0 text-muted-foreground/30" />
+      )
   }
 }
 
@@ -176,7 +180,10 @@ function DeploymentProgress({
         className="rounded-md border border-sky-500/25 bg-sky-500/5 p-2.5"
       >
         <div className="flex min-w-0 items-center gap-2">
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-500" aria-hidden="true" />
+          <Loader2
+            className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-500"
+            aria-hidden="true"
+          />
           <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
             {copy.title}
           </span>
@@ -199,7 +206,9 @@ function DeploymentProgress({
           aria-valuemin={1}
           aria-valuemax={PLAN_PHASES.length}
           aria-valuenow={currentIndex >= 0 ? currentIndex + 1 : undefined}
-          aria-valuetext={currentIndex >= 0 ? copy.title : "Current stage unavailable"}
+          aria-valuetext={
+            currentIndex >= 0 ? copy.title : "Current stage unavailable"
+          }
         >
           {PLAN_PHASES.map((item, index) => (
             <span
@@ -281,7 +290,10 @@ export function StagedPanel() {
         )
         if (generation === previewGeneration.current) setPreview(compiled)
       } catch (error) {
-        if (generation === previewGeneration.current && !(error instanceof DOMException && error.name === "AbortError")) {
+        if (
+          generation === previewGeneration.current &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
           setPreview(null)
         }
       } finally {
@@ -331,7 +343,11 @@ export function StagedPanel() {
       setPrepared(next)
       setReview(compiled)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to compile deployment.")
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to compile deployment.",
+      )
     } finally {
       setCompiling(false)
     }
@@ -346,11 +362,15 @@ export function StagedPanel() {
 
   const hasErrors = ops.some((op) => op.status === OP_STATUS.error)
   const doneCount = ops.filter((op) => op.status === OP_STATUS.done).length
-  const groups = new Map((preview?.groups ?? []).map((group) => [group.id, group]))
+  const groups = new Map(
+    (preview?.groups ?? []).map((group) => [group.id, group]),
+  )
 
   function subtitle(op: StagedOp, group?: CompiledExecutionGroup) {
     const destination = nodeName(op.targetNodeId)
-    return group?.sourceBase ? `${group.sourceBase} → ${destination}` : destination
+    return group?.sourceBase
+      ? `${group.sourceBase} → ${destination}`
+      : destination
   }
 
   return (
@@ -358,39 +378,51 @@ export function StagedPanel() {
       <div className="flex-1 overflow-y-auto">
         {ops.length === 0 ? (
           <p className="px-2 py-6 text-center text-[11px] text-muted-foreground">
-            Nothing staged yet. Configure a node or wire up a connection to queue an operation.
+            Nothing staged yet. Configure a node or wire up a connection to
+            queue an operation.
           </p>
         ) : (
           <ol className="flex flex-col">
             {ops.map((op, i) => {
               const Icon = KIND_ICON[op.kind]
               const group = groups.get(op.id) ?? op.executionGroup
-              const autoExpanded = op.status === OP_STATUS.running || op.status === OP_STATUS.error
+              const autoExpanded =
+                op.status === OP_STATUS.running || op.status === OP_STATUS.error
               const isExpanded = expanded[op.id] ?? autoExpanded
               return (
-                <li
-                  key={op.id}
-                  className="border-b text-xs last:border-b-0"
-                >
+                <li key={op.id} className="border-b text-xs last:border-b-0">
                   <div className="flex items-start gap-2 px-2 py-2">
                     <button
                       type="button"
                       className="mt-0.5 shrink-0 rounded-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       aria-expanded={isExpanded}
                       aria-label={`${isExpanded ? "Collapse" : "Expand"} ${group?.label ?? op.label}`}
-                      onClick={() => setExpanded((current) => ({ ...current, [op.id]: !isExpanded }))}
+                      onClick={() =>
+                        setExpanded((current) => ({
+                          ...current,
+                          [op.id]: !isExpanded,
+                        }))
+                      }
                     >
-                      <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                      <ChevronRight
+                        className={`h-3 w-3 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                      />
                     </button>
                     <span className="w-4 shrink-0 text-right text-[10px] text-muted-foreground">
                       {op.synthesized ? "·" : i + 1}
                     </span>
                     <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
-                      <span className={`block font-medium leading-snug ${op.synthesized ? "text-muted-foreground" : ""}`}>{group?.label ?? op.label}</span>
+                      <span
+                        className={`block font-medium leading-snug ${op.synthesized ? "text-muted-foreground" : ""}`}
+                      >
+                        {group?.label ?? op.label}
+                      </span>
                       <span className="block break-words text-[10px] leading-snug text-muted-foreground">
                         {subtitle(op, group)}
-                        {op.status === OP_STATUS.running && op.phase ? ` — ${op.phase}` : null}
+                        {op.status === OP_STATUS.running && op.phase
+                          ? ` — ${op.phase}`
+                          : null}
                       </span>
                       {/* Failure/skip reasons render inline — the glyph popover
                           stays, but the explanation must not hide behind a click. */}
@@ -401,7 +433,8 @@ export function StagedPanel() {
                       )}
                       {op.status === OP_STATUS.cancelled && (
                         <span className="block break-words text-[10px] leading-snug text-muted-foreground/70">
-                          {op.detail ?? "Skipped: a dependency failed or was cancelled."}
+                          {op.detail ??
+                            "Skipped: a dependency failed or was cancelled."}
                         </span>
                       )}
                     </span>
@@ -419,28 +452,50 @@ export function StagedPanel() {
                     )}
                   </div>
                   {isExpanded && (
-                    <ol className="border-t bg-muted/20 py-1 pl-9 pr-2" aria-label={`${group?.label ?? op.label} steps`}>
-                      {group?.steps.length ? group.steps.map((step) => {
-                        const runtime = op.executionSteps?.[step.id]
-                        const status = runtime?.status ?? (op.status === OP_STATUS.done ? OP_STATUS.done : OP_STATUS.pending)
-                        return (
-                          <li key={step.id} className="flex items-start gap-2 border-l py-1.5 pl-3 text-[10px]">
-                            <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${status === OP_STATUS.done ? "bg-emerald-500" : status === OP_STATUS.running ? "bg-sky-500" : status === OP_STATUS.error ? "bg-red-500" : "bg-muted-foreground/30"}`} />
-                            <span className="min-w-0 flex-1">
-                              <span className="block break-words font-medium leading-snug">{step.label}</span>
-                              <span className="block break-words leading-snug text-muted-foreground">
-                                {nodeName(step.targetNodeId)} · {step.command ?? step.kind}
-                                {runtime?.phase ? ` — ${runtime.phase}` : ""}
+                    <ol
+                      className="border-t bg-muted/20 py-1 pl-9 pr-2"
+                      aria-label={`${group?.label ?? op.label} steps`}
+                    >
+                      {group?.steps.length ? (
+                        group.steps.map((step) => {
+                          const runtime = op.executionSteps?.[step.id]
+                          const status =
+                            runtime?.status ??
+                            (op.status === OP_STATUS.done
+                              ? OP_STATUS.done
+                              : OP_STATUS.pending)
+                          return (
+                            <li
+                              key={step.id}
+                              className="flex items-start gap-2 border-l py-1.5 pl-3 text-[10px]"
+                            >
+                              <span
+                                className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${status === OP_STATUS.done ? "bg-emerald-500" : status === OP_STATUS.running ? "bg-sky-500" : status === OP_STATUS.error ? "bg-red-500" : "bg-muted-foreground/30"}`}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block break-words font-medium leading-snug">
+                                  {step.label}
+                                </span>
+                                <span className="block break-words leading-snug text-muted-foreground">
+                                  {nodeName(step.targetNodeId)} ·{" "}
+                                  {step.command ?? step.kind}
+                                  {runtime?.phase ? ` — ${runtime.phase}` : ""}
+                                </span>
                               </span>
-                            </span>
-                            {runtime?.percent != null && status === OP_STATUS.running && (
-                              <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(runtime.percent)}%</span>
-                            )}
-                          </li>
-                        )
-                      }) : (
+                              {runtime?.percent != null &&
+                                status === OP_STATUS.running && (
+                                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                                    {Math.round(runtime.percent)}%
+                                  </span>
+                                )}
+                            </li>
+                          )
+                        })
+                      ) : (
                         <li className="border-l py-2 pl-3 text-[10px] text-muted-foreground">
-                          {previewing ? "Expanding backend steps…" : "Complete the required relationships to preview backend steps."}
+                          {previewing
+                            ? "Expanding backend steps…"
+                            : "Complete the required relationships to preview backend steps."}
                         </li>
                       )}
                     </ol>

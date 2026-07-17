@@ -1,0 +1,116 @@
+/**
+ * The theme contract for the admin app.
+ *
+ * Every color, spacing, radius, and font value the admin UI uses must resolve
+ * from a variable defined here — never a literal hex, `rgb()`, literal
+ * Tailwind palette class (`text-red-500`), or raw `rounded-[Npx]`/numeric
+ * padding in component code. Swapping a theme later means editing this file
+ * only.
+ *
+ * The neutral/base set below is a straight port of frontend/src/index.css
+ * (same OKLCH values, same names) so the two apps read as one system. Three
+ * layers are added on top of what the operator app has today, because that
+ * app leaves them as scattered literals (see the admin planning notes):
+ *
+ *   - Semantic status colors (--success/--warning/--info; error reuses
+ *     --destructive) for badges, banners, and preflight checklists.
+ *   - A semantic spacing scale (the --pad- and --gap- token families) so
+ *     every padding/gap in the admin app is a variable, not a bare Tailwind
+ *     number.
+ *   - The same single-scalar --radius, carried over unchanged.
+ */
+
+:root {
+  /* --- Base palette (OKLCH) — mirrors frontend/src/index.css ------------ */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* --- Semantic status colors (new — admin-only today) ------------------ */
+  --success: oklch(0.6 0.14 152);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.77 0.16 75);
+  --warning-foreground: oklch(0.205 0 0);
+  --info: oklch(0.6 0.13 245);
+  --info-foreground: oklch(0.985 0 0);
+
+  /* --- Radius: one scalar, everything else derives from it --------------- */
+  --radius: 0.625rem;
+
+  /* --- Fonts --------------------------------------------------------------
+     Named --font-family-* (not --font-sans*) so the @theme inline bridge in
+     index.css can map it to Tailwind's --font-sans theme key without a
+     self-referential var(). */
+  --font-family-sans: "Geist Variable", sans-serif;
+
+  /* --- Semantic spacing scale (new — admin-only today) -------------------
+     Base unit plus named steps so every component reaches for a role
+     ("the padding inside a card") instead of a bare number. */
+  --space: 0.25rem;
+  --pad-page: calc(var(--space) * 6); /* 1.5rem */
+  --pad-section: calc(var(--space) * 5); /* 1.25rem */
+  --pad-card: calc(var(--space) * 4); /* 1rem */
+  --pad-control: calc(var(--space) * 2.5); /* 0.625rem */
+  --gap-stack: calc(var(--space) * 4); /* 1rem */
+  --gap-row: calc(var(--space) * 3); /* 0.75rem */
+  --gap-inline: calc(var(--space) * 2); /* 0.5rem */
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+
+  --success: oklch(0.7 0.15 152);
+  --success-foreground: oklch(0.145 0 0);
+  --warning: oklch(0.8 0.16 80);
+  --warning-foreground: oklch(0.145 0 0);
+  --info: oklch(0.7 0.13 245);
+  --info-foreground: oklch(0.145 0 0);
+}

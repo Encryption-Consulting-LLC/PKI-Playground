@@ -34,7 +34,9 @@ function storeSession(s: SessionResponse) {
 }
 
 const showError = (err: unknown) =>
-  toast.error(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
+  toast.error(
+    err instanceof ApiError ? `${err.status}: ${err.message}` : String(err),
+  )
 
 /** Login screen — POST /auth/login with an admin-provisioned account, or the
  *  OIDC SSO flow (redirect out via GET /auth/oidc/login; on return, the
@@ -93,7 +95,9 @@ export function LoginForm() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>EC-PKI-Playground</CardTitle>
-          <CardDescription>Sign in with your account to continue.</CardDescription>
+          <CardDescription>
+            Sign in with your account to continue.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form
@@ -127,7 +131,11 @@ export function LoginForm() {
               />
             </div>
 
-            <Button type="submit" className="mt-2 w-full" disabled={loginMutation.isPending}>
+            <Button
+              type="submit"
+              className="mt-2 w-full"
+              disabled={loginMutation.isPending}
+            >
               {loginMutation.isPending ? "Signing in…" : "Sign in"}
             </Button>
 

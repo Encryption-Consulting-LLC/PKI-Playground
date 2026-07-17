@@ -29,11 +29,16 @@ const HEALTH_COLOR: Record<ConnectionHealth, string> = {
 }
 
 /** A domain boundary that exposes forest state, member gravity, and service reach. */
-export function DomainRegions({ preview }: { preview?: DomainDragPreview | null }) {
+export function DomainRegions({
+  preview,
+}: {
+  preview?: DomainDragPreview | null
+}) {
   const nodes = useTopologyStore((state) => state.nodes)
   const edges = useTopologyStore((state) => state.edges)
   const domains = nodes.filter(
-    (node) => node.data.typeId === "domainController" && isConnectable(node.data),
+    (node) =>
+      node.data.typeId === "domainController" && isConnectable(node.data),
   )
 
   if (domains.length === 0) return null
@@ -79,7 +84,8 @@ export function DomainRegions({ preview }: { preview?: DomainDragPreview | null 
           const members = edges
             .filter(
               (edge) =>
-                edge.target === dc.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+                edge.target === dc.id &&
+                edge.data?.edgeType === EDGE_TYPE.domainJoin,
             )
             .map((edge) => nodes.find((node) => node.id === edge.source))
             .filter((node) => !!node)
@@ -130,7 +136,10 @@ export function DomainRegions({ preview }: { preview?: DomainDragPreview | null 
                 className="absolute left-1/2 top-0 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-full border bg-background/95 px-2.5 py-1 text-[10px] font-semibold shadow-sm"
                 style={{ color: rimColor, borderColor: `${rimColor}70` }}
               >
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: rimColor }} />
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ background: rimColor }}
+                />
                 {activePreview
                   ? activePreview.allowed
                     ? `Join ${domainLabel(dc)}?`
@@ -145,22 +154,29 @@ export function DomainRegions({ preview }: { preview?: DomainDragPreview | null 
                 >
                   {activePreview.allowed ? (
                     <>
-                      <p className="mb-1 font-semibold text-foreground">Domain join preview</p>
+                      <p className="mb-1 font-semibold text-foreground">
+                        Domain join preview
+                      </p>
                       <ol className="space-y-0.5 font-mono">
                         {activePreview.operations.map((operation, index) => (
-                          <li key={operation}>{index + 1}. {operation}</li>
+                          <li key={operation}>
+                            {index + 1}. {operation}
+                          </li>
                         ))}
                       </ol>
                     </>
                   ) : (
-                    <p className="font-medium leading-snug">{activePreview.reason}</p>
+                    <p className="font-medium leading-snug">
+                      {activePreview.reason}
+                    </p>
                   )}
                 </div>
               )}
 
               <div className="absolute bottom-0 left-1/2 flex -translate-x-1/2 translate-y-1/2 items-center gap-1.5 whitespace-nowrap">
                 <span className="rounded-full border bg-background/95 px-2 py-1 text-[9px] font-medium text-foreground shadow-sm">
-                  {summary.memberCount} {summary.memberCount === 1 ? "member" : "members"}
+                  {summary.memberCount}{" "}
+                  {summary.memberCount === 1 ? "member" : "members"}
                 </span>
                 <span
                   className="rounded-full border bg-background/95 px-2 py-1 text-[9px] font-medium shadow-sm"

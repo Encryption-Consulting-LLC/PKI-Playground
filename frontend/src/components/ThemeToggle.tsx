@@ -4,7 +4,11 @@ import { Check, Monitor, Moon, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useThemeStore, type ThemePreference } from "@/store/theme"
 
-const OPTIONS: { value: ThemePreference; icon: React.ElementType; label: string }[] = [
+const OPTIONS: {
+  value: ThemePreference
+  icon: React.ElementType
+  label: string
+}[] = [
   { value: "system", icon: Monitor, label: "System" },
   { value: "light", icon: Sun, label: "Light" },
   { value: "dark", icon: Moon, label: "Dark" },
@@ -26,15 +30,28 @@ export function ThemeToggle() {
     <Menu.Root>
       <Menu.Trigger
         render={
-          <Button variant="ghost" size="icon-sm" aria-label="Theme" title="Theme">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Theme"
+            title="Theme"
+          >
             <Active className="h-4 w-4" />
           </Button>
         }
       />
       <Menu.Portal>
-        <Menu.Positioner side="bottom" align="end" sideOffset={6} className="isolate z-50">
+        <Menu.Positioner
+          side="bottom"
+          align="end"
+          sideOffset={6}
+          className="isolate z-50"
+        >
           <Menu.Popup className="min-w-36 origin-(--transform-origin) rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
-            <Menu.RadioGroup value={theme} onValueChange={(v) => setTheme(v as ThemePreference)}>
+            <Menu.RadioGroup
+              value={theme}
+              onValueChange={(v) => setTheme(v as ThemePreference)}
+            >
               {OPTIONS.map(({ value, icon: Icon, label }) => (
                 <Menu.RadioItem
                   key={value}

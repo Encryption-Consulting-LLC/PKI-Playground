@@ -25,7 +25,10 @@ export function TopologyGuidance() {
 
   const errors = diagnostics.filter((item) => item.severity === "error").length
   return (
-    <details open className="w-80 rounded-lg border bg-background/95 text-[10px] shadow-sm">
+    <details
+      open
+      className="w-80 rounded-lg border bg-background/95 text-[10px] shadow-sm"
+    >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-semibold">
         {errors > 0 ? (
           <CircleAlert className="h-3.5 w-3.5 text-red-500" />

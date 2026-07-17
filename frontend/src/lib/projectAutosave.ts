@@ -26,9 +26,13 @@ export function withSuppressedAutosave(fn: () => void) {
   }
 }
 
-function domainJoinEdgeIds(edges: ReturnType<typeof useTopologyStore.getState>["edges"]) {
+function domainJoinEdgeIds(
+  edges: ReturnType<typeof useTopologyStore.getState>["edges"],
+) {
   return new Set(
-    edges.filter((e) => e.data?.edgeType === EDGE_TYPE.domainJoin).map((e) => e.id),
+    edges
+      .filter((e) => e.data?.edgeType === EDGE_TYPE.domainJoin)
+      .map((e) => e.id),
   )
 }
 
@@ -39,9 +43,11 @@ function edgeHealthChanged(
   const previousById = new Map(previous.map((edge) => [edge.id, edge.data]))
   return edges.some((edge) => {
     const old = previousById.get(edge.id)
-    return old?.health !== edge.data?.health ||
+    return (
+      old?.health !== edge.data?.health ||
       JSON.stringify(old?.serviceHealth ?? {}) !==
         JSON.stringify(edge.data?.serviceHealth ?? {})
+    )
   })
 }
 
@@ -60,7 +66,11 @@ export function initProjectAutosave() {
       useProjectsStore.getState().persistActiveViewport()
     }
 
-    if (state.nodes === prev.nodes && state.edges === prev.edges && state.counters === prev.counters) {
+    if (
+      state.nodes === prev.nodes &&
+      state.edges === prev.edges &&
+      state.counters === prev.counters
+    ) {
       return
     }
 

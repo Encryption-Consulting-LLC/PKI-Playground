@@ -154,8 +154,7 @@ class SequenceEngine:
         for artifact_key in step.consumes:
             if artifact_key not in ctx.artifacts:
                 raise SequenceError(
-                    f"step '{step.id}' requires unavailable artifact "
-                    f"'{artifact_key}'"
+                    f"step '{step.id}' requires unavailable artifact '{artifact_key}'"
                 )
 
         params = step.resolve_params(ctx)
@@ -189,9 +188,7 @@ class SequenceEngine:
                 ctx.artifacts[artifact_key] = value
 
         if step.expects_disconnect:
-            self._wait_for_reconnect(
-                node.agent_vm_id, dispatched_at, step.timeout_s
-            )
+            self._wait_for_reconnect(node.agent_vm_id, dispatched_at, step.timeout_s)
 
         if step.verify is not None:
             self._run_verify(step, node.agent_vm_id, ctx)
@@ -285,9 +282,7 @@ def deterministic_step_job_id(plan_job_id: str, op_id: str, step_id: str) -> str
     return f"{plan_job_id}-{op_id}-{step_id}"
 
 
-def redact_params(
-    params: dict[str, Any], secret_keys: Iterable[str]
-) -> dict[str, Any]:
+def redact_params(params: dict[str, Any], secret_keys: Iterable[str]) -> dict[str, Any]:
     """A copy of *params* with every secret key masked — for logging."""
     secret = set(secret_keys)
     return {k: ("***" if k in secret else v) for k, v in params.items()}

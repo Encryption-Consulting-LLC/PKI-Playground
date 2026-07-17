@@ -11,7 +11,9 @@ export function ProgressBar({ pct }: { pct: number }) {
     <div className="flex w-full min-w-0 items-center gap-2 overflow-hidden">
       <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
         <div
-          className={cn("h-full rounded-full bg-primary transition-[width] duration-200")}
+          className={cn(
+            "h-full rounded-full bg-primary transition-[width] duration-200",
+          )}
           style={{ width: `${clamped}%` }}
         />
       </div>

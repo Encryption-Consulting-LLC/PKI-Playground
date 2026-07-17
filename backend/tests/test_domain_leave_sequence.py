@@ -14,24 +14,37 @@ from app.tasks import _REAL_SEQUENCE_KINDS  # noqa: E402
 
 def _ctx():
     member = NodeContext(
-        node_id="srv1", vm_name="SRV1", hostname="srv1", agent_vm_id="member",
-        ip="192.168.1.20", template_id="webServer",
+        node_id="srv1",
+        vm_name="SRV1",
+        hostname="srv1",
+        agent_vm_id="member",
+        ip="192.168.1.20",
+        template_id="webServer",
     )
     dc = NodeContext(
-        node_id="dc01", vm_name="DC01", hostname="dc01", agent_vm_id="dc",
-        ip="192.168.1.10", template_id="domainController",
+        node_id="dc01",
+        vm_name="DC01",
+        hostname="dc01",
+        agent_vm_id="dc",
+        ip="192.168.1.10",
+        template_id="domainController",
         template_config={
-            "domainName": "encon.pki", "netbiosName": "ENCON",
+            "domainName": "encon.pki",
+            "netbiosName": "ENCON",
             "domainAdminPassword": "Str0ng-Lab-Pass!",
         },
     )
     return RunContext(
-        nodes={"primary": member, "dc": dc}, domain_name="encon.pki",
+        nodes={"primary": member, "dc": dc},
+        domain_name="encon.pki",
         netbios="ENCON",
         dns_records=(
             DnsRecordContext(
-                id="dns:a:dc01:srv1", kind="A", server="dc01",
-                subject="srv1", zone="encon.pki",
+                id="dns:a:dc01:srv1",
+                kind="A",
+                server="dc01",
+                subject="srv1",
+                zone="encon.pki",
             ),
         ),
     )
@@ -40,7 +53,10 @@ def _ctx():
 def test_domain_leave_runs_as_a_real_sequence():
     assert "domainLeave" in _REAL_SEQUENCE_KINDS
     assert [step.command for step in op_sequence("domainLeave", _ctx())] == [
-        "domain.leave", "system.reboot", "dns.remove_resources", "dns.verify_absent"
+        "domain.leave",
+        "system.reboot",
+        "dns.remove_resources",
+        "dns.verify_absent",
     ]
 
 

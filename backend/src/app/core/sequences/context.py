@@ -45,9 +45,7 @@ class ContextError(Exception):
 def _resolve_node(db, node_id: str) -> NodeContext:
     """Build a :class:`NodeContext` for ``node_id`` from its live registry doc
     (keyed on ``appName``). Raises :class:`ContextError` if it's absent."""
-    doc = db["vm_registry"].find_one(
-        {"appName": node_id, "status": {"$ne": "deleted"}}
-    )
+    doc = db["vm_registry"].find_one({"appName": node_id, "status": {"$ne": "deleted"}})
     if doc is None:
         raise ContextError(f"no live VM registered for node '{node_id}'")
 
@@ -78,9 +76,7 @@ def _namespace_prefix(vm_name: str) -> str | None:
     return None
 
 
-def _find_by_template(
-    db, sibling_vm_name: str, template_id: str
-) -> NodeContext | None:
+def _find_by_template(db, sibling_vm_name: str, template_id: str) -> NodeContext | None:
     """The node of ``template_id`` sharing ``sibling_vm_name``'s guest namespace,
     if one is registered — how ops locate the forest's DC / web host / root CA
     without the plan naming every node explicitly."""
@@ -194,7 +190,10 @@ def build_run_context(db, op, all_ops, topology=None) -> RunContext:
 
     # The issuing CA: the op's secondary when a web/client wires to it directly,
     # else found by namespace (for the DNS CNAME / client-enrollment gate).
-    if secondary_ctx is not None and secondary_ctx.template_config.get("caType") == "Issuing":
+    if (
+        secondary_ctx is not None
+        and secondary_ctx.template_config.get("caType") == "Issuing"
+    ):
         nodes[CA] = secondary_ctx
     else:
         ca_ctx = _find_issuing_ca(db, nodes[PRIMARY].vm_name)
@@ -244,7 +243,8 @@ def build_teardown_context(db, topology, primary_id: str) -> RunContext:
         netbios=dc.template_config.get("netbiosName") if dc else None,
         pki_host=(
             f"pki.{dc.template_config.get('domainName')}"
-            if dc and dc.template_config.get("domainName") else None
+            if dc and dc.template_config.get("domainName")
+            else None
         ),
         dns_records=dns_records_for_context(topology),
     )

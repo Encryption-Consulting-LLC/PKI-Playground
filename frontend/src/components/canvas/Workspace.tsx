@@ -37,7 +37,12 @@ export function Workspace() {
   // doesn't fight normal text-input undo.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key.toLowerCase() !== "z" || !(e.ctrlKey || e.metaKey) || e.shiftKey) return
+      if (
+        e.key.toLowerCase() !== "z" ||
+        !(e.ctrlKey || e.metaKey) ||
+        e.shiftKey
+      )
+        return
       const target = e.target as HTMLElement | null
       if (
         target &&

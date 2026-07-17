@@ -65,8 +65,7 @@ def aggregate_lab_health(
         "mlDsa": check(
             "mlDsa",
             _nested(cert, "ml_dsa", "ok") is True
-            and _nested(cert, "ml_dsa", "expected_oid")
-            == ML_DSA_87_SIGNATURE_OID,
+            and _nested(cert, "ml_dsa", "expected_oid") == ML_DSA_87_SIGNATURE_OID,
             "the probe chain does not use ML-DSA-87 signatures throughout",
             cert.get("ml_dsa"),
         ),

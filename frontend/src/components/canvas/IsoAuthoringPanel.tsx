@@ -21,7 +21,11 @@ import { Button } from "@/components/ui/button"
 import { GenerateScriptDialog } from "./GenerateScriptDialog"
 import { ScriptEditorDialog } from "./ScriptEditorDialog"
 
-const EMPTY_ISO: IsoAuthoring = { enabled: false, mode: ISO_MODES.pack, files: [] }
+const EMPTY_ISO: IsoAuthoring = {
+  enabled: false,
+  mode: ISO_MODES.pack,
+  files: [],
+}
 
 function totalBytes(files: IsoFileEntry[]): number {
   const enc = new TextEncoder()
@@ -70,7 +74,9 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
   const templateId = node.data.typeId
   const iso = node.data.isoAuthoring ?? EMPTY_ISO
   const files = [...iso.files].sort((a, b) => a.name.localeCompare(b.name))
-  const editingFile = editing ? (files.find((f) => f.name === editing) ?? null) : null
+  const editingFile = editing
+    ? (files.find((f) => f.name === editing) ?? null)
+    : null
 
   function patch(next: Partial<IsoAuthoring>) {
     setIsoAuthoring(nodeId, next)
@@ -90,9 +96,14 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
       try {
         const { scripts } = await getTemplateScripts(node!.data.typeId)
         // Re-read: the toggle may have been flipped again while fetching.
-        const current = useTopologyStore.getState().nodes.find((n) => n.id === nodeId)
-          ?.data.isoAuthoring
-        if (current?.enabled && current.files.length === 0 && scripts.length > 0) {
+        const current = useTopologyStore
+          .getState()
+          .nodes.find((n) => n.id === nodeId)?.data.isoAuthoring
+        if (
+          current?.enabled &&
+          current.files.length === 0 &&
+          scripts.length > 0
+        ) {
           setIsoAuthoring(nodeId, { files: scripts })
         }
       } catch {
@@ -101,9 +112,15 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
     }
   }
 
-  function validateAdd(name: string, content: string, replacing?: string): boolean {
+  function validateAdd(
+    name: string,
+    content: string,
+    replacing?: string,
+  ): boolean {
     if (!ISO_FILE_NAME_RE.test(name)) {
-      toast.error("Filename must be letters/digits/._- with a .ps1 or .sh extension.")
+      toast.error(
+        "Filename must be letters/digits/._- with a .ps1 or .sh extension.",
+      )
       return false
     }
     if (name !== replacing && iso.files.some((f) => f.name === name)) {
@@ -137,7 +154,10 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
 
   function newFile() {
     const extension = templatePlatform(templateId) === "linux" ? ".sh" : ".ps1"
-    const name = freshName(iso.files.map((f) => f.name), extension)
+    const name = freshName(
+      iso.files.map((f) => f.name),
+      extension,
+    )
     if (!validateAdd(name, "")) return
     patch({ files: [...iso.files, { name, content: "" }] })
     setEditing(name)
@@ -203,7 +223,9 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
           deploying && "pointer-events-none opacity-50",
         )}
       >
-        <Disc3 className={cn("h-3.5 w-3.5 shrink-0", iso.enabled && "text-primary")} />
+        <Disc3
+          className={cn("h-3.5 w-3.5 shrink-0", iso.enabled && "text-primary")}
+        />
         <span className="flex-1">Include ISO</span>
         <span
           className={cn(
@@ -357,7 +379,8 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
                   </>
                 ) : (
                   <>
-                    <Upload className="h-3 w-3" /> {iso.isoId ? "Replace ISO" : "Upload .iso"}
+                    <Upload className="h-3 w-3" />{" "}
+                    {iso.isoId ? "Replace ISO" : "Upload .iso"}
                   </>
                 )}
               </Button>
@@ -381,7 +404,9 @@ export function IsoAuthoringPanel({ nodeId }: { nodeId: string }) {
         file={editingFile}
         siblings={files.filter((f) => f.name !== editing).map((f) => f.name)}
         onSave={(previousName, next) => upsertFile(previousName, next)}
-        onDelete={(name) => patch({ files: iso.files.filter((f) => f.name !== name) })}
+        onDelete={(name) =>
+          patch({ files: iso.files.filter((f) => f.name !== name) })
+        }
         onClose={() => setEditing(null)}
       />
       <GenerateScriptDialog

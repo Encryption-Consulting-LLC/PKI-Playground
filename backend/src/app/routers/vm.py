@@ -144,7 +144,9 @@ async def clone(
     even handed to Celery) so a client watching the WebSocket sees it wait if the
     worker pool is busy, then transition to ``running`` once picked up.
     """
-    from app.tasks import clone_vm_task  # local import: avoids loading Celery for every route
+    from app.tasks import (
+        clone_vm_task,
+    )  # local import: avoids loading Celery for every route
 
     if await load_target() is None:
         raise HTTPException(
@@ -165,7 +167,9 @@ async def clone(
 )
 def disk_check(req: DiskCheckRequest, conn: Connection = Depends(get_esxi)) -> dict:
     """Report datastore space usage; 409 if cloning the base would exceed the limit."""
-    usage = validate_disk_usage(conn.content, req.datastore, req.base, req.max_usage_pct)
+    usage = validate_disk_usage(
+        conn.content, req.datastore, req.base, req.max_usage_pct
+    )
     return asdict(usage)
 
 
@@ -221,7 +225,9 @@ async def delete_vm(
     still converges to success in the worker (registry marked deleted, IP
     reclaimed) so a half-failed clone is cleanable through the same call.
     """
-    from app.tasks import destroy_vm_task  # local import: avoids loading Celery for every route
+    from app.tasks import (
+        destroy_vm_task,
+    )  # local import: avoids loading Celery for every route
 
     if await load_target() is None:
         raise HTTPException(

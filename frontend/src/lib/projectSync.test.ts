@@ -72,18 +72,23 @@ describe("local project session initialization", () => {
       activeProjectId: "operator-project",
       nextProjectNumber: 2,
     })
-    storage.set(STORAGE_KEYS.projects, JSON.stringify({
-      state: {
-        projects: [project("guest-project", "Guest project")],
-        activeProjectId: "guest-project",
-        nextProjectNumber: 7,
-      },
-      version: 1,
-    }))
+    storage.set(
+      STORAGE_KEYS.projects,
+      JSON.stringify({
+        state: {
+          projects: [project("guest-project", "Guest project")],
+          activeProjectId: "guest-project",
+          nextProjectNumber: 7,
+        },
+        version: 1,
+      }),
+    )
 
     await initLocalProjects()
 
-    expect(useProjectsStore.getState().projects.map((p) => p.id)).toEqual(["guest-project"])
+    expect(useProjectsStore.getState().projects.map((p) => p.id)).toEqual([
+      "guest-project",
+    ])
     expect(useProjectsStore.getState().activeProjectId).toBe("guest-project")
     expect(useProjectsStore.getState().nextProjectNumber).toBe(7)
   })
@@ -91,41 +96,52 @@ describe("local project session initialization", () => {
   it("does not retry a permanent project-write 403", async () => {
     vi.useFakeTimers()
     const serverProject = project("server-project", "Server project")
-    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input)
-      if (init?.method === "PUT") {
-        return new Response(JSON.stringify({ detail: "Missing project:write." }), {
-          status: 403,
-          headers: { "content-type": "application/json" },
-        })
-      }
-      if (url.endsWith("/api/projects")) {
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input)
+        if (init?.method === "PUT") {
+          return new Response(
+            JSON.stringify({ detail: "Missing project:write." }),
+            {
+              status: 403,
+              headers: { "content-type": "application/json" },
+            },
+          )
+        }
+        if (url.endsWith("/api/projects")) {
+          return Response.json({
+            projects: [
+              {
+                id: serverProject.id,
+                name: serverProject.name,
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            ],
+            count: 1,
+          })
+        }
         return Response.json({
-          projects: [{
-            id: serverProject.id,
-            name: serverProject.name,
-            createdAt: 1,
-            updatedAt: 1,
-          }],
-          count: 1,
+          ...serverProject,
+          createdAt: 1,
+          updatedAt: 1,
         })
-      }
-      return Response.json({
-        ...serverProject,
-        createdAt: 1,
-        updatedAt: 1,
-      })
-    })
+      },
+    )
     vi.stubGlobal("fetch", fetchMock)
 
     await initServerProjects()
     useProjectsStore.getState().renameProject(serverProject.id, "First edit")
     await vi.advanceTimersByTimeAsync(1_500)
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1)
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT"),
+    ).toHaveLength(1)
 
     useProjectsStore.getState().renameProject(serverProject.id, "Second edit")
     await vi.advanceTimersByTimeAsync(10_000)
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1)
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT"),
+    ).toHaveLength(1)
 
     stopServerProjects()
     vi.useRealTimers()

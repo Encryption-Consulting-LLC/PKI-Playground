@@ -48,8 +48,9 @@ export function StagedRemoveDialog({
               Tear down this VM?
             </AlertDialog.Title>
             <AlertDialog.Description className="mt-2 text-xs text-muted-foreground">
-              The virtual machine is destroyed and its IP address returned to the
-              pool; the node is removed from the canvas. This cannot be undone.
+              The virtual machine is destroyed and its IP address returned to
+              the pool; the node is removed from the canvas. This cannot be
+              undone.
               {count > 0 && " Tearing it down also undoes:"}
             </AlertDialog.Description>
             {count > 0 && (
@@ -106,7 +107,8 @@ export function StagedRemoveDialog({
           )}
           {count > 0 && hostNote && (
             <p className="mt-2 text-xs text-muted-foreground">
-              The VM is not removed from the host — this only removes the node from the canvas.
+              The VM is not removed from the host — this only removes the node
+              from the canvas.
             </p>
           )}
           <div className="mt-5 flex justify-end gap-2">
@@ -114,7 +116,9 @@ export function StagedRemoveDialog({
               Cancel
             </Button>
             <Button variant="destructive" size="sm" onClick={onConfirm}>
-              {count === 0 ? "Delete node" : `Remove ${count === 1 ? "operation" : `${count} operations`}`}
+              {count === 0
+                ? "Delete node"
+                : `Remove ${count === 1 ? "operation" : `${count} operations`}`}
             </Button>
           </div>
         </AlertDialog.Popup>

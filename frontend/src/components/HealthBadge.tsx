@@ -19,11 +19,20 @@ export function HealthBadge() {
   })
 
   if (isLoading)
-    return <Badge variant="secondary">{isOperator ? "API: checking…" : "Checking…"}</Badge>
+    return (
+      <Badge variant="secondary">
+        {isOperator ? "API: checking…" : "Checking…"}
+      </Badge>
+    )
   if (isError || data?.status !== "ok")
-    return <Badge variant="destructive">{isOperator ? "API: unreachable" : "Offline"}</Badge>
+    return (
+      <Badge variant="destructive">
+        {isOperator ? "API: unreachable" : "Offline"}
+      </Badge>
+    )
 
-  if (!isOperator) return <Badge className="bg-emerald-600 text-white">Online</Badge>
+  if (!isOperator)
+    return <Badge className="bg-emerald-600 text-white">Online</Badge>
 
   const libs = Object.keys(data.libraries).join(", ")
   return (

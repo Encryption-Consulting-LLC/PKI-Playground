@@ -40,7 +40,9 @@ async def send_json_or_disconnect(websocket: WebSocket, payload: dict) -> None:
 
 
 @router.websocket("/jobs/{job_id}")
-async def job_progress(websocket: WebSocket, job_id: str, token: str | None = None) -> None:
+async def job_progress(
+    websocket: WebSocket, job_id: str, token: str | None = None
+) -> None:
     if await resolve_user_token(token) is None:
         await websocket.close(code=4401)
         return

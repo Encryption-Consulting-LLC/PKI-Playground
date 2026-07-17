@@ -58,7 +58,8 @@ export const URLS = {
   },
   orchestrator: {
     register: "/orchestrator/register",
-    command: (vmId: string) => `/orchestrator/${encodeURIComponent(vmId)}/command`,
+    command: (vmId: string) =>
+      `/orchestrator/${encodeURIComponent(vmId)}/command`,
     agents: "/orchestrator/agents",
   },
   // WebSocket paths (relative to API_BASE, like the entries above). The ws

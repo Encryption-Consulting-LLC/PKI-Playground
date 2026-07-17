@@ -55,7 +55,9 @@ def cancel_mode(job_id: str) -> str | None:
     return _client.get(cancel_key(job_id))
 
 
-def publish(job_id: str, msg: Message, *, status: JobStatus, terminal: bool = False) -> None:
+def publish(
+    job_id: str, msg: Message, *, status: JobStatus, terminal: bool = False
+) -> None:
     """Write the snapshot and fan the message out to live subscribers.
 
     Snapshot-then-publish (not the reverse) so a subscriber that reads the snapshot
@@ -83,7 +85,9 @@ def make_publisher(job_id: str):
     return _publish
 
 
-async def read_snapshot(redis_client: "redis_asyncio.Redis", job_id: str) -> dict | None:
+async def read_snapshot(
+    redis_client: "redis_asyncio.Redis", job_id: str
+) -> dict | None:
     """Return ``{"status", "last"}`` for *job_id*, or None if it doesn't exist (yet/anymore)."""
     raw = await redis_client.get(snapshot_key(job_id))
     if raw is None:

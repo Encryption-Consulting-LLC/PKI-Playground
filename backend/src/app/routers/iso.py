@@ -167,7 +167,9 @@ def gc_orphan_isos(db) -> int:
     cutoff = datetime.now(UTC) - ISO_ORPHAN_TTL
     bucket = GridFSBucket(db, bucket_name=ISO_BUCKET)
     removed = 0
-    for doc in db[f"{ISO_BUCKET}.files"].find({"uploadDate": {"$lt": cutoff}}, {"_id": 1}):
+    for doc in db[f"{ISO_BUCKET}.files"].find(
+        {"uploadDate": {"$lt": cutoff}}, {"_id": 1}
+    ):
         try:
             bucket.delete(doc["_id"])
             removed += 1

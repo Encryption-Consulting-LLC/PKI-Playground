@@ -107,6 +107,7 @@ Bootstrap an operator, then start the API:
 
 ```sh
 uv run create-admin operator
+uv run create-admin admin --role admin
 uv run start
 ```
 

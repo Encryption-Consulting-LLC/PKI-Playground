@@ -7,7 +7,9 @@ import pytest
 from fastapi import HTTPException
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
-os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+os.environ.setdefault(
+    "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+)
 
 from app.core.authz import AuthedUser, Role
 from app.routers.deploy import DeployRequest, _compile_or_422, compile_deploy
@@ -28,20 +30,91 @@ def _request() -> DeployRequest:
         ],
         "edges": [
             {"id": "parent", "kind": "caParent", "source": "root", "target": "issuing"},
-            {"id": "issuing-domain", "kind": "domainMembership", "source": "issuing", "target": "dc"},
-            {"id": "web-domain", "kind": "domainMembership", "source": "web", "target": "dc"},
-            {"id": "publication", "kind": "caPublication", "source": "issuing", "target": "web"},
+            {
+                "id": "issuing-domain",
+                "kind": "domainMembership",
+                "source": "issuing",
+                "target": "dc",
+            },
+            {
+                "id": "web-domain",
+                "kind": "domainMembership",
+                "source": "web",
+                "target": "dc",
+            },
+            {
+                "id": "publication",
+                "kind": "caPublication",
+                "source": "issuing",
+                "target": "web",
+            },
         ],
     }
     ops = [
-        {"id": "publish", "kind": "webServerCert", "target": "issuing", "secondary": "web", "dependsOn": ["untrusted"]},
-        {"id": "connect", "kind": "caConnect", "target": "issuing", "secondary": "root", "dependsOn": ["untrusted"]},
-        {"id": "join-web", "kind": "domainJoin", "target": "web", "secondary": "dc", "dependsOn": ["untrusted"]},
-        {"id": "join-issuing", "kind": "domainJoin", "target": "issuing", "secondary": "dc", "dependsOn": ["untrusted"]},
-        {"id": "create-web", "kind": "createVm", "target": "web", "params": {"vmName": "SRV1", "template": "webServer"}, "dependsOn": ["untrusted"]},
-        {"id": "create-issuing", "kind": "createVm", "target": "issuing", "params": {"vmName": "CA02", "template": "certificateAuthority", "caType": "Issuing"}, "dependsOn": ["untrusted"]},
-        {"id": "create-root", "kind": "createVm", "target": "root", "params": {"vmName": "CA01", "template": "certificateAuthority", "caType": "Root"}, "dependsOn": ["untrusted"]},
-        {"id": "create-dc", "kind": "createVm", "target": "dc", "params": {"vmName": "DC01", "template": "domainController"}, "dependsOn": ["untrusted"]},
+        {
+            "id": "publish",
+            "kind": "webServerCert",
+            "target": "issuing",
+            "secondary": "web",
+            "dependsOn": ["untrusted"],
+        },
+        {
+            "id": "connect",
+            "kind": "caConnect",
+            "target": "issuing",
+            "secondary": "root",
+            "dependsOn": ["untrusted"],
+        },
+        {
+            "id": "join-web",
+            "kind": "domainJoin",
+            "target": "web",
+            "secondary": "dc",
+            "dependsOn": ["untrusted"],
+        },
+        {
+            "id": "join-issuing",
+            "kind": "domainJoin",
+            "target": "issuing",
+            "secondary": "dc",
+            "dependsOn": ["untrusted"],
+        },
+        {
+            "id": "create-web",
+            "kind": "createVm",
+            "target": "web",
+            "params": {"vmName": "SRV1", "template": "webServer"},
+            "dependsOn": ["untrusted"],
+        },
+        {
+            "id": "create-issuing",
+            "kind": "createVm",
+            "target": "issuing",
+            "params": {
+                "vmName": "CA02",
+                "template": "certificateAuthority",
+                "caType": "Issuing",
+            },
+            "dependsOn": ["untrusted"],
+        },
+        {
+            "id": "create-root",
+            "kind": "createVm",
+            "target": "root",
+            "params": {
+                "vmName": "CA01",
+                "template": "certificateAuthority",
+                "caType": "Root",
+            },
+            "dependsOn": ["untrusted"],
+        },
+        {
+            "id": "create-dc",
+            "kind": "createVm",
+            "target": "dc",
+            "params": {"vmName": "DC01", "template": "domainController"},
+            "dependsOn": ["untrusted"],
+        },
     ]
     return DeployRequest(topology=topology, ops=ops)
 
@@ -87,7 +160,8 @@ def test_dry_run_returns_compiled_operations_and_estimates():
     assert dc_provision["label"] == "Provision DC01 — AD DS forest"
     assert dc_provision["dependsOn"] == ["create-dc"]
     assert [step["id"] for step in dc_provision["steps"][:2]] == [
-        "agent-ready", "boot-settle"
+        "agent-ready",
+        "boot-settle",
     ]
     # The role-install tail moved wholesale onto the provision group.
     assert any(
@@ -96,9 +170,7 @@ def test_dry_run_returns_compiled_operations_and_estimates():
         if "command" in step
     )
     assert all(
-        "params" not in step
-        for group in response["groups"]
-        for step in group["steps"]
+        "params" not in step for group in response["groups"] for step in group["steps"]
     )
 
 
@@ -111,6 +183,8 @@ def test_compile_failure_returns_structured_diagnostics():
 
     assert caught.value.status_code == 422
     assert caught.value.detail["message"] == "Topology compilation failed."
-    assert {
-        item["code"] for item in caught.value.detail["diagnostics"]
-    } >= {"missing-ca-parent", "issuing-ca-outside-domain", "missing-publication-host"}
+    assert {item["code"] for item in caught.value.detail["diagnostics"]} >= {
+        "missing-ca-parent",
+        "issuing-ca-outside-domain",
+        "missing-publication-host",
+    }

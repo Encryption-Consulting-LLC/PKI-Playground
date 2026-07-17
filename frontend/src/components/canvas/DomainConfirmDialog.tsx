@@ -47,7 +47,9 @@ export function DomainConfirmDialog({
               </p>
               <ol className="space-y-1 font-mono text-[10px] text-foreground">
                 {operations.map((operation, index) => (
-                  <li key={operation}>{index + 1}. {operation}</li>
+                  <li key={operation}>
+                    {index + 1}. {operation}
+                  </li>
                 ))}
               </ol>
             </div>
@@ -93,9 +95,13 @@ function describe(changes: DomainSyncChange[]): {
   // Multiple nodes (e.g. a domain controller was moved).
   const parts: string[] = []
   if (joins.length)
-    parts.push(`${joins.length} ${joins.length === 1 ? "node joins" : "nodes join"}`)
+    parts.push(
+      `${joins.length} ${joins.length === 1 ? "node joins" : "nodes join"}`,
+    )
   if (leaves.length)
-    parts.push(`${leaves.length} ${leaves.length === 1 ? "node leaves" : "nodes leave"}`)
+    parts.push(
+      `${leaves.length} ${leaves.length === 1 ? "node leaves" : "nodes leave"}`,
+    )
 
   return {
     title: "Update domain membership?",

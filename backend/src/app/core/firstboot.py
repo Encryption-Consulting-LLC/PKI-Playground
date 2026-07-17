@@ -44,7 +44,13 @@ _AGENT_BINARY_NAME = "pki-orchestrator.exe"
 _AGENT_CONFIG_NAME = "orchestrator.toml"
 #: Static install step appended when an agent is bundled. Lives under
 #: ``_agent`` (leading underscore → not a template dir, never role-globbed).
-_AGENT_INSTALL_SCRIPT = Path(__file__).parent.parent / "assets" / "firstboot" / "_agent" / "40-install-orchestrator.ps1"
+_AGENT_INSTALL_SCRIPT = (
+    Path(__file__).parent.parent
+    / "assets"
+    / "firstboot"
+    / "_agent"
+    / "40-install-orchestrator.ps1"
+)
 
 
 @dataclass(frozen=True)
@@ -59,12 +65,17 @@ class AgentBundle:
     binary_path: Path
     config_toml: str
 
+
 #: Server-side allowlist for the ``template`` param on createVm plan ops —
 #: mirrors ``frontend/src/constants/templates.ts``. A template without role
 #: scripts (standalone) still gets hostname + network.
 TEMPLATE_IDS: frozenset[str] = frozenset(
     {
-        "domainController", "certificateAuthority", "webServer", "client", "standalone",
+        "domainController",
+        "certificateAuthority",
+        "webServer",
+        "client",
+        "standalone",
         *LINUX_PRODUCT_TEMPLATES,
     }
 )
@@ -145,10 +156,14 @@ def build_firstboot_iso(
 
     platform = platform_for_template(template)
     extension = "sh" if platform == "linux" else "ps1"
-    hostname = linux_hostname_for(vm_name) if platform == "linux" else hostname_for(vm_name)
+    hostname = (
+        linux_hostname_for(vm_name) if platform == "linux" else hostname_for(vm_name)
+    )
 
     if platform == "linux" and agent is not None:
-        raise ValueError("The Windows orchestrator agent cannot be bundled into a Linux template.")
+        raise ValueError(
+            "The Windows orchestrator agent cannot be bundled into a Linux template."
+        )
 
     hostname_script = dest_dir / f"10-hostname.{extension}"
     hostname_script.write_text(

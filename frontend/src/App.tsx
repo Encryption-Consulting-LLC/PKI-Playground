@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react"
+import { ShieldAlert } from "lucide-react"
 import { CAPABILITIES, ROLES } from "@/constants"
 import { useAuthStore } from "@/store/auth"
 import { Badge } from "@/components/ui/badge"
@@ -7,7 +8,6 @@ import { HealthBadge } from "@/components/HealthBadge"
 import { LoginForm } from "@/components/LoginForm"
 import { LogoutButton } from "@/components/LogoutButton"
 import { Splash } from "@/components/Splash"
-import { SettingsDialog } from "@/components/SettingsDialog"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { Workspace } from "@/components/canvas/Workspace"
 import { ProjectShareLinkHandler } from "@/components/canvas/ProjectShareLinkHandler"
@@ -45,7 +45,8 @@ function App() {
   // Capabilities are per-user (GET /auth/me), so wait for that query before
   // choosing a persistence mode — `me` is undefined until it lands.
   const me = useMe()
-  const canProjects = !!me?.capabilities.includes(CAPABILITIES.projectRead) &&
+  const canProjects =
+    !!me?.capabilities.includes(CAPABILITIES.projectRead) &&
     !!me?.capabilities.includes(CAPABILITIES.projectWrite)
   const syncStatus = useProjectSyncStore((s) => s.status)
   const syncError = useProjectSyncStore((s) => s.loadError)
@@ -71,6 +72,30 @@ function App() {
   // the workspace before they land would flash the wrong mode for operators.
   if (!me) return <Splash label="Loading session…" />
 
+  // Admin accounts manage the platform (accounts, ESXi target, base images)
+  // from the separate /admin console — they never build on this canvas. The
+  // real gate is ROLE_CAPABILITIES (admin has none of vm:*/deploy/project:*);
+  // this is the cosmetic mirror, same convention as admin/App.tsx's denial
+  // screen for non-admin roles.
+  if (me.role === ROLES.admin) {
+    return (
+      <div className="flex h-svh flex-col items-center justify-center gap-3 px-4 text-center">
+        <ShieldAlert className="size-8 text-warning" />
+        <p className="text-sm font-medium">
+          This workspace is for operators and guests only.
+        </p>
+        <p className="max-w-sm text-xs text-muted-foreground">
+          Your account ({me.username}) is an admin account — use the{" "}
+          <a href="/admin" className="underline">
+            admin console
+          </a>{" "}
+          instead.
+        </p>
+        <LogoutButton />
+      </div>
+    )
+  }
+
   // Server-persistence gate (operator only): the canvas can't render until the
   // project list is hydrated from the backend. No silent localStorage fallback
   // on error — serving stale local data while the server is the record invites
@@ -80,7 +105,8 @@ function App() {
       return (
         <div className="flex h-svh flex-col items-center justify-center gap-3">
           <p className="text-sm text-muted-foreground">
-            Couldn&apos;t load projects from the server{syncError ? `: ${syncError}` : "."}
+            Couldn&apos;t load projects from the server
+            {syncError ? `: ${syncError}` : "."}
           </p>
           <Button variant="outline" onClick={() => retryInitServerProjects()}>
             Retry
@@ -98,13 +124,14 @@ function App() {
       {/* Top bar */}
       <header className="flex shrink-0 items-center justify-between gap-4 border-b px-4 py-2">
         <div>
-          <h1 className="text-base font-semibold tracking-tight">EC PKI Playground</h1>
+          <h1 className="text-base font-semibold tracking-tight">
+            EC PKI Playground
+          </h1>
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <HealthBadge />
           {isGuest && <Badge variant="secondary">Guest</Badge>}
           <LogoutButton />
-          <SettingsDialog />
           <ThemeToggle />
         </div>
       </header>

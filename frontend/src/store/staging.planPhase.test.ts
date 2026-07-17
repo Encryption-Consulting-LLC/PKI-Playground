@@ -201,7 +201,9 @@ test("a structured 409 captures the failed preflight as the receipt", async () =
   expect(state().deployStartedAt).toBeNull()
   expect(state().preflightReceipt?.ready).toBe(false)
   expect(state().preflightReceipt?.checks[0]?.detail).toBe("Datastore is full.")
-  expect(state().ops.every((op) => op.status === lib.OP_STATUS.staged)).toBe(true)
+  expect(state().ops.every((op) => op.status === lib.OP_STATUS.staged)).toBe(
+    true,
+  )
 })
 
 test("a plain failure leaves no receipt and phase updates are ignored while idle", async () => {

@@ -31,7 +31,12 @@ def _full_topology() -> TopologyDocument:
             ),
         ],
         edges=[
-            TopologyEdge(id="parent", kind=TopologyEdgeKind.ca_parent, source="root", target="issuing"),
+            TopologyEdge(
+                id="parent",
+                kind=TopologyEdgeKind.ca_parent,
+                source="root",
+                target="issuing",
+            ),
             TopologyEdge(
                 id="issuing-domain",
                 kind=TopologyEdgeKind.domain_membership,
@@ -65,12 +70,8 @@ def test_complete_two_tier_topology_is_valid():
 def test_resources_default_to_planned_for_legacy_clients():
     topology = _full_topology()
 
-    assert all(
-        node.state is TopologyResourceState.planned for node in topology.nodes
-    )
-    assert all(
-        edge.state is TopologyResourceState.planned for edge in topology.edges
-    )
+    assert all(node.state is TopologyResourceState.planned for node in topology.nodes)
+    assert all(edge.state is TopologyResourceState.planned for edge in topology.edges)
 
 
 def test_legacy_edges_infer_their_capability_ports():
@@ -117,7 +118,8 @@ def test_ocsp_host_without_an_issuing_ca_grant_is_actionable():
         validate_topology(topology)
 
     diagnostic = next(
-        item for item in caught.value.diagnostics
+        item
+        for item in caught.value.diagnostics
         if item.code == "ocsp-template-grant-missing"
     )
     assert diagnostic.message == (
@@ -150,8 +152,18 @@ def test_ca_cycle_diagnostic_names_the_closed_path():
     )
     topology.edges.extend(
         [
-            TopologyEdge(id="cycle-a", kind=TopologyEdgeKind.ca_parent, source="issuing", target="issuing2"),
-            TopologyEdge(id="cycle-b", kind=TopologyEdgeKind.ca_parent, source="issuing2", target="issuing"),
+            TopologyEdge(
+                id="cycle-a",
+                kind=TopologyEdgeKind.ca_parent,
+                source="issuing",
+                target="issuing2",
+            ),
+            TopologyEdge(
+                id="cycle-b",
+                kind=TopologyEdgeKind.ca_parent,
+                source="issuing2",
+                target="issuing",
+            ),
         ]
     )
 
@@ -180,7 +192,8 @@ def test_cname_requires_an_authoritative_a_resource_for_its_target():
         validate_topology(topology)
 
     diagnostic = next(
-        item for item in caught.value.diagnostics
+        item
+        for item in caught.value.diagnostics
         if item.code == "dns-cname-target-missing-a"
     )
     assert diagnostic.message == (

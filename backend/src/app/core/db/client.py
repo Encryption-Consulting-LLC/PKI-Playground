@@ -49,7 +49,9 @@ async def close_db() -> None:
 
 def get_db() -> AsyncDatabase:
     if _db is None:
-        raise RuntimeError("Mongo not initialized — init_db() runs in the app lifespan.")
+        raise RuntimeError(
+            "Mongo not initialized — init_db() runs in the app lifespan."
+        )
     return _db
 
 

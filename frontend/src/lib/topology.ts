@@ -26,7 +26,10 @@ import { templatePlatform } from "@/constants/templates"
 
 /** Deployed on the host, whether or not its config has since drifted. */
 export function isDeployed(data: MachineData): boolean {
-  return data.lifecycle === LIFECYCLE.deployed || data.lifecycle === LIFECYCLE.drifted
+  return (
+    data.lifecycle === LIFECYCLE.deployed ||
+    data.lifecycle === LIFECYCLE.drifted
+  )
 }
 
 /**
@@ -59,7 +62,8 @@ export const ISO_DRIFT_FIELD = "isoContents"
 
 function configDriftedKeys(data: MachineData): string[] {
   if (!data.config && !data.lastDeployedConfig) return []
-  if (!data.lastDeployedConfig) return data.config ? Object.keys(data.config) : []
+  if (!data.lastDeployedConfig)
+    return data.config ? Object.keys(data.config) : []
   if (!data.config) return []
   const last = data.lastDeployedConfig
   const keys = new Set([...Object.keys(data.config), ...Object.keys(last)])
@@ -120,10 +124,7 @@ export function inferEdgeType(
     targetTypeId === "certificateAuthority"
   )
     return EDGE_TYPE.caHierarchy
-  if (
-    sourceTypeId === "certificateAuthority" &&
-    targetTypeId === "webServer"
-  )
+  if (sourceTypeId === "certificateAuthority" && targetTypeId === "webServer")
     return EDGE_TYPE.webServerCert
   return EDGE_TYPE.network
 }
@@ -147,10 +148,15 @@ export function connectionPorts(type: EdgeType): ConnectionPort[] {
 }
 
 /** The single canvas capability represented by a CA-to-web edge. */
-export function edgeServiceSocket(edge: Pick<Edge, "sourceHandle" | "data">): ServiceSocket | null {
+export function edgeServiceSocket(
+  edge: Pick<Edge, "sourceHandle" | "data">,
+): ServiceSocket | null {
   if (edge.data?.edgeType !== EDGE_TYPE.webServerCert) return null
   const persisted = edge.data?.serviceSocket as ServiceSocket | undefined
-  if (persisted === SERVICE_SOCKET.publication || persisted === SERVICE_SOCKET.ocsp) {
+  if (
+    persisted === SERVICE_SOCKET.publication ||
+    persisted === SERVICE_SOCKET.ocsp
+  ) {
     return persisted
   }
   const parsed = parseServiceSocketHandle(edge.sourceHandle)
@@ -164,10 +170,11 @@ export function webServiceEdges(
   sourceId?: string,
   targetId?: string,
 ): Edge[] {
-  return edges.filter((edge) =>
-    edge.data?.edgeType === EDGE_TYPE.webServerCert &&
-    (sourceId === undefined || edge.source === sourceId) &&
-    (targetId === undefined || edge.target === targetId),
+  return edges.filter(
+    (edge) =>
+      edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+      (sourceId === undefined || edge.source === sourceId) &&
+      (targetId === undefined || edge.target === targetId),
   )
 }
 
@@ -179,7 +186,9 @@ export function hasCompleteWebServiceRelationship(
   const sockets = new Set(
     webServiceEdges(edges, sourceId, targetId).map(edgeServiceSocket),
   )
-  return sockets.has(SERVICE_SOCKET.publication) && sockets.has(SERVICE_SOCKET.ocsp)
+  return (
+    sockets.has(SERVICE_SOCKET.publication) && sockets.has(SERVICE_SOCKET.ocsp)
+  )
 }
 
 export interface ConnectionPortGuidance {
@@ -219,7 +228,10 @@ export interface ServiceSocketGuidance {
   operation: string
 }
 
-export const SERVICE_SOCKET_GUIDANCE: Record<ServiceSocket, ServiceSocketGuidance> = {
+export const SERVICE_SOCKET_GUIDANCE: Record<
+  ServiceSocket,
+  ServiceSocketGuidance
+> = {
   [SERVICE_SOCKET.issuance]: {
     label: "CA Issue",
     intent: "Issue a subordinate CA certificate",
@@ -329,27 +341,35 @@ export function serviceSocketsForNode(
   }
 
   if (isConnectable(node.data) && node.data.typeId === "certificateAuthority") {
-    const root = node.data.config?.caType === "Root" || caTier(node.id, edges) === "root"
+    const root =
+      node.data.config?.caType === "Root" || caTier(node.id, edges) === "root"
     for (const spec of [
-      ...(!root ? [{ socket: SERVICE_SOCKET.issuance, type: "target" } as const] : []),
+      ...(!root
+        ? [{ socket: SERVICE_SOCKET.issuance, type: "target" } as const]
+        : []),
       { socket: SERVICE_SOCKET.issuance, type: "source" },
       { socket: SERVICE_SOCKET.publication, type: "source" },
-      ...(!root ? [{ socket: SERVICE_SOCKET.ocsp, type: "source" } as const] : []),
-    ] as NodeServiceSocket[]) add(spec)
+      ...(!root
+        ? [{ socket: SERVICE_SOCKET.ocsp, type: "source" } as const]
+        : []),
+    ] as NodeServiceSocket[])
+      add(spec)
   }
   if (isConnectable(node.data) && node.data.typeId === "webServer") {
     for (const spec of [
       { socket: SERVICE_SOCKET.publication, type: "target" },
       { socket: SERVICE_SOCKET.ocsp, type: "target" },
-    ] as const) add(spec)
+    ] as const)
+      add(spec)
   }
 
   for (const edge of edges) {
-    const handleId = edge.source === node.id
-      ? edge.sourceHandle
-      : edge.target === node.id
-        ? edge.targetHandle
-        : null
+    const handleId =
+      edge.source === node.id
+        ? edge.sourceHandle
+        : edge.target === node.id
+          ? edge.targetHandle
+          : null
     const parsed = parseServiceSocketHandle(handleId)
     if (!parsed) continue
     if (edge.source === node.id && parsed.type !== "source") continue
@@ -385,7 +405,8 @@ export const CONNECTION_HEALTH_GUIDANCE: Record<
   },
   [CONNECTION_HEALTH.degraded]: {
     label: "Degraded",
-    detail: "The relationship exists, but a dependency or verification path is incomplete.",
+    detail:
+      "The relationship exists, but a dependency or verification path is incomplete.",
   },
   [CONNECTION_HEALTH.broken]: {
     label: "Broken",
@@ -499,7 +520,9 @@ export function lintTopologyRelationships(
   )
   for (const web of webHosts) {
     const publication = publications.find((edge) => edge.target === web.id)
-    const ocspConnection = ocspConnections.find((edge) => edge.target === web.id)
+    const ocspConnection = ocspConnections.find(
+      (edge) => edge.target === web.id,
+    )
     const ocspEnabled = web.data.config?.enableOcsp !== "Disabled"
     if (ocspEnabled && !ocspConnection) {
       diagnostics.push({
@@ -563,8 +586,7 @@ export function connectionGuidance(
         ],
         ports,
       }
-    case EDGE_TYPE.webServerCert:
-    {
+    case EDGE_TYPE.webServerCert: {
       const ocsp = opts?.serviceSocket === SERVICE_SOCKET.ocsp
       return {
         intent: ocsp
@@ -587,8 +609,8 @@ export function connectionGuidance(
         ports: ocsp
           ? [CONNECTION_PORT.probeCertificate]
           : [CONNECTION_PORT.caPublication, CONNECTION_PORT.webHost],
-    }
       }
+    }
     case EDGE_TYPE.domainJoin:
       return {
         intent: "Provides AD membership, DNS, and LDAP publication",
@@ -762,7 +784,9 @@ export function trustGravityLayout(
     return {
       ...node,
       position: {
-        x: root.position.x + (index - (members.length - 1) / 2) * TRUST_ORBIT_GAP,
+        x:
+          root.position.x +
+          (index - (members.length - 1) / 2) * TRUST_ORBIT_GAP,
         y: root.position.y + tier * TRUST_TIER_GAP,
       },
     }
@@ -779,8 +803,7 @@ export function domainMembership(
   nodes: Node<MachineData>[],
 ): string | null {
   const joinEdge = edges.find(
-    (e) =>
-      e.source === nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin,
+    (e) => e.source === nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin,
   )
   if (!joinEdge) return null
   const dcNode = nodes.find((n) => n.id === joinEdge.target)
@@ -839,7 +862,9 @@ function farthestCornerDistance(
     { x, y: y + h },
     { x: x + w, y: y + h },
   ]
-  return Math.max(...corners.map((c) => Math.hypot(c.x - point.x, c.y - point.y)))
+  return Math.max(
+    ...corners.map((c) => Math.hypot(c.x - point.x, c.y - point.y)),
+  )
 }
 
 /**
@@ -860,7 +885,9 @@ export function domainRadius(
 ): number {
   const dcCenter = nodeCenter(dc)
   const members = edges
-    .filter((e) => e.target === dc.id && e.data?.edgeType === EDGE_TYPE.domainJoin)
+    .filter(
+      (e) => e.target === dc.id && e.data?.edgeType === EDGE_TYPE.domainJoin,
+    )
     .map((e) => nodes.find((n) => n.id === e.source))
     .filter((n): n is Node<MachineData> => !!n)
 
@@ -880,7 +907,10 @@ export function domainRadius(
       (m, d, j) => (j === i ? m : Math.max(m, d)),
       0,
     )
-    const radiusWithoutMember = Math.max(DOMAIN_RADIUS, othersMaxDist + DOMAIN_MEMBER_PADDING)
+    const radiusWithoutMember = Math.max(
+      DOMAIN_RADIUS,
+      othersMaxDist + DOMAIN_MEMBER_PADDING,
+    )
 
     const c = nodeCenter(member)
     const hasNearbyNeighbor = nodes.some((other) => {
@@ -889,7 +919,8 @@ export function domainRadius(
       return Math.hypot(oc.x - c.x, oc.y - c.y) < DOMAIN_EXIT_NEIGHBOR_CLEARANCE
     })
 
-    const isLeaving = dist > radiusWithoutMember + DOMAIN_EXIT_MARGIN && !hasNearbyNeighbor
+    const isLeaving =
+      dist > radiusWithoutMember + DOMAIN_EXIT_MARGIN && !hasNearbyNeighbor
     if (isLeaving) return
 
     if (edgeDistances[i] > maxDist) maxDist = edgeDistances[i]
@@ -906,7 +937,10 @@ export function domainLabel(dc: Node<MachineData>): string {
 const DOMAIN_LABEL_MAX_CHARS = 24
 
 /** Truncates a label to `max` characters, appending an ellipsis if it was cut. */
-export function truncateLabel(label: string, max = DOMAIN_LABEL_MAX_CHARS): string {
+export function truncateLabel(
+  label: string,
+  max = DOMAIN_LABEL_MAX_CHARS,
+): string {
   return label.length > max ? `${label.slice(0, max)}…` : label
 }
 
@@ -915,7 +949,10 @@ export function truncateLabel(label: string, max = DOMAIN_LABEL_MAX_CHARS): stri
  * Domain controllers define domains (they don't join others), root CAs must
  * stay out of any domain, and a VM must be configured before it can join.
  */
-export function isDomainEligible(node: Node<MachineData>, edges: Edge[]): boolean {
+export function isDomainEligible(
+  node: Node<MachineData>,
+  edges: Edge[],
+): boolean {
   if (node.data.typeId === "domainController") return false
   if (templatePlatform(node.data.typeId) === "linux") return false
   if (!isConnectable(node.data)) return false
@@ -952,7 +989,8 @@ export function domainJoinBlockReason(
     return `${node.data.name} is an offline root CA and must remain outside Active Directory.`
   }
   const current = edges.find(
-    (edge) => edge.source === node.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+    (edge) =>
+      edge.source === node.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
   )
   if (current?.target === dc.id) {
     return `${node.data.name} already belongs to ${domainLabel(dc)}.`
@@ -972,7 +1010,10 @@ export function domainJoinOperations(
     "system.reboot → domain.verify",
   ]
 
-  if (node.data.typeId === "certificateAuthority" || node.data.typeId === "webServer") {
+  if (
+    node.data.typeId === "certificateAuthority" ||
+    node.data.typeId === "webServer"
+  ) {
     operations.push("dns.apply_resources → dns.verify · A/PTR")
   }
   if (node.data.typeId === "webServer") {
@@ -1019,9 +1060,13 @@ function lifecycleConnectionHealth(data: MachineData): ConnectionHealth {
 }
 
 function leastHealthy(states: ConnectionHealth[]): ConnectionHealth {
-  return states.reduce((worst, state) =>
-    DOMAIN_HEALTH_PRIORITY[state] > DOMAIN_HEALTH_PRIORITY[worst] ? state : worst,
-  CONNECTION_HEALTH.verified)
+  return states.reduce(
+    (worst, state) =>
+      DOMAIN_HEALTH_PRIORITY[state] > DOMAIN_HEALTH_PRIORITY[worst]
+        ? state
+        : worst,
+    CONNECTION_HEALTH.verified,
+  )
 }
 
 export interface DomainRegionSummary {
@@ -1038,7 +1083,8 @@ export function domainRegionSummary(
 ): DomainRegionSummary {
   const forestHealth = lifecycleConnectionHealth(dc.data)
   const memberships = edges.filter(
-    (edge) => edge.target === dc.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+    (edge) =>
+      edge.target === dc.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
   )
   const membershipHealth = memberships.map((edge) => {
     const health = edge.data?.health as ConnectionHealth | undefined
@@ -1088,7 +1134,11 @@ export function findDomainForNode(
  * `domainJoin` edgeType so existing derived logic (badges, member counts)
  * continues to work unchanged.
  */
-export function domainJoinEdge(source: string, target: string, staged = false): Edge {
+export function domainJoinEdge(
+  source: string,
+  target: string,
+  staged = false,
+): Edge {
   const visual = edgeStyle(EDGE_TYPE.domainJoin)
   return {
     id: `e-domain-${source}-${target}`,
@@ -1100,9 +1150,7 @@ export function domainJoinEdge(source: string, target: string, staged = false): 
       edgeType: EDGE_TYPE.domainJoin,
       ports: connectionPorts(EDGE_TYPE.domainJoin),
       staged,
-      health: staged
-        ? CONNECTION_HEALTH.planned
-        : CONNECTION_HEALTH.verified,
+      health: staged ? CONNECTION_HEALTH.planned : CONNECTION_HEALTH.verified,
     },
     ...visual,
     style: staged
@@ -1227,10 +1275,16 @@ export function canConnect(
   }
 
   if (!isConnectable(source.data)) {
-    return { ok: false, reason: `"${source.data.name}" must be configured first.` }
+    return {
+      ok: false,
+      reason: `"${source.data.name}" must be configured first.`,
+    }
   }
   if (!isConnectable(target.data)) {
-    return { ok: false, reason: `"${target.data.name}" must be configured first.` }
+    return {
+      ok: false,
+      reason: `"${target.data.name}" must be configured first.`,
+    }
   }
 
   if (target.data.typeId === "domainController") {
@@ -1248,7 +1302,8 @@ export function canConnect(
   if (!isCaToCa && !isCaToWebServer) {
     return {
       ok: false,
-      reason: "Certificate Authorities can only connect to another CA or a Web Server.",
+      reason:
+        "Certificate Authorities can only connect to another CA or a Web Server.",
     }
   }
 
@@ -1256,7 +1311,8 @@ export function canConnect(
 
   if (
     edgeType === EDGE_TYPE.caHierarchy &&
-    (source.data.config?.caType === "Issuing" || caTier(sourceId, edges) === "issuing")
+    (source.data.config?.caType === "Issuing" ||
+      caTier(sourceId, edges) === "issuing")
   ) {
     return { ok: false, reason: "3+ Tier PKI is not supported yet." }
   }
@@ -1267,13 +1323,19 @@ export function canConnect(
       (e.source === targetId && e.target === sourceId),
   )
   if (duplicate && edgeType !== EDGE_TYPE.webServerCert) {
-    return { ok: false, reason: "A connection between these nodes already exists." }
+    return {
+      ok: false,
+      reason: "A connection between these nodes already exists.",
+    }
   }
 
   // Root CAs must not be domain-joined
   if (edgeType === EDGE_TYPE.domainJoin) {
     const sourceTier = caTier(sourceId, edges)
-    if (source.data.typeId === "certificateAuthority" && sourceTier === "root") {
+    if (
+      source.data.typeId === "certificateAuthority" &&
+      sourceTier === "root"
+    ) {
       return {
         ok: false,
         reason: "Root CAs must not be domain-joined.",
@@ -1285,12 +1347,14 @@ export function canConnect(
   if (edgeType === EDGE_TYPE.caHierarchy) {
     // Each CA can have at most one issuing parent
     const targetAlreadyHasParent = edges.some(
-      (e) => e.target === targetId && e.data?.edgeType === EDGE_TYPE.caHierarchy,
+      (e) =>
+        e.target === targetId && e.data?.edgeType === EDGE_TYPE.caHierarchy,
     )
     if (targetAlreadyHasParent) {
       return {
         ok: false,
-        reason: "This CA already has an issuer — a CA can have only one parent.",
+        reason:
+          "This CA already has an issuer — a CA can have only one parent.",
       }
     }
 
@@ -1319,22 +1383,35 @@ export function canConnectServiceSockets(
   const sourceHandle = parseServiceSocketHandle(connection.sourceHandle)
   const targetHandle = parseServiceSocketHandle(connection.targetHandle)
   if (!sourceHandle || !targetHandle) {
-    return { ok: false, reason: "Use a labeled service socket to create this relationship." }
+    return {
+      ok: false,
+      reason: "Use a labeled service socket to create this relationship.",
+    }
   }
   if (sourceHandle.socket !== targetHandle.socket) {
-    return { ok: false, reason: "These service sockets provide different capabilities." }
+    return {
+      ok: false,
+      reason: "These service sockets provide different capabilities.",
+    }
   }
   if (!serviceSocketEdgeType(connection, nodes)) {
-    return { ok: false, reason: "That service socket is not supported by this destination." }
+    return {
+      ok: false,
+      reason: "That service socket is not supported by this destination.",
+    }
   }
   const sourceSocket = sourceHandle.socket
-  const duplicate = edges.some((edge) =>
-    edge.source === connection.source &&
-    edge.target === connection.target &&
-    edgeServiceSocket(edge) === sourceSocket,
+  const duplicate = edges.some(
+    (edge) =>
+      edge.source === connection.source &&
+      edge.target === connection.target &&
+      edgeServiceSocket(edge) === sourceSocket,
   )
   if (duplicate) {
-    return { ok: false, reason: `${SERVICE_SOCKET_GUIDANCE[sourceSocket].label} is already connected.` }
+    return {
+      ok: false,
+      reason: `${SERVICE_SOCKET_GUIDANCE[sourceSocket].label} is already connected.`,
+    }
   }
   return canConnect(connection.source, connection.target, nodes, edges)
 }
@@ -1354,21 +1431,29 @@ export function connectionMissingRequirements(
   if (!source || !target) return ["Both endpoints must still exist"]
 
   const missing: string[] = []
-  const rootIssuer = source.data.config?.caType === "Root" || caTier(source.id, edges) === "root"
+  const rootIssuer =
+    source.data.config?.caType === "Root" || caTier(source.id, edges) === "root"
   if (rootIssuer) return missing
   if (!rootIssuer && !caParent(source.id, edges)) {
     missing.push(`${source.data.name} still needs a root CA parent`)
   }
   const sourceDomain = edges.find(
-    (edge) => edge.source === source.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+    (edge) =>
+      edge.source === source.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
   )?.target
   const targetDomain = edges.find(
-    (edge) => edge.source === target.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
+    (edge) =>
+      edge.source === target.id && edge.data?.edgeType === EDGE_TYPE.domainJoin,
   )?.target
   if (!sourceDomain || sourceDomain !== targetDomain) {
-    missing.push(`${source.data.name} and ${target.data.name} must share an AD domain`)
+    missing.push(
+      `${source.data.name} and ${target.data.name} must share an AD domain`,
+    )
   }
-  if (serviceSocket === SERVICE_SOCKET.ocsp && target.data.config?.enableOcsp === "Disabled") {
+  if (
+    serviceSocket === SERVICE_SOCKET.ocsp &&
+    target.data.config?.enableOcsp === "Disabled"
+  ) {
     missing.push(`${target.data.name} must enable Online Responder`)
   }
   return missing
@@ -1395,7 +1480,10 @@ export interface EdgeStyleOptions {
   serviceSocket?: ServiceSocket | null
 }
 
-export function edgeStyle(type: EdgeType, opts?: EdgeStyleOptions): EdgeStyleProps {
+export function edgeStyle(
+  type: EdgeType,
+  opts?: EdgeStyleOptions,
+): EdgeStyleProps {
   switch (type) {
     case EDGE_TYPE.domainJoin:
       return {
@@ -1420,8 +1508,7 @@ export function edgeStyle(type: EdgeType, opts?: EdgeStyleOptions): EdgeStylePro
           : "issues CA certificate",
         labelStyle: { fill: "#f59e0b", fontSize: 11 },
       }
-    case EDGE_TYPE.webServerCert:
-    {
+    case EDGE_TYPE.webServerCert: {
       const ocsp = opts?.serviceSocket === SERVICE_SOCKET.ocsp
       const color = ocsp ? "#8b5cf6" : "#10b981"
       return {
@@ -1435,8 +1522,8 @@ export function edgeStyle(type: EdgeType, opts?: EdgeStyleOptions): EdgeStylePro
         animated: false,
         label: ocsp ? "enables OCSP" : "publishes CDP/AIA",
         labelStyle: { fill: color, fontSize: 11 },
-    }
       }
+    }
     case EDGE_TYPE.network:
       return {
         style: { stroke: "#94a3b8", strokeWidth: 1.5, strokeDasharray: "5 4" },

@@ -53,7 +53,9 @@ def build_certificate_journey(
     )
     pki_dns = {"hostname": pki_host, "address": web.ip}
     ca_dns = {
-        "hostname": f"{ca.hostname}.{ctx.domain_name}" if ctx.domain_name else ca.hostname,
+        "hostname": f"{ca.hostname}.{ctx.domain_name}"
+        if ctx.domain_name
+        else ca.hostname,
         "address": ca.ip,
     }
 
@@ -87,10 +89,12 @@ def build_certificate_journey(
                 "url": base,
                 "dns": pki_dns,
                 "artifacts": [
-                    value for value in (
+                    value
+                    for value in (
                         artifact_url("issuing_cert_filename"),
                         artifact_url("root_cert_filename"),
-                    ) if value
+                    )
+                    if value
                 ],
                 "ok": aia_ok,
                 "failureReason": aia_failure,
@@ -101,11 +105,13 @@ def build_certificate_journey(
                 "url": base,
                 "dns": pki_dns,
                 "artifacts": [
-                    value for value in (
+                    value
+                    for value in (
                         artifact_url("root_crl_filename"),
                         artifact_url("issuing_crl_filename"),
                         artifact_url("issuing_delta_crl_filename"),
-                    ) if value
+                    )
+                    if value
                 ],
                 "ok": cdp_ok,
                 "failureReason": cdp_failure,

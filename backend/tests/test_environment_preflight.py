@@ -18,15 +18,25 @@ def test_control_plane_requires_callback_agent_broker_and_worker(monkeypatch, tm
     profiles = infrastructure_profiles_from_doc({})
     for profile in profiles.values():
         profile.qualification = ImageQualification(
-            baseChangeVersion="1", windowsBuild=26100,
-            runnerVersion="2", agentSha256=digest, validatedAt=1,
-            mlDsa87Available=True, systemContextValidated=True,
-            timeSynchronized=True, windowsUpdatesCurrent=True,
+            baseChangeVersion="1",
+            windowsBuild=26100,
+            runnerVersion="2",
+            agentSha256=digest,
+            validatedAt=1,
+            mlDsa87Available=True,
+            systemContextValidated=True,
+            timeSynchronized=True,
+            windowsUpdatesCurrent=True,
             backendCallbackReachable=True,
             agentCommands=[
-                "ca.publish_crl", "ca.uninstall", "dc.remove_forest",
-                "dns.remove_resources", "dns.verify_absent", "domain.leave",
-                "iis.remove_certenroll", "ocsp.remove",
+                "ca.publish_crl",
+                "ca.uninstall",
+                "dc.remove_forest",
+                "dns.remove_resources",
+                "dns.verify_absent",
+                "domain.leave",
+                "iis.remove_certenroll",
+                "ocsp.remove",
             ],
             publicationManifestVersion=1,
         )
@@ -34,8 +44,11 @@ def test_control_plane_requires_callback_agent_broker_and_worker(monkeypatch, tm
     monkeypatch.setattr(subject.settings, "backend_public_url", "https://pki.example")
     monkeypatch.setattr(subject.transport._client, "ping", lambda: True)
     monkeypatch.setattr(
-        subject.celery_app.control, "inspect",
-        lambda timeout: type("Inspect", (), {"ping": lambda self: {"worker": {"ok": "pong"}}})(),
+        subject.celery_app.control,
+        "inspect",
+        lambda timeout: type(
+            "Inspect", (), {"ping": lambda self: {"worker": {"ok": "pong"}}}
+        )(),
     )
 
     result = subject.preflight_control_plane(profiles, mongo_ready=True)
@@ -43,7 +56,11 @@ def test_control_plane_requires_callback_agent_broker_and_worker(monkeypatch, tm
     assert result.ready is True
     assert result.agent_sha256 == digest
     assert {check.key for check in result.checks} == {
-        "mongo", "valkey", "backendCallback", "agentBinary", "worker"
+        "mongo",
+        "valkey",
+        "backendCallback",
+        "agentBinary",
+        "worker",
     }
 
 
@@ -53,7 +70,8 @@ def test_control_plane_reports_every_missing_prerequisite(monkeypatch):
     monkeypatch.setattr(subject.settings, "backend_public_url", None)
     monkeypatch.setattr(subject.transport._client, "ping", lambda: False)
     monkeypatch.setattr(
-        subject.celery_app.control, "inspect",
+        subject.celery_app.control,
+        "inspect",
         lambda timeout: type("Inspect", (), {"ping": lambda self: {}})(),
     )
 
@@ -66,17 +84,24 @@ def test_control_plane_reports_every_missing_prerequisite(monkeypatch):
     assert agent.detail == "ORCHESTRATOR_AGENT_PATH is not configured on the API host."
 
 
-def test_control_plane_reports_actual_digest_and_mismatched_roles(monkeypatch, tmp_path):
+def test_control_plane_reports_actual_digest_and_mismatched_roles(
+    monkeypatch, tmp_path
+):
     agent = tmp_path / "agent.exe"
     agent.write_bytes(b"current agent")
     digest = subject._agent_digest(agent)
     profiles = infrastructure_profiles_from_doc({})
     for role, profile in profiles.items():
         profile.qualification = ImageQualification(
-            baseChangeVersion="1", windowsBuild=26100,
-            runnerVersion="2", agentSha256=("a" * 64 if role == "rootCa" else digest),
-            validatedAt=1, mlDsa87Available=True, systemContextValidated=True,
-            timeSynchronized=True, windowsUpdatesCurrent=True,
+            baseChangeVersion="1",
+            windowsBuild=26100,
+            runnerVersion="2",
+            agentSha256=("a" * 64 if role == "rootCa" else digest),
+            validatedAt=1,
+            mlDsa87Available=True,
+            systemContextValidated=True,
+            timeSynchronized=True,
+            windowsUpdatesCurrent=True,
             backendCallbackReachable=True,
         )
     monkeypatch.setattr(subject.settings, "orchestrator_agent_path", str(agent))

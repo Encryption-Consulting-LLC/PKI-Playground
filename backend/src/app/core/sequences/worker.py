@@ -196,7 +196,14 @@ def run_op_sequence(
     persisted_artifacts = dict(ctx.artifacts)
 
     def dispatch(
-        job_key, vm_id, command, params, *, role, secret_keys, timeout_s,
+        job_key,
+        vm_id,
+        command,
+        params,
+        *,
+        role,
+        secret_keys,
+        timeout_s,
         expect_disconnect=False,
     ):
         step_job_id = deterministic_step_job_id(plan_job_id, op_id, job_key)
@@ -222,10 +229,17 @@ def run_op_sequence(
         duration_ms = int((time.monotonic() - started) * 1000)
         logger.info(
             "sequence step %s/%s (%s) on %s took %.1fs",
-            op_id, job_key, command, vm_id, duration_ms / 1000,
+            op_id,
+            job_key,
+            command,
+            vm_id,
+            duration_ms / 1000,
         )
         _record_step_metric(
-            db, command=command, step_id=job_key, vm_id=vm_id,
+            db,
+            command=command,
+            step_id=job_key,
+            vm_id=vm_id,
             duration_ms=duration_ms,
         )
         return result
@@ -239,9 +253,7 @@ def run_op_sequence(
             for key, value in ctx.artifacts.items()
             if persisted_artifacts.get(key) != value
         }
-        _persist_step(
-            db, plan_job_id, op_id, step_id, result, artifact_updates
-        )
+        _persist_step(db, plan_job_id, op_id, step_id, result, artifact_updates)
         persisted_artifacts.update(artifact_updates)
         if on_step_complete is not None:
             on_step_complete(step_id)
@@ -263,7 +275,5 @@ def run_op_sequence(
     try:
         return engine.run(steps, ctx)
     except HealthGateError as exc:
-        _persist_failed_health(
-            db, plan_job_id, op_id, exc.step_id, exc.health
-        )
+        _persist_failed_health(db, plan_job_id, op_id, exc.step_id, exc.health)
         raise

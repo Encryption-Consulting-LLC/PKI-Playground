@@ -16,9 +16,7 @@ def _op(op_id: str, *dependencies: str) -> PlanOp:
 def test_all_independent_roots_are_ready_together() -> None:
     ops = [_op("clone-dc"), _op("clone-root"), _op("clone-web")]
 
-    ready, blocked = ready_plan_operations(
-        ops, {op.id: "pending" for op in ops}
-    )
+    ready, blocked = ready_plan_operations(ops, {op.id: "pending" for op in ops})
 
     assert ready == ["clone-dc", "clone-root", "clone-web"]
     assert blocked == []

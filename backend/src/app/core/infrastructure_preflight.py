@@ -29,7 +29,12 @@ class PlannedMachine(BaseModel):
 
 
 InfrastructureCheckKey = Literal[
-    "vmNames", "image", "guestOs", "network", "datastore", "capacity",
+    "vmNames",
+    "image",
+    "guestOs",
+    "network",
+    "datastore",
+    "capacity",
     "qualification",
 ]
 
@@ -165,7 +170,9 @@ def preflight_infrastructure(
             vmx_error = str(cached_vmx)
             checks.append(
                 InfrastructureCheck(
-                    key="image", role=machine.role, ok=False,
+                    key="image",
+                    role=machine.role,
+                    ok=False,
                     detail=(
                         f"Could not read image VMX '[{profile.datastore}] "
                         f"{profile.base}/{profile.base}.vmx': {vmx_error}"
@@ -174,7 +181,9 @@ def preflight_infrastructure(
             )
             checks.append(
                 InfrastructureCheck(
-                    key="guestOs", role=machine.role, ok=False,
+                    key="guestOs",
+                    role=machine.role,
+                    ok=False,
                     detail="Guest OS cannot be checked until the VMX is readable.",
                 )
             )
@@ -183,7 +192,9 @@ def preflight_infrastructure(
             base_networks = set(cached_vmx.networks)
             checks.append(
                 InfrastructureCheck(
-                    key="image", role=machine.role, ok=True,
+                    key="image",
+                    role=machine.role,
+                    ok=True,
                     detail=f"Image VMX '{cached_vmx.path}' is available "
                     f"(revision {cached_vmx.revision}).",
                 )
@@ -205,7 +216,9 @@ def preflight_infrastructure(
             )
             checks.append(
                 InfrastructureCheck(
-                    key="guestOs", role=machine.role, ok=os_ok,
+                    key="guestOs",
+                    role=machine.role,
+                    ok=os_ok,
                     detail=(
                         f"Image reports expected {platform_label} guest OS '{actual_guest_os}'."
                         if os_ok
@@ -220,7 +233,8 @@ def preflight_infrastructure(
             qualification
             and (
                 qualification.base_change_version == change_version
-                or qualification.base_change_version == ASSUMED_TESTED_BASE_CHANGE_VERSION
+                or qualification.base_change_version
+                == ASSUMED_TESTED_BASE_CHANGE_VERSION
             )
         )
         qualification_ok = linux_product or bool(
@@ -236,14 +250,13 @@ def preflight_infrastructure(
                 machine.role not in ("rootCa", "issuingCa")
                 or qualification.ml_dsa_87_available
             )
-            and (
-                machine.role != "webServer"
-                or qualification.ocsp_reference_sha256
-            )
+            and (machine.role != "webServer" or qualification.ocsp_reference_sha256)
         )
         checks.append(
             InfrastructureCheck(
-                key="qualification", role=machine.role, ok=qualification_ok,
+                key="qualification",
+                role=machine.role,
+                ok=qualification_ok,
                 detail=(
                     "Linux product setup is stubbed; Windows PKI qualification is not required."
                     if linux_product
@@ -265,7 +278,9 @@ def preflight_infrastructure(
         )
         checks.append(
             InfrastructureCheck(
-                key="network", role=machine.role, ok=network_ok,
+                key="network",
+                role=machine.role,
+                ok=network_ok,
                 detail=(
                     f"Network mapping '{profile.network}' exists and backs the image NIC."
                     if network_ok
@@ -275,10 +290,10 @@ def preflight_infrastructure(
                         else (
                             "Could not inspect the image NIC until its VMX is readable."
                             if vmx_error is not None
-                        else (
-                            f"Network mapping '{profile.network}' must exist and back "
-                            f"the selected image NIC (observed: {sorted(base_networks)})."
-                        )
+                            else (
+                                f"Network mapping '{profile.network}' must exist and back "
+                                f"the selected image NIC (observed: {sorted(base_networks)})."
+                            )
                         )
                     )
                 ),
@@ -293,15 +308,21 @@ def preflight_infrastructure(
         except Exception as exc:  # noqa: BLE001
             checks.append(
                 InfrastructureCheck(
-                    key="datastore", role=machine.role, datastore=profile.datastore,
-                    ok=False, detail=f"Could not inspect datastore or base VMDK: {exc}",
+                    key="datastore",
+                    role=machine.role,
+                    datastore=profile.datastore,
+                    ok=False,
+                    detail=f"Could not inspect datastore or base VMDK: {exc}",
                 )
             )
         else:
             checks.append(
                 InfrastructureCheck(
-                    key="datastore", role=machine.role, datastore=profile.datastore,
-                    ok=True, detail=f"Datastore '{profile.datastore}' and base VMDK are available.",
+                    key="datastore",
+                    role=machine.role,
+                    datastore=profile.datastore,
+                    ok=True,
+                    detail=f"Datastore '{profile.datastore}' and base VMDK are available.",
                 )
             )
         reserved = (
@@ -312,12 +333,19 @@ def preflight_infrastructure(
         datastore_requests[profile.datastore].append((profile, reserved))
         reservations.append(
             MachineReservation(
-                role=machine.role, name=machine.name, base=profile.base,
-                baseMoid=base_moid, baseChangeVersion=change_version,
-                datastore=profile.datastore, network=profile.network,
-                expectedGuestOs=profile.expected_guest_os, actualGuestOs=actual_guest_os,
-                cpus=profile.cpus, memoryMb=profile.memory_mb,
-                systemDiskGb=profile.system_disk_gb, reservedBytes=reserved,
+                role=machine.role,
+                name=machine.name,
+                base=profile.base,
+                baseMoid=base_moid,
+                baseChangeVersion=change_version,
+                datastore=profile.datastore,
+                network=profile.network,
+                expectedGuestOs=profile.expected_guest_os,
+                actualGuestOs=actual_guest_os,
+                cpus=profile.cpus,
+                memoryMb=profile.memory_mb,
+                systemDiskGb=profile.system_disk_gb,
+                reservedBytes=reserved,
             )
         )
 
@@ -349,8 +377,11 @@ def preflight_infrastructure(
         )
         datastore_reservations.append(
             DatastoreReservation(
-                datastore=datastore_name, capacityBytes=capacity, freeBytes=free,
-                reservedBytes=required, projectedUsagePct=projected_pct,
+                datastore=datastore_name,
+                capacityBytes=capacity,
+                freeBytes=free,
+                reservedBytes=required,
+                projectedUsagePct=projected_pct,
                 maxUsagePct=limit,
             )
         )
@@ -358,10 +389,14 @@ def preflight_infrastructure(
     facts = {
         "esxiInstanceUuid": instance_uuid,
         "machines": [item.model_dump(by_alias=True) for item in reservations],
-        "datastores": [item.model_dump(by_alias=True) for item in datastore_reservations],
+        "datastores": [
+            item.model_dump(by_alias=True) for item in datastore_reservations
+        ],
         "checks": [item.model_dump(by_alias=True) for item in checks],
     }
     return InfrastructurePreflight(
-        ready=all(check.ok for check in checks), checkedAt=now_ms(),
-        snapshotId=_snapshot_id(facts), **facts,
+        ready=all(check.ok for check in checks),
+        checkedAt=now_ms(),
+        snapshotId=_snapshot_id(facts),
+        **facts,
     )

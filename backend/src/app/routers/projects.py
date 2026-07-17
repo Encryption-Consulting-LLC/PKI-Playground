@@ -55,7 +55,10 @@ async def list_projects() -> dict:
     """Summaries only, newest first — the full graphs stay out of the tab bar."""
     cursor = (
         projects_col()
-        .find({}, projection={"name": 1, "createdAt": 1, "updatedAt": 1, "schemaVersion": 1})
+        .find(
+            {},
+            projection={"name": 1, "createdAt": 1, "updatedAt": 1, "schemaVersion": 1},
+        )
         .sort("updatedAt", -1)
     )
     docs = await cursor.to_list(length=200)

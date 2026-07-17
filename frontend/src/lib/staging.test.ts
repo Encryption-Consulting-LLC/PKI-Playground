@@ -102,13 +102,15 @@ test("caches compiler steps and provision rows for reload recovery", () => {
       label: "Clone VM",
       target: "node-dc",
       dependsOn: [],
-      steps: [{
-        id: "op-dc:clone",
-        label: "Clone the domain controller",
-        kind: "clone",
-        targetNodeId: "node-dc",
-        dependsOn: [],
-      }],
+      steps: [
+        {
+          id: "op-dc:clone",
+          label: "Clone the domain controller",
+          kind: "clone",
+          targetNodeId: "node-dc",
+          dependsOn: [],
+        },
+      ],
     },
     {
       id: "op-dc::provision",
@@ -116,20 +118,24 @@ test("caches compiler steps and provision rows for reload recovery", () => {
       label: "Provision dc01 — AD DS forest",
       target: "node-dc",
       dependsOn: ["op-dc"],
-      steps: [{
-        id: "op-dc::provision:forest",
-        label: "Install the forest",
-        command: "dc.install_forest",
-        kind: "agent",
-        targetNodeId: "node-dc",
-        dependsOn: [],
-      }],
+      steps: [
+        {
+          id: "op-dc::provision:forest",
+          label: "Install the forest",
+          command: "dc.install_forest",
+          kind: "agent",
+          targetNodeId: "node-dc",
+          dependsOn: [],
+        },
+      ],
     },
   ])
 
   const ops = staging.useStagingStore.getState().ops
   expect(ops.map((op) => op.id)).toEqual(["op-dc", "op-dc::provision"])
-  expect(ops[0].executionGroup?.steps[0].label).toBe("Clone the domain controller")
+  expect(ops[0].executionGroup?.steps[0].label).toBe(
+    "Clone the domain controller",
+  )
   expect(ops[1].executionGroup?.steps[0].command).toBe("dc.install_forest")
   expect(ops[1].synthesized).toBe(true)
 })
@@ -137,7 +143,9 @@ test("caches compiler steps and provision rows for reload recovery", () => {
 test("unknown provision frames without a parent row are skipped", () => {
   staging.applyPlanState({ "ghost::provision": { status: "running" } }, "job1")
 
-  expect(staging.useStagingStore.getState().ops.map((o) => o.id)).toEqual(["op-dc"])
+  expect(staging.useStagingStore.getState().ops.map((o) => o.id)).toEqual([
+    "op-dc",
+  ])
 })
 
 test("clone done parks the node in provisioning with its identity facts", () => {
@@ -191,12 +199,20 @@ test("provision running drives the node's deploying progress", () => {
 
 test("a failed provision leaves the node failed but keeps vmName for teardown", () => {
   staging.applyPlanState(
-    { "op-dc": { status: "done", result: { vmName: "guest-dc01", ip: "10.0.0.5" } } },
+    {
+      "op-dc": {
+        status: "done",
+        result: { vmName: "guest-dc01", ip: "10.0.0.5" },
+      },
+    },
     "job1",
   )
   staging.applyPlanState(
     {
-      "op-dc": { status: "done", result: { vmName: "guest-dc01", ip: "10.0.0.5" } },
+      "op-dc": {
+        status: "done",
+        result: { vmName: "guest-dc01", ip: "10.0.0.5" },
+      },
       "op-dc::provision": { status: "error", detail: "forest install failed" },
     },
     "job1",
@@ -222,11 +238,13 @@ test("synthetic rows never enter the deploy payload", () => {
 
 test("a synthetic row is dropped from a retry when its done parent is dropped", () => {
   staging.applyPlanState({ "op-dc::provision": { status: "pending" } }, "job1")
-  const ops = staging.useStagingStore.getState().ops.map((op) =>
-    op.synthesized
-      ? { ...op, status: lib.OP_STATUS.error }
-      : { ...op, status: lib.OP_STATUS.done },
-  )
+  const ops = staging.useStagingStore
+    .getState()
+    .ops.map((op) =>
+      op.synthesized
+        ? { ...op, status: lib.OP_STATUS.error }
+        : { ...op, status: lib.OP_STATUS.done },
+    )
 
   const prepared = staging.prepareDeployPlan(ops)
 
@@ -344,7 +362,10 @@ function nodeById(id: string) {
 }
 
 const CA2_SETTLED: Record<string, OpRunState> = {
-  "op-ca2": { status: "done", result: { vmName: "guest-ca02", ip: "10.0.0.6" } },
+  "op-ca2": {
+    status: "done",
+    result: { vmName: "guest-ca02", ip: "10.0.0.6" },
+  },
   "op-ca2::provision": { status: "done", result: { vmName: "guest-ca02" } },
 }
 
@@ -418,7 +439,10 @@ test("a web host is gated by the webServerCert op that realizes it", () => {
   staging.applyPlanState(
     {
       "op-web": { status: "done", result: { vmName: "guest-srv01" } },
-      "op-web::provision": { status: "done", result: { vmName: "guest-srv01" } },
+      "op-web::provision": {
+        status: "done",
+        result: { vmName: "guest-srv01" },
+      },
       "op-cert": {
         status: "cancelled",
         detail: "Skipped: a dependency failed or was cancelled.",
@@ -436,11 +460,13 @@ test("a web host is gated by the webServerCert op that realizes it", () => {
 
 test("nodeAwaitingRealization gates agent-presence promotion", () => {
   issuingCaScenario()
-  const ops = staging.useStagingStore.getState().ops.map((op) =>
-    op.id === "op-join"
-      ? { ...op, status: lib.OP_STATUS.running }
-      : { ...op, status: lib.OP_STATUS.done },
-  )
+  const ops = staging.useStagingStore
+    .getState()
+    .ops.map((op) =>
+      op.id === "op-join"
+        ? { ...op, status: lib.OP_STATUS.running }
+        : { ...op, status: lib.OP_STATUS.done },
+    )
 
   expect(lib.nodeAwaitingRealization(ops, "node-ca2")).toBe(true)
   expect(
@@ -458,7 +484,10 @@ test("finishDeploy drops synthetic rows alongside their successful parents", () 
     {
       ops: {
         "op-dc": { status: "done", result: { vmName: "guest-dc01" } },
-        "op-dc::provision": { status: "done", result: { vmName: "guest-dc01" } },
+        "op-dc::provision": {
+          status: "done",
+          result: { vmName: "guest-dc01" },
+        },
       },
     },
     "job1",

@@ -33,7 +33,9 @@ class SecretDecryptionError(Exception):
 def _key() -> bytes:
     raw = base64.b64decode(settings.settings_enc_key)  # type: ignore[arg-type] — fail-fast validated
     if len(raw) != 32:
-        raise ValueError("SETTINGS_ENC_KEY must decode to exactly 32 bytes (openssl rand -base64 32).")
+        raise ValueError(
+            "SETTINGS_ENC_KEY must decode to exactly 32 bytes (openssl rand -base64 32)."
+        )
     return raw
 
 

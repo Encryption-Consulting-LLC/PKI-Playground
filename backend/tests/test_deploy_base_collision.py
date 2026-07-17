@@ -9,7 +9,9 @@ The plan validator must reject it up front with a 422.
 import os
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
-os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+os.environ.setdefault(
+    "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+)
 
 import pytest
 from fastapi import HTTPException

@@ -62,12 +62,15 @@ export interface StagedOp extends Record<string, unknown> {
   /** Backend traceback for unexpected failures — collapsible technical detail. */
   trace?: string
   /** Backend-authored child execution states, keyed by compiled step id. */
-  executionSteps?: Record<string, {
-    status: OpStatus
-    percent?: number
-    phase?: string
-    detail?: string
-  }>
+  executionSteps?: Record<
+    string,
+    {
+      status: OpStatus
+      percent?: number
+      phase?: string
+      detail?: string
+    }
+  >
   /**
    * Compiler-authored labels/commands for this operation's expandable step
    * tree. Cached on the op so a deployment remount can combine it with the
@@ -96,7 +99,10 @@ export function provisionParentId(opId: string): string {
 }
 
 /** Ops (anywhere in the list) that transitively depend on `opId`, in list order. */
-export function transitiveDependents(opId: string, ops: StagedOp[]): StagedOp[] {
+export function transitiveDependents(
+  opId: string,
+  ops: StagedOp[],
+): StagedOp[] {
   const seen = new Set<string>([opId])
   const result: StagedOp[] = []
   // Single forward pass suffices because dependsOn always points earlier in
@@ -148,7 +154,10 @@ const REALIZATION_LABELS: Partial<Record<OpKind, string>> = {
  * webServerCert targets the issuing CA but realizes its `secondary` web host;
  * a CA is never gated by its consumers.
  */
-export function nodeRealizationOps(ops: StagedOp[], nodeId: string): StagedOp[] {
+export function nodeRealizationOps(
+  ops: StagedOp[],
+  nodeId: string,
+): StagedOp[] {
   return ops.filter(
     (op) =>
       ((op.kind === OP_KIND.domainJoin ||
@@ -166,7 +175,10 @@ export function nodeRealizationOps(ops: StagedOp[], nodeId: string): StagedOp[] 
  * a node (`useAgentPromotion`): the boot-settled VM may still be waiting on —
  * or blocked from — the ops that install its actual role.
  */
-export function nodeAwaitingRealization(ops: StagedOp[], nodeId: string): boolean {
+export function nodeAwaitingRealization(
+  ops: StagedOp[],
+  nodeId: string,
+): boolean {
   const related = [
     ...ops.filter(
       (op) => op.kind === OP_KIND.provision && op.targetNodeId === nodeId,
@@ -227,7 +239,10 @@ export function inferDependsOn(
       return []
     case OP_KIND.webServerCert: {
       const caConnectIds = ops
-        .filter((op) => op.kind === OP_KIND.caConnect && op.targetNodeId === targetNodeId)
+        .filter(
+          (op) =>
+            op.kind === OP_KIND.caConnect && op.targetNodeId === targetNodeId,
+        )
         .map((op) => op.id)
       return [...createVmIds(targetNodeId, secondaryNodeId), ...caConnectIds]
     }

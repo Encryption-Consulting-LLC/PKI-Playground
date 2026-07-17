@@ -145,7 +145,9 @@ def preflight_golden_image(
         )
         checks.append(
             _check(
-                "guestOs", False, "Guest OS cannot be checked until the VMX is readable."
+                "guestOs",
+                False,
+                "Guest OS cannot be checked until the VMX is readable.",
             )
         )
     else:

@@ -12,25 +12,29 @@ describe("project recovery", () => {
   it("restores staged operations and an in-flight deployment job", () => {
     const topology = useTopologyStore.getState()
     const staging = useStagingStore.getState()
-    const stagedOps = staging.ops.map((operation, index) => index === 0
-      ? {
-          ...operation,
-          executionGroup: {
-            id: operation.id,
-            kind: operation.kind,
-            label: operation.label,
-            target: operation.targetNodeId,
-            dependsOn: [],
-            steps: [{
-              id: `${operation.id}:clone`,
-              label: "Clone the saved machine",
-              kind: "clone" as const,
-              targetNodeId: operation.targetNodeId,
+    const stagedOps = staging.ops.map((operation, index) =>
+      index === 0
+        ? {
+            ...operation,
+            executionGroup: {
+              id: operation.id,
+              kind: operation.kind,
+              label: operation.label,
+              target: operation.targetNodeId,
               dependsOn: [],
-            }],
-          },
-        }
-      : operation)
+              steps: [
+                {
+                  id: `${operation.id}:clone`,
+                  label: "Clone the saved machine",
+                  kind: "clone" as const,
+                  targetNodeId: operation.targetNodeId,
+                  dependsOn: [],
+                },
+              ],
+            },
+          }
+        : operation,
+    )
     const project: Project = {
       id: "recovery-project",
       name: "Recoverable PKI lab",
@@ -58,24 +62,29 @@ describe("project recovery", () => {
       "Clone the saved machine",
     )
     expect(restored.nodes.map((node) => node.data.name).sort()).toEqual([
-      "CA01", "CA02", "DC01", "SRV1",
+      "CA01",
+      "CA02",
+      "DC01",
+      "SRV1",
     ])
   })
 
   it("persists terminal failure detail while stripping transient progress state", () => {
     const topology = useTopologyStore.getState()
-    const failedNodes = topology.nodes.map((node, index) => index === 0
-      ? {
-          ...node,
-          data: {
-            ...node.data,
-            lifecycle: "failed" as const,
-            progress: 72,
-            phase: "Installing role",
-            errorDetail: "Access was denied by the remote command",
-          },
-        }
-      : node)
+    const failedNodes = topology.nodes.map((node, index) =>
+      index === 0
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              lifecycle: "failed" as const,
+              progress: 72,
+              phase: "Installing role",
+              errorDetail: "Access was denied by the remote command",
+            },
+          }
+        : node,
+    )
     const project: Project = {
       id: "recovery-project",
       name: "Recoverable PKI lab",
@@ -95,7 +104,9 @@ describe("project recovery", () => {
       updatedAt: 10,
     }).nodes
 
-    expect(restored.data.errorDetail).toBe("Access was denied by the remote command")
+    expect(restored.data.errorDetail).toBe(
+      "Access was denied by the remote command",
+    )
     expect(restored.data.progress).toBeUndefined()
     expect(restored.data.phase).toBeUndefined()
   })

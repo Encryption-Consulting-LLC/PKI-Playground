@@ -1,11 +1,13 @@
 """Application settings — read from environment variables and an optional .env file.
 
 Login is always required — there is no anonymous/auto-connect mode. Every
-visitor signs in with an admin-provisioned account (username/password) or
-employee SSO (OIDC). Both operators and guests are real accounts in the users
-collection; the difference is the ``role`` the account carries (operators get
-the full feature set, guests a restricted subset — ``core/authz.py``). Guests
-sign in with username/password only; SSO is an operator/employee path.
+visitor signs in with a provisioned account (username/password) or employee
+SSO (OIDC). Admins, operators, and guests are all real accounts in the users
+collection; the difference is the ``role`` the account carries — admin runs
+the platform (``/admin`` console: accounts, the ESXi target, base images),
+operator builds and deploys on the canvas, guest gets a restricted subset of
+that (``core/authz.py``). Guests sign in with username/password only; SSO is
+an operator/employee path.
 
 Identity and the ESXi target are decoupled: who you are comes from
 the users collection / the IdP, while *which* ESXi host gets used is the one

@@ -9,7 +9,9 @@ import pytest
 # The settings module fail-fasts without these; set before importing anything
 # that pulls in core.secrets. A throwaway 32-byte key is fine for the test.
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
-os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+os.environ.setdefault(
+    "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+)
 
 from app.core.template_config import (  # noqa: E402
     decrypt_config_secrets,
@@ -45,7 +47,11 @@ def test_validate_rejects_weak_dc_password():
     with pytest.raises(ValueError):
         validate_template_config(
             "domainController",
-            {"vmName": "dc01", "template": "domainController", "domainAdminPassword": "weak"},
+            {
+                "vmName": "dc01",
+                "template": "domainController",
+                "domainAdminPassword": "weak",
+            },
         )
 
 
@@ -141,8 +147,6 @@ def test_ca_defaults_to_mldsa_87():
 
 def test_rsa_ca_keeps_keylength_and_hash():
     """RSA (and any non-ML-DSA algorithm) still carries key length + hash."""
-    config = extract_template_config(
-        "certificateAuthority", {"keyAlgorithm": "RSA"}
-    )
+    config = extract_template_config("certificateAuthority", {"keyAlgorithm": "RSA"})
     assert config["keyLength"] == "2048"
     assert config["hashAlgorithm"] == "SHA256"

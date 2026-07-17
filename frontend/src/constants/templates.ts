@@ -1,9 +1,4 @@
-import {
-  Building2,
-  Globe,
-  Server,
-  ShieldCheck,
-} from "lucide-react"
+import { Building2, Globe, Server, ShieldCheck } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 /**

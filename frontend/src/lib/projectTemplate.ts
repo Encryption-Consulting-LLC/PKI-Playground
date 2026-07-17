@@ -41,7 +41,10 @@ const PKI = {
   domainName: envDefault("VITE_PKI_DOMAIN_NAME", "encon.pki"),
   netbiosName: envDefault("VITE_PKI_NETBIOS_NAME", "ENCON"),
   forestLevel: envDefault("VITE_PKI_FOREST_LEVEL", "Windows Server 2016"),
-  domainAdminPassword: envDefault("VITE_PKI_DOMAIN_ADMIN_PASSWORD", "EcPkiLab#2026Key"),
+  domainAdminPassword: envDefault(
+    "VITE_PKI_DOMAIN_ADMIN_PASSWORD",
+    "EcPkiLab#2026Key",
+  ),
   rootCaCn: envDefault("VITE_PKI_ROOT_CA_CN", "EC-Root-CA"),
   issuingCaCn: envDefault("VITE_PKI_ISSUING_CA_CN", "EC-Issuing-CA"),
   cpsUrl: envDefault("VITE_PKI_CPS_URL", "http://pki.encon.pki/cps.txt"),
@@ -115,7 +118,11 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
     "webServer",
     "SRV1",
     { x: 740, y: 340 },
-    { certEnrollPath: "C:\\CertEnroll", enableOcsp: "Enabled", ocspRefreshMinutes: "15" },
+    {
+      certEnrollPath: "C:\\CertEnroll",
+      enableOcsp: "Enabled",
+      ocspRefreshMinutes: "15",
+    },
   )
   // Enrol the issuing CA and web server into the DC's domain (the offline root
   // stays out — roots must never be domain-joined). Membership is staged
@@ -125,12 +132,12 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
     const dc = useTopologyStore.getState().nodes.find((n) => n.id === dcId)
     if (dc) {
       const domainName = domainLabel(dc)
-      const members = [issuingId, webId].filter(
-        (id): id is string => !!id,
-      )
+      const members = [issuingId, webId].filter((id): id is string => !!id)
       const changes: DomainSyncChange[] = members
         .map((nodeId): DomainSyncChange | null => {
-          const node = useTopologyStore.getState().nodes.find((n) => n.id === nodeId)
+          const node = useTopologyStore
+            .getState()
+            .nodes.find((n) => n.id === nodeId)
           if (!node) return null
           return { nodeId, nodeName: node.data.name, dcId, domainName }
         })

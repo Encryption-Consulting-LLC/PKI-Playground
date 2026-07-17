@@ -8,7 +8,16 @@ from app.core.infrastructure import (
     role_for_template,
 )
 from app.core.sequences.context import dns_records_for_context
-from app.core.sequences.definitions import CA, DC, PRIMARY, ROOT, SECONDARY, WEB, op_sequence, provision_steps
+from app.core.sequences.definitions import (
+    CA,
+    DC,
+    PRIMARY,
+    ROOT,
+    SECONDARY,
+    WEB,
+    op_sequence,
+    provision_steps,
+)
 from app.core.sequences.model import DnsRecordContext, NodeContext, RunContext, Step
 from app.core.topology import PROVISION_SUFFIX, TopologyDocument, TopologyRole
 
@@ -46,7 +55,9 @@ _COMMAND_LABELS = {
 
 
 def _label(command: str) -> str:
-    return _COMMAND_LABELS.get(command, command.replace(".", " ").replace("_", " ").title())
+    return _COMMAND_LABELS.get(
+        command, command.replace(".", " ").replace("_", " ").title()
+    )
 
 
 def _preview_context(topology: TopologyDocument, op) -> RunContext:
@@ -129,30 +140,36 @@ def _step_kind(step: Step, *, verify: bool = False) -> str:
     return "agent"
 
 
-def _manifest_steps(steps: list[Step], aliases: dict[str, NodeContext]) -> list[dict[str, Any]]:
+def _manifest_steps(
+    steps: list[Step], aliases: dict[str, NodeContext]
+) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     previous: str | None = None
     for step in steps:
         item_id = step.id
-        result.append({
-            "id": item_id,
-            "label": _label(step.command),
-            "command": step.command,
-            "kind": _step_kind(step),
-            "targetNodeId": aliases[step.target].node_id,
-            "dependsOn": [previous] if previous else [],
-        })
+        result.append(
+            {
+                "id": item_id,
+                "label": _label(step.command),
+                "command": step.command,
+                "kind": _step_kind(step),
+                "targetNodeId": aliases[step.target].node_id,
+                "dependsOn": [previous] if previous else [],
+            }
+        )
         previous = item_id
         if step.verify is not None:
             verify_id = f"{step.id}.verify"
-            result.append({
-                "id": verify_id,
-                "label": _label(step.verify.command),
-                "command": step.verify.command,
-                "kind": _step_kind(step.verify, verify=True),
-                "targetNodeId": aliases[step.verify.target].node_id,
-                "dependsOn": [item_id],
-            })
+            result.append(
+                {
+                    "id": verify_id,
+                    "label": _label(step.verify.command),
+                    "command": step.verify.command,
+                    "kind": _step_kind(step.verify, verify=True),
+                    "targetNodeId": aliases[step.verify.target].node_id,
+                    "dependsOn": [item_id],
+                }
+            )
             previous = verify_id
     return result
 
@@ -175,12 +192,24 @@ def build_execution_groups(
         source_base = None
         if kind == "createVm":
             steps = [
-                {"id": "prepare", "label": "Prepare guest IP and first-boot media", "kind": "backend", "dependsOn": []},
-                {"id": "clone", "label": "Clone and power on virtual machine", "kind": "clone", "dependsOn": ["prepare"]},
+                {
+                    "id": "prepare",
+                    "label": "Prepare guest IP and first-boot media",
+                    "kind": "backend",
+                    "dependsOn": [],
+                },
+                {
+                    "id": "clone",
+                    "label": "Clone and power on virtual machine",
+                    "kind": "clone",
+                    "dependsOn": ["prepare"],
+                },
             ]
             for item in steps:
                 item["targetNodeId"] = op.target
-            profile_role = role_for_template(op.params["template"], op.params.get("caType"))
+            profile_role = role_for_template(
+                op.params["template"], op.params.get("caType")
+            )
             source_base = profiles[profile_role].base
             label = "Clone VM"
         elif kind == "provision":
@@ -195,14 +224,28 @@ def build_execution_groups(
                     "cbom": "Set up CBOM Secure (stub)",
                     "codesign": "Set up CodeSign Secure (stub)",
                 }[template]
-                steps = [{
-                    "id": "service-setup", "label": product_label,
-                    "kind": "backend", "dependsOn": [],
-                }]
+                steps = [
+                    {
+                        "id": "service-setup",
+                        "label": product_label,
+                        "kind": "backend",
+                        "dependsOn": [],
+                    }
+                ]
             else:
                 steps = [
-                    {"id": "agent-ready", "label": "Wait for orchestrator agent", "kind": "wait", "dependsOn": []},
-                    {"id": "boot-settle", "label": "Wait for first boot to settle", "kind": "wait", "dependsOn": ["agent-ready"]},
+                    {
+                        "id": "agent-ready",
+                        "label": "Wait for orchestrator agent",
+                        "kind": "wait",
+                        "dependsOn": [],
+                    },
+                    {
+                        "id": "boot-settle",
+                        "label": "Wait for first boot to settle",
+                        "kind": "wait",
+                        "dependsOn": ["agent-ready"],
+                    },
                 ]
             for item in steps:
                 item["targetNodeId"] = op.target
@@ -231,14 +274,16 @@ def build_execution_groups(
                 "caConnect": f"Issue {target.name} from {secondary.name if secondary else 'parent CA'}",
                 "webServerCert": f"Configure PKI services on {secondary.name if secondary else target.name}",
             }.get(kind, kind)
-        groups.append({
-            "id": op.id,
-            "kind": kind,
-            "label": label,
-            "target": op.target,
-            "secondary": op.secondary,
-            "dependsOn": list(op.depends_on),
-            "sourceBase": source_base,
-            "steps": steps,
-        })
+        groups.append(
+            {
+                "id": op.id,
+                "kind": kind,
+                "label": label,
+                "target": op.target,
+                "secondary": op.secondary,
+                "dependsOn": list(op.depends_on),
+                "sourceBase": source_base,
+                "steps": steps,
+            }
+        )
     return groups

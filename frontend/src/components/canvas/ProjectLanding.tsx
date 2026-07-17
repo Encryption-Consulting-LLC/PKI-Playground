@@ -12,13 +12,16 @@ import { useProjectsStore } from "@/store/projects"
  */
 export function ProjectLanding() {
   const addProject = useProjectsStore((s) => s.addProject)
-  const addProjectFromTemplate = useProjectsStore((s) => s.addProjectFromTemplate)
+  const addProjectFromTemplate = useProjectsStore(
+    (s) => s.addProjectFromTemplate,
+  )
   const isGuest = useAuthStore((s) => s.role === ROLES.guest)
   // Deployments normally point this at a share URL published by the guest
   // account that owns the ready-made lab. The stable fallback is useful for
   // environments that seed that conventional share id directly in Mongo.
   const predeployedPkiLink =
-    import.meta.env.VITE_PREDEPLOYED_PKI_LINK?.trim() || "/?share=predeployed-pki"
+    import.meta.env.VITE_PREDEPLOYED_PKI_LINK?.trim() ||
+    "/?share=predeployed-pki"
 
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto bg-muted/20 p-6">

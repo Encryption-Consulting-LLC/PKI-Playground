@@ -5,7 +5,9 @@ import json
 import os
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
-os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+os.environ.setdefault(
+    "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+)
 
 from app.core.sequences.definitions import op_sequence  # noqa: E402
 from app.core.sequences.model import DnsRecordContext, NodeContext, RunContext  # noqa: E402
@@ -53,7 +55,9 @@ def _ctx(primary_template="standalone", with_dns=False):
                 subject="ca02",
                 zone="1.168.192.in-addr.arpa",
             ),
-        ) if with_dns else (),
+        )
+        if with_dns
+        else (),
     )
 
 

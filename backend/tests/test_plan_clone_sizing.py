@@ -1,7 +1,10 @@
 """Plan clones must honor operator-configured per-role sizing."""
 
 from app.core.golden_image import GoldenImageConfig
-from app.core.infrastructure import InfrastructureProfile, infrastructure_profiles_from_doc
+from app.core.infrastructure import (
+    InfrastructureProfile,
+    infrastructure_profiles_from_doc,
+)
 from app.tasks import _plan_clone_defaults
 
 

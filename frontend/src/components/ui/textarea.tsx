@@ -35,7 +35,8 @@ function CodeEditor({
     e.preventDefault()
     const el = e.currentTarget
     const { selectionStart, selectionEnd } = el
-    const next = value.slice(0, selectionStart) + "    " + value.slice(selectionEnd)
+    const next =
+      value.slice(0, selectionStart) + "    " + value.slice(selectionEnd)
     onChange(next)
     requestAnimationFrame(() => {
       el.selectionStart = el.selectionEnd = selectionStart + 4
@@ -51,7 +52,10 @@ function CodeEditor({
       autoCapitalize="off"
       autoCorrect="off"
       wrap="off"
-      className={cn("font-mono text-xs leading-5 whitespace-pre overflow-auto", className)}
+      className={cn(
+        "font-mono text-xs leading-5 whitespace-pre overflow-auto",
+        className,
+      )}
       {...props}
     />
   )

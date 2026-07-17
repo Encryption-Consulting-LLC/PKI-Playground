@@ -86,7 +86,12 @@ def mint_state() -> tuple[str, str]:
     now = int(time.time())
     nonce = uuid.uuid4().hex
     state = jwt.encode(
-        {"purpose": "oidc-state", "nonce": nonce, "iat": now, "exp": now + _STATE_TTL_SECONDS},
+        {
+            "purpose": "oidc-state",
+            "nonce": nonce,
+            "iat": now,
+            "exp": now + _STATE_TTL_SECONDS,
+        },
         settings.session_secret,
         algorithm=_STATE_ALGORITHM,
     )
@@ -141,7 +146,9 @@ async def exchange_code(code: str) -> dict[str, Any]:
             },
         )
     if resp.status_code != 200:
-        raise HTTPException(status_code=401, detail="SSO code exchange was rejected by the IdP.")
+        raise HTTPException(
+            status_code=401, detail="SSO code exchange was rejected by the IdP."
+        )
     return resp.json()
 
 

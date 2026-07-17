@@ -6,7 +6,9 @@ import os
 from types import SimpleNamespace
 
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
-os.environ.setdefault("SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+os.environ.setdefault(
+    "SETTINGS_ENC_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+)
 
 from app.core.sequences.definitions import op_sequence  # noqa: E402
 from app.core.sequences.model import DnsRecordContext, NodeContext, RunContext  # noqa: E402
@@ -16,21 +18,45 @@ from app.tasks import _run_sequence_op  # noqa: E402
 
 def _node(nid, vm, template, cfg=None, ip="192.168.1.1"):
     return NodeContext(
-        node_id=nid, vm_name=vm, hostname=vm, agent_vm_id=f"v-{nid}",
-        ip=ip, template_id=template, template_config=cfg or {},
+        node_id=nid,
+        vm_name=vm,
+        hostname=vm,
+        agent_vm_id=f"v-{nid}",
+        ip=ip,
+        template_id=template,
+        template_config=cfg or {},
     )
 
 
 def _web_ctx():
-    dc = _node("dc01", "guest-abc12-dc01", "domainController",
-               {"domainName": "encon.pki", "netbiosName": "ENCON",
-                "domainAdminPassword": "Str0ng-Lab-Pass!"})
-    ca = _node("ca02", "guest-abc12-ca02", "certificateAuthority",
-               {"caType": "Issuing", "commonName": "EncryptionConsulting Issuing CA"})
-    root = _node("ca01", "guest-abc12-ca01", "certificateAuthority",
-                 {"caType": "Root", "commonName": "EC-Root-CA"})
-    web = _node("srv1", "guest-abc12-srv1", "webServer",
-                {"certEnrollPath": "C:\\CertEnroll", "ocspRefreshMinutes": "15"})
+    dc = _node(
+        "dc01",
+        "guest-abc12-dc01",
+        "domainController",
+        {
+            "domainName": "encon.pki",
+            "netbiosName": "ENCON",
+            "domainAdminPassword": "Str0ng-Lab-Pass!",
+        },
+    )
+    ca = _node(
+        "ca02",
+        "guest-abc12-ca02",
+        "certificateAuthority",
+        {"caType": "Issuing", "commonName": "EncryptionConsulting Issuing CA"},
+    )
+    root = _node(
+        "ca01",
+        "guest-abc12-ca01",
+        "certificateAuthority",
+        {"caType": "Root", "commonName": "EC-Root-CA"},
+    )
+    web = _node(
+        "srv1",
+        "guest-abc12-srv1",
+        "webServer",
+        {"certEnrollPath": "C:\\CertEnroll", "ocspRefreshMinutes": "15"},
+    )
     return RunContext(
         nodes={
             "primary": web,
@@ -111,7 +137,9 @@ def test_ocsp_config_points_at_the_issuing_ca():
 
 def test_deferred_cname_targets_the_web_host_on_the_dc():
     ctx = _web_ctx()
-    cname = next(s for s in op_sequence("webServerCert", ctx) if s.id == "dns-cname-apply")
+    cname = next(
+        s for s in op_sequence("webServerCert", ctx) if s.id == "dns-cname-apply"
+    )
     assert cname.target == "dc"
     params = cname.resolve_params(ctx)
     assert json.loads(params["records"])[0] == {
@@ -126,7 +154,8 @@ def test_deferred_cname_targets_the_web_host_on_the_dc():
 def test_cname_and_http_are_verified_from_web_and_ca():
     ctx = _web_ctx()
     verify = [
-        step for step in op_sequence("webServerCert", ctx)
+        step
+        for step in op_sequence("webServerCert", ctx)
         if step.id.startswith("dns-cname-verify-")
     ]
     assert [step.target for step in verify] == ["primary", "ca"]
@@ -139,7 +168,8 @@ def test_cname_and_http_are_verified_from_web_and_ca():
 def test_web_sequence_enrolls_a_dedicated_health_probe():
     ctx = _web_ctx()
     enroll = next(
-        step for step in op_sequence("webServerCert", ctx)
+        step
+        for step in op_sequence("webServerCert", ctx)
         if step.id == "enroll-health-probe"
     )
 
@@ -174,7 +204,8 @@ def test_final_health_gate_targets_all_four_machines():
 def test_enterprise_health_checks_every_http_artifact():
     ctx = _web_ctx()
     step = next(
-        item for item in op_sequence("webServerCert", ctx)
+        item
+        for item in op_sequence("webServerCert", ctx)
         if item.id == "enterprise-pki-health"
     )
     urls = json.loads(step.resolve_params(ctx)["httpUrls"])
@@ -258,14 +289,22 @@ def test_failed_publication_op_exposes_health_report(monkeypatch):
 
 
 def _client_ctx(with_ca=True):
-    dc = _node("dc01", "guest-abc12-dc01", "domainController",
-               {"domainName": "encon.pki", "netbiosName": "ENCON",
-                "domainAdminPassword": "Str0ng-Lab-Pass!"})
+    dc = _node(
+        "dc01",
+        "guest-abc12-dc01",
+        "domainController",
+        {
+            "domainName": "encon.pki",
+            "netbiosName": "ENCON",
+            "domainAdminPassword": "Str0ng-Lab-Pass!",
+        },
+    )
     win11 = _node("win11", "guest-abc12-win11", "client")
     nodes = {"primary": win11, "secondary": dc, "dc": dc}
     if with_ca:
-        nodes["ca"] = _node("ca02", "guest-abc12-ca02", "certificateAuthority",
-                            {"caType": "Issuing"})
+        nodes["ca"] = _node(
+            "ca02", "guest-abc12-ca02", "certificateAuthority", {"caType": "Issuing"}
+        )
     return RunContext(
         nodes=nodes,
         domain_name="encon.pki",

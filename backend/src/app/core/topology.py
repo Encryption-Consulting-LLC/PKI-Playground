@@ -310,7 +310,9 @@ def validate_topology(topology: TopologyDocument) -> None:
                     edge_ids=[edge.id],
                 )
             )
-        missing = [node_id for node_id in (edge.source, edge.target) if node_id not in nodes]
+        missing = [
+            node_id for node_id in (edge.source, edge.target) if node_id not in nodes
+        ]
         if missing:
             diagnostics.append(
                 TopologyDiagnostic(
@@ -387,7 +389,10 @@ def validate_topology(topology: TopologyDocument) -> None:
                 )
         elif edge.kind is TopologyEdgeKind.ca_publication:
             publications[edge.source].append(edge)
-            if source.role is not TopologyRole.issuing_ca or target.role is not TopologyRole.web_server:
+            if (
+                source.role is not TopologyRole.issuing_ca
+                or target.role is not TopologyRole.web_server
+            ):
                 diagnostics.append(
                     TopologyDiagnostic(
                         code="invalid-ca-publication",
@@ -426,12 +431,15 @@ def validate_topology(topology: TopologyDocument) -> None:
         diagnostics.append(
             TopologyDiagnostic(
                 code="ca-cycle",
-                message="CA hierarchy cycle: " + " -> ".join(nodes[node_id].name for node_id in cycle),
+                message="CA hierarchy cycle: "
+                + " -> ".join(nodes[node_id].name for node_id in cycle),
                 node_ids=cycle,
             )
         )
 
-    for issuing in (node for node in nodes.values() if node.role is TopologyRole.issuing_ca):
+    for issuing in (
+        node for node in nodes.values() if node.role is TopologyRole.issuing_ca
+    ):
         issuing_parents = parents.get(issuing.id, [])
         if not issuing_parents:
             diagnostics.append(
@@ -487,13 +495,20 @@ def validate_topology(topology: TopologyDocument) -> None:
                         edge_ids=[publication.id],
                     )
                 )
-            elif issuing_memberships and web_memberships[0].target != issuing_memberships[0].target:
+            elif (
+                issuing_memberships
+                and web_memberships[0].target != issuing_memberships[0].target
+            ):
                 diagnostics.append(
                     TopologyDiagnostic(
                         code="publication-domain-mismatch",
                         message=f"{issuing.name} and publication host {web.name} are in different domains.",
                         node_ids=[issuing.id, web.id],
-                        edge_ids=[publication.id, issuing_memberships[0].id, web_memberships[0].id],
+                        edge_ids=[
+                            publication.id,
+                            issuing_memberships[0].id,
+                            web_memberships[0].id,
+                        ],
                     )
                 )
             if web.config.get("enableOcsp") == "Disabled":
@@ -516,9 +531,18 @@ def validate_topology(topology: TopologyDocument) -> None:
                 )
             )
 
-    publication_by_web = {edge.target: edge for edge in valid_edges if edge.kind is TopologyEdgeKind.ca_publication}
-    for web in (node for node in nodes.values() if node.role is TopologyRole.web_server):
-        if web.config.get("enableOcsp", "Enabled") != "Disabled" and web.id not in publication_by_web:
+    publication_by_web = {
+        edge.target: edge
+        for edge in valid_edges
+        if edge.kind is TopologyEdgeKind.ca_publication
+    }
+    for web in (
+        node for node in nodes.values() if node.role is TopologyRole.web_server
+    ):
+        if (
+            web.config.get("enableOcsp", "Enabled") != "Disabled"
+            and web.id not in publication_by_web
+        ):
             diagnostics.append(
                 TopologyDiagnostic(
                     code="ocsp-template-grant-missing",
@@ -543,7 +567,11 @@ def validate_topology(topology: TopologyDocument) -> None:
                 )
             )
         dns_ids.add(record.id)
-        missing = [node_id for node_id in (record.server, record.subject) if node_id not in nodes]
+        missing = [
+            node_id
+            for node_id in (record.server, record.subject)
+            if node_id not in nodes
+        ]
         if missing:
             diagnostics.append(
                 TopologyDiagnostic(
@@ -645,7 +673,8 @@ def _operation_cycle(
         return None
     return TopologyDiagnostic(
         code="operation-cycle",
-        message="Operation dependency cycle: " + " -> ".join(labels[item] for item in cycle),
+        message="Operation dependency cycle: "
+        + " -> ".join(labels[item] for item in cycle),
         node_ids=cycle,
     )
 
@@ -793,9 +822,7 @@ def compile_plan(
         )
 
     edge_keys = {(edge.kind, edge.source, edge.target) for edge in topology.edges}
-    resource_states: dict[
-        tuple[str, str, str | None], TopologyResourceState
-    ] = {
+    resource_states: dict[tuple[str, str, str | None], TopologyResourceState] = {
         ("createVm", node.id, None): node.state for node in topology.nodes
     }
     resource_labels: dict[tuple[str, str, str | None], str] = {
@@ -814,7 +841,10 @@ def compile_plan(
     for op in operations:
         kind = _kind_value(op)
         if op.id in seen_ids:
-            error("duplicate-operation-id", f"Plan contains duplicate operation id '{op.id}'.")
+            error(
+                "duplicate-operation-id",
+                f"Plan contains duplicate operation id '{op.id}'.",
+            )
         seen_ids.add(op.id)
         if op.id.endswith(PROVISION_SUFFIX):
             error(
@@ -822,7 +852,10 @@ def compile_plan(
                 f"Operation id '{op.id}' uses the reserved '{PROVISION_SUFFIX}' suffix.",
             )
         if kind not in _KIND_RANK:
-            error("unknown-operation-kind", f"Operation '{op.id}' has unknown kind '{kind}'.")
+            error(
+                "unknown-operation-kind",
+                f"Operation '{op.id}' has unknown kind '{kind}'.",
+            )
             continue
         if op.target not in nodes:
             error(
@@ -866,7 +899,8 @@ def compile_plan(
                 TopologyRole.web_server: ("webServer", None),
                 TopologyRole.client: ("client", None),
                 TopologyRole.standalone: (
-                    {"standalone", "certsecure", "cbom", "codesign"}, None
+                    {"standalone", "certsecure", "cbom", "codesign"},
+                    None,
                 ),
             }[nodes[op.target].role]
             allowed = expected_templates[0]
@@ -883,11 +917,15 @@ def compile_plan(
                     op.target,
                 )
         elif kind == "domainJoin":
-            if not op.secondary or (
-                TopologyEdgeKind.domain_membership,
-                op.target,
-                op.secondary,
-            ) not in edge_keys:
+            if (
+                not op.secondary
+                or (
+                    TopologyEdgeKind.domain_membership,
+                    op.target,
+                    op.secondary,
+                )
+                not in edge_keys
+            ):
                 error(
                     "operation-relationship-mismatch",
                     f"domainJoin for {nodes[op.target].name} is not present in the final topology.",
@@ -895,11 +933,15 @@ def compile_plan(
                     *([op.secondary] if op.secondary else []),
                 )
         elif kind == "caConnect":
-            if not op.secondary or (
-                TopologyEdgeKind.ca_parent,
-                op.secondary,
-                op.target,
-            ) not in edge_keys:
+            if (
+                not op.secondary
+                or (
+                    TopologyEdgeKind.ca_parent,
+                    op.secondary,
+                    op.target,
+                )
+                not in edge_keys
+            ):
                 error(
                     "operation-relationship-mismatch",
                     f"caConnect for {nodes[op.target].name} is not present in the final topology.",
@@ -907,11 +949,15 @@ def compile_plan(
                     *([op.secondary] if op.secondary else []),
                 )
         elif kind == "webServerCert":
-            if not op.secondary or (
-                TopologyEdgeKind.ca_publication,
-                op.target,
-                op.secondary,
-            ) not in edge_keys:
+            if (
+                not op.secondary
+                or (
+                    TopologyEdgeKind.ca_publication,
+                    op.target,
+                    op.secondary,
+                )
+                not in edge_keys
+            ):
                 error(
                     "operation-relationship-mismatch",
                     f"webServerCert for {nodes[op.target].name} is not present in the final topology.",
@@ -998,7 +1044,10 @@ def compile_plan(
             if nodes[op.target].role is TopologyRole.client:
                 dc_id = op.secondary
                 for issuing_id, issuing_dc in membership_by_member.items():
-                    if issuing_dc == dc_id and nodes[issuing_id].role is TopologyRole.issuing_ca:
+                    if (
+                        issuing_dc == dc_id
+                        and nodes[issuing_id].role is TopologyRole.issuing_ca
+                    ):
                         root_id = parent_by_ca.get(issuing_id)
                         require(op.id, ca_connects.get((issuing_id, root_id)))
         elif kind == "caConnect":

@@ -24,7 +24,9 @@ function clearShareFromLocation() {
 /** Resolves incoming guest links after login/project hydration. */
 export function ProjectShareLinkHandler() {
   const openSharedProject = useProjectsStore((s) => s.openSharedProject)
-  const [invitation, setInvitation] = useState<ProjectShareMetadata | null>(null)
+  const [invitation, setInvitation] = useState<ProjectShareMetadata | null>(
+    null,
+  )
   const [accepting, setAccepting] = useState(false)
 
   useEffect(() => {
@@ -48,7 +50,11 @@ export function ProjectShareLinkHandler() {
       } catch (error) {
         if (!active) return
         clearShareFromLocation()
-        toast.error(error instanceof Error ? error.message : "Could not open shared project.")
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not open shared project.",
+        )
       }
     }
 
@@ -73,14 +79,21 @@ export function ProjectShareLinkHandler() {
       setInvitation(null)
       toast.success(`Joined PKI project ${invitation.projectId}.`)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not join shared project.")
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not join shared project.",
+      )
     } finally {
       setAccepting(false)
     }
   }
 
   return (
-    <AlertDialog.Root open={invitation !== null} onOpenChange={(next) => !next && cancel()}>
+    <AlertDialog.Root
+      open={invitation !== null}
+      onOpenChange={(next) => !next && cancel()}
+    >
       <AlertDialog.Portal>
         <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
         <AlertDialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-popover p-5 text-popover-foreground shadow-lg ring-1 ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
@@ -91,10 +104,19 @@ export function ProjectShareLinkHandler() {
             Do you want to collaborate on PKI project {invitation?.projectId}?
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
-            <Button variant="outline" size="sm" disabled={accepting} onClick={cancel}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={accepting}
+              onClick={cancel}
+            >
               Cancel
             </Button>
-            <Button size="sm" disabled={accepting} onClick={() => void accept()}>
+            <Button
+              size="sm"
+              disabled={accepting}
+              onClick={() => void accept()}
+            >
               {accepting ? "Joining…" : "Continue"}
             </Button>
           </div>

@@ -7,7 +7,10 @@ from app.core.sequences.model import NodeContext, RunContext
 def test_certificate_journey_projects_urls_dns_artifacts_and_failures() -> None:
     web = NodeContext("srv1", "srv1", "SRV1", ip="10.0.0.14")
     ca = NodeContext(
-        "ca02", "ca02", "CA02", ip="10.0.0.13",
+        "ca02",
+        "ca02",
+        "CA02",
+        ip="10.0.0.13",
         template_config={"commonName": "EC Issuing CA"},
     )
     ctx = RunContext(
@@ -38,10 +41,15 @@ def test_certificate_journey_projects_urls_dns_artifacts_and_failures() -> None:
     )
 
     assert [hop["id"] for hop in journey["hops"]] == [
-        "enroll", "issue", "aia", "cdp", "ocsp"
+        "enroll",
+        "issue",
+        "aia",
+        "cdp",
+        "ocsp",
     ]
     assert journey["hops"][2]["dns"] == {
-        "hostname": "pki.encon.pki", "address": "10.0.0.14"
+        "hostname": "pki.encon.pki",
+        "address": "10.0.0.14",
     }
     assert journey["hops"][2]["artifacts"][0].endswith("issuing%20ca.crt")
     assert journey["hops"][3]["failureReason"]

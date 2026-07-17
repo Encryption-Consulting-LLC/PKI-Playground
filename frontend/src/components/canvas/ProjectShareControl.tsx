@@ -54,7 +54,11 @@ export function ProjectShareControl() {
       setLink(projectShareUrl(metadata.projectId))
     } catch (error) {
       setOpen(false)
-      toast.error(error instanceof Error ? error.message : "Could not create sharing link.")
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not create sharing link.",
+      )
     } finally {
       setPublishing(false)
     }
@@ -99,7 +103,8 @@ export function ProjectShareControl() {
             }}
           />
           <p className="mt-2 text-[11px] text-muted-foreground">
-            Click the field to copy. Guests with this link can join this project.
+            Click the field to copy. Guests with this link can join this
+            project.
           </p>
         </div>
       )}

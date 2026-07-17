@@ -30,8 +30,13 @@ def _config(**overrides):
 
 
 def _patch_inventory(
-    monkeypatch, *, guest_os="windows2022srvNext_64Guest", names=None,
-    capacity=1000, free=600, vmdk=100
+    monkeypatch,
+    *,
+    guest_os="windows2022srvNext_64Guest",
+    names=None,
+    capacity=1000,
+    free=600,
+    vmdk=100,
 ):
     monkeypatch.setattr(
         golden_image,

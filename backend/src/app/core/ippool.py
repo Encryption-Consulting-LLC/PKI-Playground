@@ -87,13 +87,19 @@ def validate_network(net: GuestNetwork) -> None:
     """Raise ValueError on a malformed range, gateway, or DNS address —
     operator input is rejected here (422) rather than failing a deploy later."""
     range_ips(net.ip_start, net.ip_end)
-    for label, value in (("gateway", net.gateway), ("dns1", net.dns1), ("dns2", net.dns2)):
+    for label, value in (
+        ("gateway", net.gateway),
+        ("dns1", net.dns1),
+        ("dns2", net.dns2),
+    ):
         if not value:
             continue
         try:
             IPv4Address(value)
         except ValueError:
-            raise ValueError(f"Guest {label} '{value}' is not a valid IPv4 address.") from None
+            raise ValueError(
+                f"Guest {label} '{value}' is not a valid IPv4 address."
+            ) from None
 
 
 # --------------------------------------------------------------------------- #

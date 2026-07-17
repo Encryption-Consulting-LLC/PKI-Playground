@@ -31,7 +31,8 @@ type Kind = keyof typeof KINDS
  * convenience; configgen validates the real value on generate.
  */
 function defaultHostname(nodeName: string, platform: Platform): string {
-  const safe = nodeName.replace(/[^A-Za-z0-9-]/g, "-").replace(/^-+|-+$/g, "") || "vm"
+  const safe =
+    nodeName.replace(/[^A-Za-z0-9-]/g, "-").replace(/^-+|-+$/g, "") || "vm"
   const limit = platform === "linux" ? 63 : 15
   return safe.slice(-limit).replace(/^-+|-+$/g, "") || "vm"
 }
@@ -60,7 +61,9 @@ export function GenerateScriptDialog({
   const [kind, setKind] = useState<Kind>("hostname")
   const [busy, setBusy] = useState(false)
 
-  const [hostname, setHostname] = useState(() => defaultHostname(nodeName, platform))
+  const [hostname, setHostname] = useState(() =>
+    defaultHostname(nodeName, platform),
+  )
   const [dhcp, setDhcp] = useState(false)
   const [ip, setIp] = useState("")
   const [prefix, setPrefix] = useState("24")
@@ -68,7 +71,9 @@ export function GenerateScriptDialog({
   const [dns1, setDns1] = useState("")
   const [dns2, setDns2] = useState("")
   const [dnsSuffix, setDnsSuffix] = useState("")
-  const [username, setUsername] = useState(platform === "linux" ? "ubuntu" : "Administrator")
+  const [username, setUsername] = useState(
+    platform === "linux" ? "ubuntu" : "Administrator",
+  )
   const [password, setPassword] = useState("")
 
   function generate() {
@@ -96,7 +101,10 @@ export function GenerateScriptDialog({
 
     call
       .then((content) => {
-        onInsert({ name: `${KINDS[kind].basename}.${platform === "linux" ? "sh" : "ps1"}`, content })
+        onInsert({
+          name: `${KINDS[kind].basename}.${platform === "linux" ? "sh" : "ps1"}`,
+          content,
+        })
         onClose()
       })
       .catch((err) => {
@@ -122,16 +130,24 @@ export function GenerateScriptDialog({
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
         <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 flex w-[min(380px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-xl border bg-popover p-5 text-popover-foreground shadow-lg ring-1 ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
-          <Dialog.Title className="text-sm font-semibold">Generate from template</Dialog.Title>
+          <Dialog.Title className="text-sm font-semibold">
+            Generate from template
+          </Dialog.Title>
           <Dialog.Description className="text-xs text-muted-foreground">
             Renders a firstboot script with configgen and adds it to the panel
-            as <span className="font-mono">{KINDS[kind].basename}.{platform === "linux" ? "sh" : "ps1"}</span>,
-            editable like any other file.
+            as{" "}
+            <span className="font-mono">
+              {KINDS[kind].basename}.{platform === "linux" ? "sh" : "ps1"}
+            </span>
+            , editable like any other file.
           </Dialog.Description>
 
           {field(
             "Script",
-            <Select value={kind} onValueChange={(v) => v !== null && setKind(v as Kind)}>
+            <Select
+              value={kind}
+              onValueChange={(v) => v !== null && setKind(v as Kind)}
+            >
               <SelectTrigger className="h-7 text-xs">
                 <SelectValue />
               </SelectTrigger>
@@ -147,7 +163,9 @@ export function GenerateScriptDialog({
 
           {kind === "hostname" &&
             field(
-              platform === "windows" ? "Hostname (15 chars max)" : "Hostname (63 chars max)",
+              platform === "windows"
+                ? "Hostname (15 chars max)"
+                : "Hostname (63 chars max)",
               <Input
                 value={hostname}
                 onChange={(e) => setHostname(e.target.value)}
@@ -167,8 +185,12 @@ export function GenerateScriptDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="static" className="text-xs">Static</SelectItem>
-                    <SelectItem value="dhcp" className="text-xs">DHCP</SelectItem>
+                    <SelectItem value="static" className="text-xs">
+                      Static
+                    </SelectItem>
+                    <SelectItem value="dhcp" className="text-xs">
+                      DHCP
+                    </SelectItem>
                   </SelectContent>
                 </Select>,
               )}
@@ -178,33 +200,62 @@ export function GenerateScriptDialog({
                     <div className="flex-1">
                       {field(
                         "IP address",
-                        <Input value={ip} onChange={(e) => setIp(e.target.value)} placeholder="192.168.1.50" className="h-7 font-mono text-xs" />,
+                        <Input
+                          value={ip}
+                          onChange={(e) => setIp(e.target.value)}
+                          placeholder="192.168.1.50"
+                          className="h-7 font-mono text-xs"
+                        />,
                       )}
                     </div>
                     <div className="w-16">
                       {field(
                         "Prefix",
-                        <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="24" className="h-7 font-mono text-xs" />,
+                        <Input
+                          value={prefix}
+                          onChange={(e) => setPrefix(e.target.value)}
+                          placeholder="24"
+                          className="h-7 font-mono text-xs"
+                        />,
                       )}
                     </div>
                   </div>
                   {field(
                     "Gateway",
-                    <Input value={gateway} onChange={(e) => setGateway(e.target.value)} placeholder="192.168.1.1" className="h-7 font-mono text-xs" />,
+                    <Input
+                      value={gateway}
+                      onChange={(e) => setGateway(e.target.value)}
+                      placeholder="192.168.1.1"
+                      className="h-7 font-mono text-xs"
+                    />,
                   )}
                   {field(
                     "DNS 1",
-                    <Input value={dns1} onChange={(e) => setDns1(e.target.value)} placeholder="192.168.1.10" className="h-7 font-mono text-xs" />,
+                    <Input
+                      value={dns1}
+                      onChange={(e) => setDns1(e.target.value)}
+                      placeholder="192.168.1.10"
+                      className="h-7 font-mono text-xs"
+                    />,
                   )}
                 </>
               )}
               {field(
                 "DNS 2 (optional)",
-                <Input value={dns2} onChange={(e) => setDns2(e.target.value)} className="h-7 font-mono text-xs" />,
+                <Input
+                  value={dns2}
+                  onChange={(e) => setDns2(e.target.value)}
+                  className="h-7 font-mono text-xs"
+                />,
               )}
               {field(
                 "DNS suffix (optional)",
-                <Input value={dnsSuffix} onChange={(e) => setDnsSuffix(e.target.value)} placeholder="corp.example.com" className="h-7 font-mono text-xs" />,
+                <Input
+                  value={dnsSuffix}
+                  onChange={(e) => setDnsSuffix(e.target.value)}
+                  placeholder="corp.example.com"
+                  className="h-7 font-mono text-xs"
+                />,
               )}
             </>
           )}
@@ -213,11 +264,20 @@ export function GenerateScriptDialog({
             <>
               {field(
                 "Username",
-                <Input value={username} onChange={(e) => setUsername(e.target.value)} className="h-7 font-mono text-xs" />,
+                <Input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="h-7 font-mono text-xs"
+                />,
               )}
               {field(
                 "Password",
-                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-7 text-xs" />,
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-7 text-xs"
+                />,
               )}
               <p className="text-[11px] leading-4 text-muted-foreground">
                 The password is embedded in the script text and stored with the
@@ -232,9 +292,13 @@ export function GenerateScriptDialog({
             </Button>
             <Button size="sm" onClick={generate} disabled={busy}>
               {busy ? (
-                <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Generating…</>
+                <>
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Generating…
+                </>
               ) : (
-                <><Wand2 className="mr-1 h-3 w-3" /> Generate</>
+                <>
+                  <Wand2 className="mr-1 h-3 w-3" /> Generate
+                </>
               )}
             </Button>
           </div>

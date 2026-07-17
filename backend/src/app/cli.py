@@ -1,6 +1,7 @@
 import argparse
 import getpass
 import multiprocessing
+import os
 import sys
 import time
 
@@ -17,9 +18,12 @@ def _esxi_worker_argv() -> list[str]:
     from app.core.settings import settings
 
     return [
-        "worker", "-E",
-        "-Q", "esxi",
-        "-n", "esxi@%h",
+        "worker",
+        "-E",
+        "-Q",
+        "esxi",
+        "-n",
+        "esxi@%h",
         "--pool=prefork",
         f"--concurrency={settings.clone_concurrency}",
         "--prefetch-multiplier=1",
@@ -35,9 +39,12 @@ def _provision_worker_argv() -> list[str]:
     from app.core.settings import settings
 
     return [
-        "worker", "-E",
-        "-Q", "provision,celery",
-        "-n", "provision@%h",
+        "worker",
+        "-E",
+        "-Q",
+        "provision,celery",
+        "-n",
+        "provision@%h",
         "--pool=threads",
         f"--concurrency={settings.provision_concurrency}",
         "--prefetch-multiplier=1",
@@ -72,7 +79,9 @@ def worker() -> None:
             target=_run_worker, args=(_esxi_worker_argv(),), name="esxi-worker"
         ),
         multiprocessing.Process(
-            target=_run_worker, args=(_provision_worker_argv(),), name="provision-worker"
+            target=_run_worker,
+            args=(_provision_worker_argv(),),
+            name="provision-worker",
         ),
     ]
     for child in children:
@@ -96,11 +105,17 @@ def worker() -> None:
 
 
 def create_admin() -> None:
-    """Bootstrap CLI: provision the first operator account (``uv run create-admin``).
+    """Bootstrap CLI: provision an account (``uv run create-admin``), any role.
 
-    Exists because account creation is otherwise gated behind an operator
-    session — a fresh deploy has no operator to mint one. Sync PyMongo on
-    purpose: this runs outside the API process/event loop.
+    Exists because account creation is otherwise gated behind an admin
+    session — a fresh deploy has none to mint one. Sync PyMongo on purpose:
+    this runs outside the API process/event loop.
+
+    Non-interactive mode (used by ``deploy/prod-deploy.sh`` to seed the first
+    admin account on every deploy run): set ``ADMIN_PASSWORD`` in the
+    environment to skip the interactive prompt/confirmation. Either way, an
+    existing username is treated as already-provisioned and left untouched
+    (idempotent, so re-running deploy never errors or overwrites a password).
     """
     from pymongo import MongoClient
     from pymongo.errors import DuplicateKeyError
@@ -109,17 +124,25 @@ def create_admin() -> None:
     from app.core.identity import hash_password
     from app.core.settings import settings
 
-    parser = argparse.ArgumentParser(description="Provision an operator account.")
+    parser = argparse.ArgumentParser(description="Provision an account.")
     parser.add_argument("username")
     parser.add_argument("--email", default=None)
-    parser.add_argument("--role", choices=("operator", "guest"), default="operator")
+    parser.add_argument(
+        "--role", choices=("admin", "operator", "guest"), default="operator"
+    )
     args = parser.parse_args()
 
-    password = getpass.getpass("Password: ")
-    if len(password) < 8:
-        sys.exit("Password must be at least 8 characters.")
-    if getpass.getpass("Repeat password: ") != password:
-        sys.exit("Passwords do not match.")
+    env_password = os.environ.get("ADMIN_PASSWORD")
+    if env_password is not None:
+        password = env_password
+        if len(password) < 8:
+            sys.exit("ADMIN_PASSWORD must be at least 8 characters.")
+    else:
+        password = getpass.getpass("Password: ")
+        if len(password) < 8:
+            sys.exit("Password must be at least 8 characters.")
+        if getpass.getpass("Repeat password: ") != password:
+            sys.exit("Passwords do not match.")
 
     doc = UserDoc(
         id=args.username,
@@ -133,9 +156,13 @@ def create_admin() -> None:
     )
     client: MongoClient = MongoClient(settings.mongo_url, serverSelectionTimeoutMS=5000)
     try:
+        if client[settings.mongo_db]["users"].find_one({"username": args.username}):
+            print(f"User '{args.username}' already exists — leaving it untouched.")
+            return
         client[settings.mongo_db]["users"].insert_one(to_mongo(doc))
     except DuplicateKeyError:
-        sys.exit(f"User '{args.username}' already exists.")
+        print(f"User '{args.username}' already exists — leaving it untouched.")
+        return
     finally:
         client.close()
     print(f"Created {args.role} account '{args.username}'.")

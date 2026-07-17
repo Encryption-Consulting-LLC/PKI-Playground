@@ -72,13 +72,54 @@ def _frontend_dist() -> Path:
     return Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
 
+def _admin_dist() -> Path:
+    """Location of the built admin SPA. Overridable for split deploys;
+    defaults to the sibling ``admin/dist`` in a full checkout."""
+    override = os.environ.get("ADMIN_DIST")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[3] / "admin" / "dist"
+
+
+def _mount_admin(app: FastAPI) -> None:
+    """Serve the built admin SPA at ``/admin``, same origin as the API.
+
+    Registered *before* ``_mount_frontend``'s greedy ``/{path:path}`` catch-all
+    so ``/admin`` isn't swallowed by the operator SPA's fallback first. Real
+    files are served as-is; every other ``/admin/...`` path falls back to the
+    admin build's ``index.html`` for client-side routing (it is a separate
+    Vite app, built with ``base: "/admin/"``). No-op when the build is absent.
+    """
+    dist = _admin_dist()
+    index = dist / "index.html"
+    if not index.is_file():
+        logger.info("No admin build at %s — /admin unavailable.", dist)
+        return
+
+    assets = dist / "assets"
+    if assets.is_dir():
+        app.mount("/admin/assets", StaticFiles(directory=assets), name="admin-assets")
+
+    @app.get("/admin", include_in_schema=False)
+    async def _admin_root() -> FileResponse:
+        return FileResponse(index)
+
+    @app.get("/admin/{path:path}", include_in_schema=False)
+    async def _admin_catch_all(path: str) -> FileResponse:
+        candidate = dist / path
+        if candidate.is_file() and candidate.resolve().is_relative_to(dist.resolve()):
+            return FileResponse(candidate)
+        return FileResponse(index)
+
+
 def _mount_frontend(app: FastAPI) -> None:
     """Serve the built SPA from the same origin as the API.
 
-    Registered last, so ``/api``, ``/docs``, and ``/openapi.json`` (added
-    before this call) always win. Real files are served as-is; every other
-    non-``/api`` path falls back to ``index.html`` for client-side routing.
-    No-op when the build is absent (dev without ``pnpm build``, or tests).
+    Registered last, so ``/api``, ``/docs``, ``/openapi.json``, and ``/admin``
+    (added before this call) always win. Real files are served as-is; every
+    other non-``/api`` path falls back to ``index.html`` for client-side
+    routing. No-op when the build is absent (dev without ``pnpm build``, or
+    tests).
     """
     dist = _frontend_dist()
     index = dist / "index.html"
@@ -114,6 +155,7 @@ def create_app() -> FastAPI:
     )
     register_exception_handlers(app)
     app.include_router(api_router)
+    _mount_admin(app)
     _mount_frontend(app)
     return app
 

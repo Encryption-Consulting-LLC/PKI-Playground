@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest"
 import type { Edge, Node } from "@xyflow/react"
 
-import { CONNECTION_HEALTH, CONNECTION_PORT, EDGE_TYPE } from "@/constants/topology"
+import {
+  CONNECTION_HEALTH,
+  CONNECTION_PORT,
+  EDGE_TYPE,
+} from "@/constants/topology"
 import {
   aggregateServiceHealth,
   buildAuditSnapshot,
@@ -13,21 +17,36 @@ import type { MachineData } from "@/store/topology"
 
 const checks = {
   certificate: Object.fromEntries(
-    ["chain", "aia", "cdp", "ocsp", "mlDsa", "validity", "revocationFreshness"]
-      .map((key) => [key, { ok: true }]),
+    [
+      "chain",
+      "aia",
+      "cdp",
+      "ocsp",
+      "mlDsa",
+      "validity",
+      "revocationFreshness",
+    ].map((key) => [key, { ok: true }]),
   ),
   enterprisePki: Object.fromEntries(
-    ["containers", "templates", "httpArtifacts"].map((key) => [key, { ok: true }]),
+    ["containers", "templates", "httpArtifacts"].map((key) => [
+      key,
+      { ok: true },
+    ]),
   ),
   caServices: { root: { ok: true }, issuing: { ok: true } },
   ocspResponder: { ok: true },
   dnsPublication: { web: { ok: true }, issuing: { ok: true } },
   runtimeIdentities: {
-    dc: { ok: true }, root: { ok: true }, issuing: { ok: true }, web: { ok: true },
+    dc: { ok: true },
+    root: { ok: true },
+    issuing: { ok: true },
+    web: { ok: true },
   },
 }
 
-function evidence(report: LabHealthReport = { healthy: true, failures: [], checks }) {
+function evidence(
+  report: LabHealthReport = { healthy: true, failures: [], checks },
+) {
   return createLabEvidence("job-1", report, {
     schemaVersion: 1,
     healthy: report.healthy,
@@ -38,10 +57,34 @@ function evidence(report: LabHealthReport = { healthy: true, failures: [], check
 }
 
 const nodes: Node<MachineData>[] = [
-  { id: "ca", position: { x: 0, y: 0 }, data: { name: "CA02", typeId: "certificateAuthority", config: { caType: "Issuing" }, lifecycle: "deployed", poweredOn: true } },
-  { id: "web", position: { x: 0, y: 0 }, data: { name: "SRV1", typeId: "webServer", lifecycle: "deployed", poweredOn: true } },
+  {
+    id: "ca",
+    position: { x: 0, y: 0 },
+    data: {
+      name: "CA02",
+      typeId: "certificateAuthority",
+      config: { caType: "Issuing" },
+      lifecycle: "deployed",
+      poweredOn: true,
+    },
+  },
+  {
+    id: "web",
+    position: { x: 0, y: 0 },
+    data: {
+      name: "SRV1",
+      typeId: "webServer",
+      lifecycle: "deployed",
+      poweredOn: true,
+    },
+  },
 ]
-const publication: Edge = { id: "publish", source: "ca", target: "web", data: { edgeType: EDGE_TYPE.webServerCert } }
+const publication: Edge = {
+  id: "publish",
+  source: "ca",
+  target: "web",
+  data: { edgeType: EDGE_TYPE.webServerCert },
+}
 
 describe("lab evidence projection", () => {
   it("colors only the failed service segment", () => {
@@ -62,17 +105,25 @@ describe("lab evidence projection", () => {
   })
 
   it("uses the least healthy service as the edge summary", () => {
-    expect(aggregateServiceHealth({
-      [CONNECTION_PORT.caPublication]: CONNECTION_HEALTH.verified,
-      [CONNECTION_PORT.probeCertificate]: CONNECTION_HEALTH.broken,
-    }, CONNECTION_HEALTH.verified)).toBe(CONNECTION_HEALTH.broken)
+    expect(
+      aggregateServiceHealth(
+        {
+          [CONNECTION_PORT.caPublication]: CONNECTION_HEALTH.verified,
+          [CONNECTION_PORT.probeCertificate]: CONNECTION_HEALTH.broken,
+        },
+        CONNECTION_HEALTH.verified,
+      ),
+    ).toBe(CONNECTION_HEALTH.broken)
   })
 
   it("builds a redacted shareable topology and verification snapshot", () => {
     const snapshot = buildAuditSnapshot(nodes, [publication], evidence())
 
     expect(snapshot.deploymentJobId).toBe("job-1")
-    expect(snapshot.topology.nodes.map((node) => node.name)).toEqual(["CA02", "SRV1"])
+    expect(snapshot.topology.nodes.map((node) => node.name)).toEqual([
+      "CA02",
+      "SRV1",
+    ])
     expect(snapshot.verification.healthy).toBe(true)
   })
 })

@@ -7,10 +7,13 @@
 #   2. Ensure backend/.env exists with the two required secrets.
 #   3. Install backend deps (uv sync) and download the Windows orchestrator
 #      agent (wget from GitHub Releases) into backend/agent/.
-#   4. Build the frontend (pnpm build → frontend/dist), served same-origin by
-#      the API's static mount.
+#   4. Build the frontend and admin app (pnpm build → */dist), both served
+#      same-origin by the API's static mounts.
 #   5. Health-check the already-running MongoDB and Valkey.
-#   6. Install and (re)start systemd *user* services: API and both Celery
+#   6. Seed the first admin account (prompts for credentials interactively,
+#      or auto-generates a password unattended) — a no-op if it already
+#      exists, so re-running never resets it.
+#   7. Install and (re)start systemd *user* services: API and both Celery
 #      workers. Enable linger so they start at boot.
 #
 # The orchestrator binary is a Windows artifact — it is NOT run here; it is
@@ -106,6 +109,7 @@ fi
 
 BACKEND="$APP_DIR/backend"
 FRONTEND="$APP_DIR/frontend"
+ADMIN="$APP_DIR/admin"
 AGENT_DIR="$BACKEND/agent"
 
 # ----------------------------------------------------------------------------
@@ -163,11 +167,16 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 4. Build the frontend (served same-origin by the API static mount)
+# 4. Build the frontend and admin app (both served same-origin by the API's
+#    static mounts — see app/main.py::_mount_frontend / _mount_admin)
 # ----------------------------------------------------------------------------
 log "Building frontend"
 ( cd "$FRONTEND" && pnpm install --frozen-lockfile && pnpm build )
 [ -f "$FRONTEND/dist/index.html" ] || die "frontend build produced no dist/index.html"
+
+log "Building admin app"
+( cd "$ADMIN" && pnpm install --frozen-lockfile && pnpm build )
+[ -f "$ADMIN/dist/index.html" ] || die "admin build produced no dist/index.html"
 
 # ----------------------------------------------------------------------------
 # 5. Health-check datastores (assumed already running)
@@ -177,7 +186,55 @@ check_tcp MongoDB "$MONGO_URL"
 check_tcp Valkey "$VALKEY_URL"
 
 # ----------------------------------------------------------------------------
-# 6. systemd user services
+# 6. Seed the first admin account
+#
+#    Admin is a separate role from operator (core/authz.py) — it manages the
+#    ESXi target, base images, and accounts via the /admin console, and has
+#    no access to the operator canvas. `create-admin` (backend/src/app/cli.py)
+#    is idempotent: an existing ADMIN_USERNAME is left untouched, so re-running
+#    this script never resets the password.
+# ----------------------------------------------------------------------------
+ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
+ADMIN_PASSWORD_GENERATED=0
+
+if [ -z "$ADMIN_PASSWORD" ] && [ -t 0 ]; then
+  log "Provisioning the admin account (press Enter on the password prompt to auto-generate one)"
+  read -r -p "Admin username [$ADMIN_USERNAME]: " admin_username_input
+  ADMIN_USERNAME="${admin_username_input:-$ADMIN_USERNAME}"
+  read -rs -p "Admin password (blank to auto-generate): " admin_password_input
+  echo
+  if [ -n "$admin_password_input" ]; then
+    read -rs -p "Repeat password: " admin_password_confirm
+    echo
+    [ "$admin_password_input" = "$admin_password_confirm" ] || die "Passwords did not match."
+    ADMIN_PASSWORD="$admin_password_input"
+  fi
+fi
+if [ -z "$ADMIN_PASSWORD" ]; then
+  ADMIN_PASSWORD="$(openssl rand -base64 18)"
+  ADMIN_PASSWORD_GENERATED=1
+fi
+
+log "Provisioning admin account '$ADMIN_USERNAME' (no-op if it already exists)"
+CREATE_ADMIN_OUTPUT="$(cd "$BACKEND" && ADMIN_PASSWORD="$ADMIN_PASSWORD" uv run create-admin "$ADMIN_USERNAME" --role admin)"
+printf '%s\n' "$CREATE_ADMIN_OUTPUT"
+
+# Only surface the generated password if the account was actually just
+# created — on a re-run (or an existing username reused for ADMIN_USERNAME)
+# create-admin no-ops, and the freshly-generated string above was never
+# applied, so printing it would show a password that isn't the real one.
+ADMIN_NOTE=""
+if [ "$ADMIN_PASSWORD_GENERATED" -eq 1 ] && printf '%s' "$CREATE_ADMIN_OUTPUT" | grep -qF "Created admin account '$ADMIN_USERNAME'."; then
+  ADMIN_NOTE="  - Generated admin credentials (shown once — store them securely, then rotate via the
+    admin console or \`uv run create-admin $ADMIN_USERNAME --role admin\` under a fresh password):
+      username: $ADMIN_USERNAME
+      password: $ADMIN_PASSWORD
+"
+fi
+
+# ----------------------------------------------------------------------------
+# 7. systemd user services
 # ----------------------------------------------------------------------------
 log "Installing systemd user units into $SYSTEMD_DIR"
 mkdir -p "$SYSTEMD_DIR"
@@ -270,9 +327,10 @@ systemctl --user --no-pager --no-legend status \
 cat <<EOF
 
 Next steps:
-  - Bootstrap an operator (interactive password prompt):
-      cd $BACKEND && uv run create-admin <name>
+  - Admin console: $API_HOST:$API_PORT/admin  (account '$ADMIN_USERNAME' provisioned above)
+${ADMIN_NOTE}  - Bootstrap an operator or guest (interactive password prompt):
+      cd $BACKEND && uv run create-admin <name> --role operator
   - Logs:   journalctl --user -u pki-api -f   (or -worker-esxi / -worker-provision)
   - Control: systemctl --user restart pki.target   |   systemctl --user stop pki.target
-  - API listening at: $API_HOST:$API_PORT  (SPA + /api same origin)
+  - API listening at: $API_HOST:$API_PORT  (SPA + /api + /admin same origin)
 EOF

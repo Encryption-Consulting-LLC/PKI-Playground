@@ -64,7 +64,9 @@ interface LegacyMachineData {
  * as drifted the moment they load). Idempotent — already-migrated data (has
  * `lifecycle`) passes through unchanged.
  */
-export function migrateNodeData(data: LegacyMachineData | MachineData): MachineData {
+export function migrateNodeData(
+  data: LegacyMachineData | MachineData,
+): MachineData {
   if ("lifecycle" in data) return data
   const { status, ...rest } = data
   switch (status) {
@@ -271,7 +273,9 @@ export const useProjectsStore = create<ProjectsState>()(
           // are torn down (loadSnapshot closes them).
           withSuppressedAutosave(() => {
             useStagingStore.getState().loadOps([], null)
-            useTopologyStore.getState().loadSnapshot([], [], {}, DEFAULT_VIEWPORT)
+            useTopologyStore
+              .getState()
+              .loadSnapshot([], [], {}, DEFAULT_VIEWPORT)
           })
         }
       },
@@ -295,7 +299,17 @@ export const useProjectsStore = create<ProjectsState>()(
         set((s) => ({
           projects: s.projects.map((p) =>
             p.id === activeProjectId
-              ? { ...p, nodes, edges, counters, viewport, stagedOps, deployJobId, dirty: false, updatedAt: Date.now() }
+              ? {
+                  ...p,
+                  nodes,
+                  edges,
+                  counters,
+                  viewport,
+                  stagedOps,
+                  deployJobId,
+                  dirty: false,
+                  updatedAt: Date.now(),
+                }
               : p,
           ),
         }))
@@ -309,7 +323,15 @@ export const useProjectsStore = create<ProjectsState>()(
         set((s) => ({
           projects: s.projects.map((p) =>
             p.id === activeProjectId
-              ? { ...p, nodes, edges, counters, viewport, stagedOps, deployJobId }
+              ? {
+                  ...p,
+                  nodes,
+                  edges,
+                  counters,
+                  viewport,
+                  stagedOps,
+                  deployJobId,
+                }
               : p,
           ),
         }))
@@ -341,7 +363,10 @@ export const useProjectsStore = create<ProjectsState>()(
           ...state,
           projects: (state.projects ?? []).map((p) => ({
             ...p,
-            nodes: p.nodes.map((n) => ({ ...n, data: migrateNodeData(n.data) })),
+            nodes: p.nodes.map((n) => ({
+              ...n,
+              data: migrateNodeData(n.data),
+            })),
           })),
         }
       },

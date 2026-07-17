@@ -25,19 +25,56 @@ def _topology() -> TopologyDocument:
         ],
         edges=[
             TopologyEdge(id="parent", kind="caParent", source="root", target="issuing"),
-            TopologyEdge(id="issuing-domain", kind="domainMembership", source="issuing", target="dc"),
-            TopologyEdge(id="web-domain", kind="domainMembership", source="web", target="dc"),
-            TopologyEdge(id="publication", kind="caPublication", source="issuing", target="web"),
+            TopologyEdge(
+                id="issuing-domain",
+                kind="domainMembership",
+                source="issuing",
+                target="dc",
+            ),
+            TopologyEdge(
+                id="web-domain", kind="domainMembership", source="web", target="dc"
+            ),
+            TopologyEdge(
+                id="publication", kind="caPublication", source="issuing", target="web"
+            ),
         ],
     )
 
 
 def _ops() -> list[PlanOp]:
     return [
-        PlanOp(id="create-dc", kind="createVm", target="dc", params={"vmName": "DC01", "template": "domainController"}),
-        PlanOp(id="create-root", kind="createVm", target="root", params={"vmName": "CA01", "template": "certificateAuthority", "caType": "Root"}),
-        PlanOp(id="create-issuing", kind="createVm", target="issuing", params={"vmName": "CA02", "template": "certificateAuthority", "caType": "Issuing"}),
-        PlanOp(id="create-web", kind="createVm", target="web", params={"vmName": "SRV1", "template": "webServer"}),
+        PlanOp(
+            id="create-dc",
+            kind="createVm",
+            target="dc",
+            params={"vmName": "DC01", "template": "domainController"},
+        ),
+        PlanOp(
+            id="create-root",
+            kind="createVm",
+            target="root",
+            params={
+                "vmName": "CA01",
+                "template": "certificateAuthority",
+                "caType": "Root",
+            },
+        ),
+        PlanOp(
+            id="create-issuing",
+            kind="createVm",
+            target="issuing",
+            params={
+                "vmName": "CA02",
+                "template": "certificateAuthority",
+                "caType": "Issuing",
+            },
+        ),
+        PlanOp(
+            id="create-web",
+            kind="createVm",
+            target="web",
+            params={"vmName": "SRV1", "template": "webServer"},
+        ),
         PlanOp(id="join-issuing", kind="domainJoin", target="issuing", secondary="dc"),
         PlanOp(id="join-web", kind="domainJoin", target="web", secondary="dc"),
         PlanOp(id="connect-ca", kind="caConnect", target="issuing", secondary="root"),
@@ -72,7 +109,9 @@ def test_arbitrary_staging_order_compiles_to_the_same_plan():
         "connect-ca",
         "publish",
     ]
-    assert next(op for op in forward.operations if op.id == "connect-ca").depends_on == [
+    assert next(
+        op for op in forward.operations if op.id == "connect-ca"
+    ).depends_on == [
         "create-dc::provision",
         "create-root::provision",
         "create-issuing::provision",
@@ -164,7 +203,9 @@ def test_retry_without_completed_create_operations_still_compiles():
         "connect-ca",
         "publish",
     ]
-    assert next(op for op in compiled.operations if op.id == "connect-ca").depends_on == [
+    assert next(
+        op for op in compiled.operations if op.id == "connect-ca"
+    ).depends_on == [
         "join-issuing",
         "join-web",
     ]

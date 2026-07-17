@@ -54,6 +54,7 @@ def password_policy_errors(value: str, vm_name: str = "") -> list[str]:
         errors.append("must not contain 'Administrator' or the machine name")
     return errors
 
+
 # Free-text value shapes. Deliberately strict: these values are later
 # interpolated by orchestrator PowerShell (via param() blocks), so quotes,
 # semicolons, backticks and `$` are excluded even though the param-block layer
@@ -137,9 +138,7 @@ TEMPLATE_CONFIG_FIELDS: dict[str, dict[str, FieldSpec]] = {
         # Operator-set; injected as a secret command param into domain joins and
         # the issuing-CA install. ``validate`` is a placeholder — secrets go
         # through ``password_policy_errors`` in ``validate_template_config``.
-        "domainAdminPassword": FieldSpec(
-            lambda _v: True, "", secret=True
-        ),
+        "domainAdminPassword": FieldSpec(lambda _v: True, "", secret=True),
     },
     "certificateAuthority": {
         "caType": FieldSpec(_one_of("Root", "Issuing"), "Root"),
@@ -152,7 +151,9 @@ TEMPLATE_CONFIG_FIELDS: dict[str, dict[str, FieldSpec]] = {
         "keyLength": FieldSpec(_one_of("2048", "4096"), "2048"),
         # Display-only label shown for ML-DSA-87 (fixed key size) — accepted so
         # the frontend can send it, but never dispatched.
-        "keyLengthFixed": FieldSpec(lambda v: len(v) <= 32, "2,592 bytes", provision=False),
+        "keyLengthFixed": FieldSpec(
+            lambda v: len(v) <= 32, "2,592 bytes", provision=False
+        ),
         "hashAlgorithm": FieldSpec(_one_of("SHA256", "SHA384", "SHA512"), "SHA256"),
         "validityYears": FieldSpec(_int_between(1, 50), "20"),
         # Issuing-CA CPS statement URL (hidden for Root in the UI); the Rust
@@ -205,9 +206,7 @@ def secret_config_keys(template: str) -> frozenset[str]:
     )
 
 
-def extract_template_config(
-    template: str, params: Mapping[str, str]
-) -> dict[str, str]:
+def extract_template_config(template: str, params: Mapping[str, str]) -> dict[str, str]:
     """The provisioning-relevant config for ``template``, defaults filled.
 
     Returns only provisionable fields (drops display-only ones and reserved

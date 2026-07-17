@@ -142,7 +142,9 @@ async def dispatch_command(
     """Dispatch one command to a connected agent; stream progress over ws /api/ws/jobs/{job_id}."""
     required = _COMMAND_CAPABILITIES.get(req.command)
     if required is None:
-        raise HTTPException(422, detail=f"Unknown orchestrator command '{req.command}'.")
+        raise HTTPException(
+            422, detail=f"Unknown orchestrator command '{req.command}'."
+        )
 
     role = user.role
     if required not in ROLE_CAPABILITIES[role]:
@@ -165,12 +167,19 @@ async def dispatch_command(
 
     agent = agents.resolve_agent(vm_id)
     if agent is None:
-        raise HTTPException(404, detail=f"No connected orchestrator agent for vm_id '{vm_id}'.")
+        raise HTTPException(
+            404, detail=f"No connected orchestrator agent for vm_id '{vm_id}'."
+        )
 
     job_id = uuid.uuid4().hex
     transport.publish(job_id, QueuedMsg(), status=JobStatus.queued)
     await agent.send(
-        {"job_id": job_id, "command": req.command, "params": req.params, "role": role.value}
+        {
+            "job_id": job_id,
+            "command": req.command,
+            "params": req.params,
+            "role": role.value,
+        }
     )
     return {"job_id": job_id}
 
@@ -221,8 +230,12 @@ async def connect(websocket: WebSocket) -> None:
     kicked off here — the Celery plan runner drives every command through the
     ``agent-dispatch`` bridge.
     """
-    vm_id = websocket.headers.get("x-orchestrator-vm-id") or websocket.query_params.get("vm_id")
-    token = websocket.headers.get("x-orchestrator-token") or websocket.query_params.get("token")
+    vm_id = websocket.headers.get("x-orchestrator-vm-id") or websocket.query_params.get(
+        "vm_id"
+    )
+    token = websocket.headers.get("x-orchestrator-token") or websocket.query_params.get(
+        "token"
+    )
     if not await _authenticate(vm_id, token):
         await websocket.close(code=4401)
         return
@@ -279,17 +292,26 @@ def _relay_progress(job_id: str, state: dict) -> None:
     if status == "running":
         transport.publish(
             job_id,
-            ProgressMsg(percent=state.get("percent") or 0.0, phase=state.get("phase") or "", key=job_id),
+            ProgressMsg(
+                percent=state.get("percent") or 0.0,
+                phase=state.get("phase") or "",
+                key=job_id,
+            ),
             status=JobStatus.running,
         )
     elif status == "done":
         transport.publish(
-            job_id, DoneMsg(result=state.get("result") or {}), status=JobStatus.done, terminal=True
+            job_id,
+            DoneMsg(result=state.get("result") or {}),
+            status=JobStatus.done,
+            terminal=True,
         )
     elif status == "error":
         transport.publish(
             job_id,
-            ErrorMsg(status=500, detail=state.get("detail") or "orchestrator command failed"),
+            ErrorMsg(
+                status=500, detail=state.get("detail") or "orchestrator command failed"
+            ),
             status=JobStatus.error,
             terminal=True,
         )
@@ -358,7 +380,9 @@ async def watch_agents(websocket: WebSocket, token: str | None = None) -> None:
         while True:
             vm_ids = await _visible_agent_vm_ids(user)
             if vm_ids != last:
-                await send_json_or_disconnect(websocket, {"type": "agents", "vm_ids": vm_ids})
+                await send_json_or_disconnect(
+                    websocket, {"type": "agents", "vm_ids": vm_ids}
+                )
                 last = vm_ids
             done, _ = await asyncio.wait(
                 {signal, receiver},

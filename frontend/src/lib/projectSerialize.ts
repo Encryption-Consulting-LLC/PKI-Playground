@@ -83,7 +83,10 @@ export function deserializeProject(doc: ProjectDoc): Project {
     id: doc.id,
     name: doc.name,
     // Idempotent v0→v1 migration — defense against pre-migration imports.
-    nodes: (doc.nodes ?? []).map((n) => ({ ...n, data: migrateNodeData(n.data) })),
+    nodes: (doc.nodes ?? []).map((n) => ({
+      ...n,
+      data: migrateNodeData(n.data),
+    })),
     edges: doc.edges ?? [],
     counters: doc.counters ?? {},
     viewport: doc.viewport ?? DEFAULT_VIEWPORT,

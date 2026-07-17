@@ -38,7 +38,12 @@ export const useAuthStore = create<AuthState>()(
       setSession: ({ token, username, role, host }) =>
         set({ token, username, role, host }),
       clear: () =>
-        set({ token: undefined, username: undefined, role: undefined, host: undefined }),
+        set({
+          token: undefined,
+          username: undefined,
+          role: undefined,
+          host: undefined,
+        }),
     }),
     { name: STORAGE_KEYS.auth },
   ),

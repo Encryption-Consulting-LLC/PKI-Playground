@@ -34,7 +34,9 @@ const RECONNECT_DELAYS_MS = [1000, 3000, 10_000]
  * detach that stops reconnecting and closes the socket — pair with the
  * workspace's lifetime, not a component render.
  */
-export function attachAgentsSocket(token: string | null | undefined): () => void {
+export function attachAgentsSocket(
+  token: string | null | undefined,
+): () => void {
   let closed = false
   let attempt = 0
   let closeSocket: (() => void) | null = null

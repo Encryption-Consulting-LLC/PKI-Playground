@@ -123,9 +123,7 @@ class SettingsDoc(BaseModel):
     esxi_port: int = Field(default=443, alias="esxiPort")
     clone_base: str = Field(default="ws-2025-base", alias="cloneBase")
     clone_datastore: str = Field(default="datastore1", alias="cloneDatastore")
-    clone_guest_os: str = Field(
-        default="windows2022srvNext-64", alias="cloneGuestOs"
-    )
+    clone_guest_os: str = Field(default="windows2022srvNext-64", alias="cloneGuestOs")
     clone_network: str = Field(default="VM Network", alias="cloneNetwork")
     clone_max_usage_pct: float = Field(default=80.0, alias="cloneMaxUsagePct")
     infrastructure_profiles: list[dict] = Field(
@@ -164,7 +162,7 @@ class UserDoc(MongoModel):
     username: str = Field(min_length=1, max_length=64)
     email: str | None = None
     password_hash: str | None = Field(default=None, alias="passwordHash")
-    role: Literal["operator", "guest"] = "operator"
+    role: Literal["admin", "operator", "guest"] = "operator"
     auth: Literal["local", "oidc"] = "local"
     disabled: bool = False
     schema_version: int = Field(default=1, alias="schemaVersion")

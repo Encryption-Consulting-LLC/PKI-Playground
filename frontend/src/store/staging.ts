@@ -18,7 +18,12 @@
 import { create } from "zustand"
 import { toast } from "sonner"
 
-import { CONNECTION_HEALTH, EDGE_TYPE, LIFECYCLE, SERVICE_SOCKET } from "@/constants/topology"
+import {
+  CONNECTION_HEALTH,
+  EDGE_TYPE,
+  LIFECYCLE,
+  SERVICE_SOCKET,
+} from "@/constants/topology"
 import {
   ApiError,
   type CompiledExecutionGroup,
@@ -64,7 +69,9 @@ function revertOp(op: StagedOp) {
       // Retargeting away from a *deployed* membership carries the old DC id
       // so undoing the join restores exactly the edge it replaced.
       if (op.params.prevDcId) {
-        topology.restoreEdge(domainJoinEdge(op.targetNodeId, op.params.prevDcId))
+        topology.restoreEdge(
+          domainJoinEdge(op.targetNodeId, op.params.prevDcId),
+        )
       }
       return
     case OP_KIND.caConnect:
@@ -75,7 +82,9 @@ function revertOp(op: StagedOp) {
       return
     case OP_KIND.domainLeave:
       if (op.params.prevDcId) {
-        topology.restoreEdge(domainJoinEdge(op.targetNodeId, op.params.prevDcId))
+        topology.restoreEdge(
+          domainJoinEdge(op.targetNodeId, op.params.prevDcId),
+        )
       }
       return
   }
@@ -83,23 +92,27 @@ function revertOp(op: StagedOp) {
 
 function operationEdgeIds(op: StagedOp): string[] {
   if (op.kind === OP_KIND.caConnect && op.secondaryNodeId) {
-    return useTopologyStore.getState().edges
-      .filter((edge) =>
-        edge.id === op.edgeId ||
-        (edge.data?.edgeType === EDGE_TYPE.webServerCert &&
-          edge.data?.serviceSocket === SERVICE_SOCKET.publication &&
-          edge.source === op.secondaryNodeId),
+    return useTopologyStore
+      .getState()
+      .edges.filter(
+        (edge) =>
+          edge.id === op.edgeId ||
+          (edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+            edge.data?.serviceSocket === SERVICE_SOCKET.publication &&
+            edge.source === op.secondaryNodeId),
       )
       .map((edge) => edge.id)
   }
   if (op.kind !== OP_KIND.webServerCert || !op.secondaryNodeId) {
     return op.edgeId ? [op.edgeId] : []
   }
-  return useTopologyStore.getState().edges
-    .filter((edge) =>
-      edge.data?.edgeType === EDGE_TYPE.webServerCert &&
-      edge.source === op.targetNodeId &&
-      edge.target === op.secondaryNodeId,
+  return useTopologyStore
+    .getState()
+    .edges.filter(
+      (edge) =>
+        edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+        edge.source === op.targetNodeId &&
+        edge.target === op.secondaryNodeId,
     )
     .map((edge) => edge.id)
 }
@@ -180,7 +193,9 @@ export interface PreparedDeployPlan {
  */
 function buildOpPayload(op: StagedOp): Pick<PlanOpPayload, "params" | "files"> {
   if (op.kind !== OP_KIND.createVm) return { params: op.params }
-  const node = useTopologyStore.getState().nodes.find((n) => n.id === op.targetNodeId)
+  const node = useTopologyStore
+    .getState()
+    .nodes.find((n) => n.id === op.targetNodeId)
   const params: Record<string, string> = {
     ...(node?.data.config ?? {}),
     vmName: node?.data.name ?? op.targetNodeId,
@@ -222,12 +237,19 @@ function emptyIsoNodes(ops: StagedOp[]): string[] {
 }
 
 /** Build the exact retry-pruned request used by both compiler review and deploy. */
-export function prepareDeployPlan(ops = useStagingStore.getState().ops): PreparedDeployPlan {
+export function prepareDeployPlan(
+  ops = useStagingStore.getState().ops,
+): PreparedDeployPlan {
   const resettable = ops
     .filter((op) => op.status !== OP_STATUS.done)
     .map((op) =>
       op.status === OP_STATUS.error || op.status === OP_STATUS.cancelled
-        ? { ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined }
+        ? {
+            ...op,
+            status: OP_STATUS.staged,
+            progress: undefined,
+            detail: undefined,
+          }
         : op,
     )
   const resettableIds = new Set(resettable.map((op) => op.id))
@@ -269,13 +291,16 @@ export function prepareDeployPlan(ops = useStagingStore.getState().ops): Prepare
 
 /** Display label for a synthesized provision row, derived from the parent createVm's node. */
 function provisionRowLabel(parent: StagedOp): string {
-  const node = useTopologyStore.getState().nodes.find((n) => n.id === parent.targetNodeId)
+  const node = useTopologyStore
+    .getState()
+    .nodes.find((n) => n.id === parent.targetNodeId)
   const name = node?.data.name ?? parent.targetNodeId
   const typeId = node?.data.typeId
   const detail =
     typeId === "domainController"
       ? "AD DS forest"
-      : typeId === "certificateAuthority" && node?.data.config?.caType === "Root"
+      : typeId === "certificateAuthority" &&
+          node?.data.config?.caType === "Root"
         ? "Root CA setup"
         : "Boot & settle"
   return `Provision ${name} — ${detail}`
@@ -319,7 +344,10 @@ function ensureSyntheticRows(opsState: Record<string, OpRunState>): void {
 }
 
 /** Folds one `plan-state` snapshot into the staging list and mirrors createVm/edge transitions onto the canvas. Idempotent — safe to apply the same snapshot more than once (reconnects/replays). Exported for tests. */
-export function applyPlanState(opsState: Record<string, OpRunState>, deploymentJobId?: string) {
+export function applyPlanState(
+  opsState: Record<string, OpRunState>,
+  deploymentJobId?: string,
+) {
   ensureSyntheticRows(opsState)
   const { ops, setOpState } = useStagingStore.getState()
   const topology = useTopologyStore.getState()
@@ -335,16 +363,23 @@ export function applyPlanState(opsState: Record<string, OpRunState>, deploymentJ
     if (!op) continue
 
     setOpState(opId, {
-      status: runState.status === "queued" ? OP_STATUS.pending : runState.status,
+      status:
+        runState.status === "queued" ? OP_STATUS.pending : runState.status,
       progress: runState.percent,
       phase: runState.status === "running" ? runState.phase : undefined,
       detail: runState.detail,
       trace: runState.trace,
       executionSteps: runState.steps
-        ? Object.fromEntries(Object.entries(runState.steps).map(([id, step]) => [
-            id,
-            { ...step, status: step.status === "queued" ? OP_STATUS.pending : step.status },
-          ]))
+        ? Object.fromEntries(
+            Object.entries(runState.steps).map(([id, step]) => [
+              id,
+              {
+                ...step,
+                status:
+                  step.status === "queued" ? OP_STATUS.pending : step.status,
+              },
+            ]),
+          )
         : undefined,
     })
 
@@ -372,7 +407,9 @@ export function applyPlanState(opsState: Record<string, OpRunState>, deploymentJ
         const identity = {
           poweredOn: true,
           ...(typeof result?.ip === "string" ? { ip: result.ip } : {}),
-          ...(typeof result?.vmName === "string" ? { vmName: result.vmName } : {}),
+          ...(typeof result?.vmName === "string"
+            ? { vmName: result.vmName }
+            : {}),
           ...(typeof result?.agentVmId === "string"
             ? { orchestratorVmId: result.agentVmId }
             : {}),
@@ -475,7 +512,9 @@ export function applyPlanState(opsState: Record<string, OpRunState>, deploymentJ
           // Conditional spreads so a result-less replay of an older snapshot
           // can never clobber an already-recorded identity with undefined.
           ...(typeof result?.ip === "string" ? { ip: result.ip } : {}),
-          ...(typeof result?.vmName === "string" ? { vmName: result.vmName } : {}),
+          ...(typeof result?.vmName === "string"
+            ? { vmName: result.vmName }
+            : {}),
           // Auto-provisioned orchestrator identity: the agent baked
           // into the ISO phones home under this vm_id; surfaces in the Inspector.
           ...(agentVmId !== undefined ? { orchestratorVmId: agentVmId } : {}),
@@ -564,7 +603,12 @@ function revertNonTerminalToStaged(): void {
     for (const edgeId of operationEdgeIds(op)) {
       topology.setEdgeHealth(edgeId, CONNECTION_HEALTH.planned)
     }
-    remaining.push({ ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined })
+    remaining.push({
+      ...op,
+      status: OP_STATUS.staged,
+      progress: undefined,
+      detail: undefined,
+    })
   }
 
   useStagingStore.setState({
@@ -578,7 +622,10 @@ function revertNonTerminalToStaged(): void {
 }
 
 /** Final reconcile once the plan job reaches `done`: apply the last snapshot, drop fully-`done` ops off the list, and reopen `cancelled` ops (skipped only because a dependency failed) as `staged` so "Retry deploy" resends them alongside the op that actually failed. Exported for tests. */
-export function finishDeploy(result: Record<string, unknown>, deploymentJobId: string): void {
+export function finishDeploy(
+  result: Record<string, unknown>,
+  deploymentJobId: string,
+): void {
   const opsResult = (result?.ops ?? {}) as Record<string, OpRunState>
   applyPlanState(opsResult, deploymentJobId)
 
@@ -595,11 +642,17 @@ export function finishDeploy(result: Record<string, unknown>, deploymentJobId: s
   const remaining: StagedOp[] = []
   for (const op of ops) {
     const finalState = opsResult[op.id]
-    if (finalState?.status === "done" && !failedProvisionParents.has(op.id)) continue
+    if (finalState?.status === "done" && !failedProvisionParents.has(op.id))
+      continue
     if (finalState?.status === "error") errorCount++
     remaining.push(
       finalState?.status === "cancelled"
-        ? { ...op, status: OP_STATUS.staged, progress: undefined, detail: undefined }
+        ? {
+            ...op,
+            status: OP_STATUS.staged,
+            progress: undefined,
+            detail: undefined,
+          }
         : op,
     )
   }
@@ -614,7 +667,9 @@ export function finishDeploy(result: Record<string, unknown>, deploymentJobId: s
   })
 
   if (errorCount > 0) {
-    toast.error(`Deploy finished with ${errorCount} failed operation${errorCount === 1 ? "" : "s"}.`)
+    toast.error(
+      `Deploy finished with ${errorCount} failed operation${errorCount === 1 ? "" : "s"}.`,
+    )
   } else {
     toast.success("Deploy complete.")
   }
@@ -622,10 +677,16 @@ export function finishDeploy(result: Record<string, unknown>, deploymentJobId: s
 
 /** Pulls the structured preflight report out of a deploy 409's `detail`, if that's what failed — the same checklist then renders with its ✗ rows. */
 function extractPreflightReceipt(err: unknown): DeployPreflightReceipt | null {
-  if (!(err instanceof ApiError) || !err.detail || typeof err.detail !== "object") {
+  if (
+    !(err instanceof ApiError) ||
+    !err.detail ||
+    typeof err.detail !== "object"
+  ) {
     return null
   }
-  const preflight = (err.detail as { preflight?: DeployPreflightReceipt | null }).preflight
+  const preflight = (
+    err.detail as { preflight?: DeployPreflightReceipt | null }
+  ).preflight
   return Array.isArray(preflight?.checks) ? preflight : null
 }
 
@@ -648,7 +709,11 @@ let planRetryTimer: ReturnType<typeof setTimeout> | null = null
 // plan on the next Deploy click.
 const PLAN_SOCKET_RETRY_DELAYS_MS = [500, 1500, 3000]
 
-function attachPlanSocket(jobId: string, token: string | null | undefined, attempt = 0) {
+function attachPlanSocket(
+  jobId: string,
+  token: string | null | undefined,
+  attempt = 0,
+) {
   planSocketClose?.()
   if (planRetryTimer) {
     clearTimeout(planRetryTimer)
@@ -681,7 +746,9 @@ function attachPlanSocket(jobId: string, token: string | null | undefined, attem
       }
       revertNonTerminalToStaged()
       if (e.status === 0) {
-        toast.warning("Lost connection to the deploy job — operations reverted to staged, you can retry.")
+        toast.warning(
+          "Lost connection to the deploy job — operations reverted to staged, you can retry.",
+        )
       } else {
         toast.error(e.detail || "Deploy failed.")
       }
@@ -700,7 +767,12 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
 
   stageOp(input) {
     const { ops, deploying } = get()
-    const dependsOn = inferDependsOn(input.kind, input.targetNodeId, input.secondaryNodeId, ops)
+    const dependsOn = inferDependsOn(
+      input.kind,
+      input.targetNodeId,
+      input.secondaryNodeId,
+      ops,
+    )
     const op: StagedOp = {
       ...input,
       id: crypto.randomUUID(),
@@ -726,7 +798,8 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
     set({
       ops: ops.filter(
         (op, i) =>
-          i !== index && !(op.synthesized && provisionParentId(op.id) === last.id),
+          i !== index &&
+          !(op.synthesized && provisionParentId(op.id) === last.id),
       ),
     })
   },
@@ -869,7 +942,9 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
           deployStartedAt: null,
           preflightReceipt: extractPreflightReceipt(err),
         }))
-        toast.error(err instanceof Error ? err.message : "Failed to start deploy.")
+        toast.error(
+          err instanceof Error ? err.message : "Failed to start deploy.",
+        )
       })
   },
 
@@ -886,7 +961,10 @@ export const useStagingStore = create<StagingState>()((set, get) => ({
 }))
 
 /** Ops that reference `nodeId` (as target or secondary) plus everything transitively dependent on them — the full set a node deletion would need to cascade-remove. */
-export function opsReferencingNode(ops: StagedOp[], nodeId: string): StagedOp[] {
+export function opsReferencingNode(
+  ops: StagedOp[],
+  nodeId: string,
+): StagedOp[] {
   const referencing = ops.filter(
     (op) => op.targetNodeId === nodeId || op.secondaryNodeId === nodeId,
   )

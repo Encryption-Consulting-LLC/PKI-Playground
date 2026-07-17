@@ -180,6 +180,12 @@ async def oidc_callback(req: OidcCallbackRequest) -> dict:
             raise HTTPException(status_code=403, detail="This account is disabled.")
         await users_col().update_one(
             {"username": username},
-            {"$set": {"email": claims.get("email"), "role": role.value, "updatedAt": now_ms()}},
+            {
+                "$set": {
+                    "email": claims.get("email"),
+                    "role": role.value,
+                    "updatedAt": now_ms(),
+                }
+            },
         )
     return await _session_response(username, role, "oidc")

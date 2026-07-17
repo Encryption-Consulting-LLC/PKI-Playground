@@ -7,8 +7,16 @@ import {
   type EdgeProps,
 } from "@xyflow/react"
 
-import { CONNECTION_HEALTH, EDGE_TYPE, SERVICE_SOCKET } from "@/constants/topology"
-import type { ConnectionHealth, ConnectionPort, EdgeType } from "@/constants/topology"
+import {
+  CONNECTION_HEALTH,
+  EDGE_TYPE,
+  SERVICE_SOCKET,
+} from "@/constants/topology"
+import type {
+  ConnectionHealth,
+  ConnectionPort,
+  EdgeType,
+} from "@/constants/topology"
 import type { ServiceHealth } from "@/lib/labEvidence"
 import {
   CONNECTION_HEALTH_GUIDANCE,
@@ -38,23 +46,33 @@ export function CapabilityEdge(props: EdgeProps) {
   const hasOfflineRelay =
     edgeType === EDGE_TYPE.caHierarchy && props.data?.rootIssuer === true
   const expanded = hovered || props.selected
-  const health = (props.data?.health as ConnectionHealth | undefined) ??
+  const health =
+    (props.data?.health as ConnectionHealth | undefined) ??
     (props.data?.staged === true
       ? CONNECTION_HEALTH.planned
       : CONNECTION_HEALTH.verified)
   const healthGuidance = CONNECTION_HEALTH_GUIDANCE[health]
-  const serviceHealth = (props.data?.serviceHealth as ServiceHealth | undefined) ?? {}
+  const serviceHealth =
+    (props.data?.serviceHealth as ServiceHealth | undefined) ?? {}
   const liveServices = guidance.ports
     .map((port) => ({ port, health: serviceHealth[port] }))
-    .filter((item): item is { port: ConnectionPort; health: ConnectionHealth } => !!item.health)
+    .filter(
+      (item): item is { port: ConnectionPort; health: ConnectionHealth } =>
+        !!item.health,
+    )
   const liveProbe = liveServices.length > 0
   const serviceColor = (state: ConnectionHealth) => {
     switch (state) {
-      case CONNECTION_HEALTH.planned: return "#38bdf8"
-      case CONNECTION_HEALTH.applying: return "#8b5cf6"
-      case CONNECTION_HEALTH.verified: return "#10b981"
-      case CONNECTION_HEALTH.degraded: return "#f59e0b"
-      case CONNECTION_HEALTH.broken: return "#ef4444"
+      case CONNECTION_HEALTH.planned:
+        return "#38bdf8"
+      case CONNECTION_HEALTH.applying:
+        return "#8b5cf6"
+      case CONNECTION_HEALTH.verified:
+        return "#10b981"
+      case CONNECTION_HEALTH.degraded:
+        return "#f59e0b"
+      case CONNECTION_HEALTH.broken:
+        return "#ef4444"
     }
   }
   const pathStyle: CSSProperties = {
@@ -73,22 +91,24 @@ export function CapabilityEdge(props: EdgeProps) {
       ? { strokeDasharray: "1 6", strokeLinecap: "round" }
       : {}),
   }
-  const baseColor = edgeType === EDGE_TYPE.caHierarchy
-    ? "#f59e0b"
-    : edgeServiceSocket(props) === SERVICE_SOCKET.ocsp
-      ? "#8b5cf6"
-      : typeof props.style?.stroke === "string"
-        ? props.style.stroke
-        : "#10b981"
-  const arrowColor = liveServices.length > 0
-    ? serviceColor(liveServices[liveServices.length - 1].health)
-    : health === CONNECTION_HEALTH.broken
-      ? "#ef4444"
-      : health === CONNECTION_HEALTH.degraded
-        ? "#f59e0b"
-        : health === CONNECTION_HEALTH.applying
-          ? "#8b5cf6"
-          : baseColor
+  const baseColor =
+    edgeType === EDGE_TYPE.caHierarchy
+      ? "#f59e0b"
+      : edgeServiceSocket(props) === SERVICE_SOCKET.ocsp
+        ? "#8b5cf6"
+        : typeof props.style?.stroke === "string"
+          ? props.style.stroke
+          : "#10b981"
+  const arrowColor =
+    liveServices.length > 0
+      ? serviceColor(liveServices[liveServices.length - 1].health)
+      : health === CONNECTION_HEALTH.broken
+        ? "#ef4444"
+        : health === CONNECTION_HEALTH.degraded
+          ? "#f59e0b"
+          : health === CONNECTION_HEALTH.applying
+            ? "#8b5cf6"
+            : baseColor
 
   return (
     <>
@@ -118,8 +138,16 @@ export function CapabilityEdge(props: EdgeProps) {
               const end = `${((index + 1) / liveServices.length) * 100}%`
               const color = serviceColor(service.health)
               return [
-                <stop key={`${service.port}-start`} offset={start} stopColor={color} />,
-                <stop key={`${service.port}-end`} offset={end} stopColor={color} />,
+                <stop
+                  key={`${service.port}-start`}
+                  offset={start}
+                  stopColor={color}
+                />,
+                <stop
+                  key={`${service.port}-end`}
+                  offset={end}
+                  stopColor={color}
+                />,
               ]
             })}
           </linearGradient>
@@ -132,7 +160,10 @@ export function CapabilityEdge(props: EdgeProps) {
         style={pathStyle}
       />
       {hasOfflineRelay && (
-        <g className="offline-relay-package pointer-events-none" aria-hidden="true">
+        <g
+          className="offline-relay-package pointer-events-none"
+          aria-hidden="true"
+        >
           <title>Sealed certificate request and signed certificate relay</title>
           <rect
             x="-9"
@@ -189,11 +220,16 @@ export function CapabilityEdge(props: EdgeProps) {
             <span
               className={cn(
                 "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide",
-                health === CONNECTION_HEALTH.planned && "bg-sky-500/15 text-sky-500",
-                health === CONNECTION_HEALTH.applying && "bg-violet-500/15 text-violet-500",
-                health === CONNECTION_HEALTH.verified && "bg-emerald-500/15 text-emerald-500",
-                health === CONNECTION_HEALTH.degraded && "bg-amber-500/15 text-amber-500",
-                health === CONNECTION_HEALTH.broken && "bg-red-500/15 text-red-500",
+                health === CONNECTION_HEALTH.planned &&
+                  "bg-sky-500/15 text-sky-500",
+                health === CONNECTION_HEALTH.applying &&
+                  "bg-violet-500/15 text-violet-500",
+                health === CONNECTION_HEALTH.verified &&
+                  "bg-emerald-500/15 text-emerald-500",
+                health === CONNECTION_HEALTH.degraded &&
+                  "bg-amber-500/15 text-amber-500",
+                health === CONNECTION_HEALTH.broken &&
+                  "bg-red-500/15 text-red-500",
               )}
             >
               {liveProbe ? "Live probes" : healthGuidance.label}
@@ -224,7 +260,10 @@ export function CapabilityEdge(props: EdgeProps) {
                     const item = CONNECTION_PORT_GUIDANCE[port]
                     const state = serviceHealth[port] ?? health
                     return (
-                      <div key={port} className="flex items-start gap-2 text-[10px]">
+                      <div
+                        key={port}
+                        className="flex items-start gap-2 text-[10px]"
+                      >
                         <span
                           className="mt-1 h-2 w-2 shrink-0 rounded-full"
                           style={{ backgroundColor: serviceColor(state) }}
@@ -232,7 +271,8 @@ export function CapabilityEdge(props: EdgeProps) {
                         <span className="min-w-0">
                           <span className="font-medium">{item.label}</span>{" "}
                           <span className="text-muted-foreground">
-                            · {CONNECTION_HEALTH_GUIDANCE[state].label} · {item.capabilities.join(" / ")}
+                            · {CONNECTION_HEALTH_GUIDANCE[state].label} ·{" "}
+                            {item.capabilities.join(" / ")}
                           </span>
                         </span>
                       </div>
@@ -252,7 +292,9 @@ export function CapabilityEdge(props: EdgeProps) {
                 ))}
               </ul>
 
-              <p className="mt-3 text-[11px] font-semibold">Generated operations</p>
+              <p className="mt-3 text-[11px] font-semibold">
+                Generated operations
+              </p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-muted-foreground">
                 {guidance.operations.map((operation) => (
                   <li key={operation}>{operation}</li>

@@ -15,26 +15,38 @@ from app.core.infrastructure import InfrastructureProfile  # noqa: E402
 
 def _profile(role, *, base="ws-2025", datastore="store", network="PKI"):
     return InfrastructureProfile(
-        role=role, base=base, datastore=datastore,
-        expectedGuestOs="windows2022srvNext-64", network=network,
-        cpus=2, memoryMb=4096, systemDiskGb=60, maxUsagePct=90,
+        role=role,
+        base=base,
+        datastore=datastore,
+        expectedGuestOs="windows2022srvNext-64",
+        network=network,
+        cpus=2,
+        memoryMb=4096,
+        systemDiskGb=60,
+        maxUsagePct=90,
         qualification={
-            "baseChangeVersion": "7", "windowsBuild": 26100,
-            "runnerVersion": "2.0.0", "agentSha256": "a" * 64,
-            "validatedAt": 1, "mlDsa87Available": True,
+            "baseChangeVersion": "7",
+            "windowsBuild": 26100,
+            "runnerVersion": "2.0.0",
+            "agentSha256": "a" * 64,
+            "validatedAt": 1,
+            "mlDsa87Available": True,
             "systemContextValidated": True,
-            "timeSynchronized": True, "windowsUpdatesCurrent": True,
+            "timeSynchronized": True,
+            "windowsUpdatesCurrent": True,
             "backendCallbackReachable": True,
             "agentCommands": [
-                "ca.publish_crl", "ca.uninstall", "dc.remove_forest",
-                "dns.remove_resources", "dns.verify_absent", "domain.leave",
-                "iis.remove_certenroll", "ocsp.remove",
+                "ca.publish_crl",
+                "ca.uninstall",
+                "dc.remove_forest",
+                "dns.remove_resources",
+                "dns.verify_absent",
+                "domain.leave",
+                "iis.remove_certenroll",
+                "ocsp.remove",
             ],
             "publicationManifestVersion": 1,
-            **(
-                {"ocspReferenceSha256": "b" * 64}
-                if role == "webServer" else {}
-            ),
+            **({"ocspReferenceSha256": "b" * 64} if role == "webServer" else {}),
         },
     )
 
@@ -68,8 +80,10 @@ def _run(monkeypatch, *, free=500 * 1024**3, networks=("PKI", "Offline")):
     machines = [
         subject.PlannedMachine(role=role, name=name)
         for role, name in (
-            ("domainController", "DC01"), ("rootCa", "CA01"),
-            ("issuingCa", "CA02"), ("webServer", "SRV1"),
+            ("domainController", "DC01"),
+            ("rootCa", "CA01"),
+            ("issuingCa", "CA02"),
+            ("webServer", "SRV1"),
         )
     ]
     conn = SimpleNamespace(
@@ -87,7 +101,9 @@ def test_preflight_reserves_all_role_disks_on_shared_datastore(monkeypatch):
     assert result.machines[1].network == "Offline"
     assert len(result.snapshot_id) == 64
     assert all(machine.base_moid is None for machine in result.machines)
-    assert any("Image VMX '[store] ws-2025/ws-2025.vmx'" in c.detail for c in result.checks)
+    assert any(
+        "Image VMX '[store] ws-2025/ws-2025.vmx'" in c.detail for c in result.checks
+    )
 
 
 def test_unreadable_datastore_vmx_is_blocking_without_network_cascade(monkeypatch):
@@ -126,7 +142,8 @@ def test_missing_role_network_is_blocking(monkeypatch):
 
     assert result.ready is False
     root_network = next(
-        check for check in result.checks
+        check
+        for check in result.checks
         if check.key == "network" and check.role == "rootCa"
     )
     assert root_network.ok is False
@@ -194,4 +211,6 @@ def test_web_role_requires_frozen_ocsp_reference_dump(monkeypatch):
     )
 
     assert result.ready is False
-    assert next(item for item in result.checks if item.key == "qualification").ok is False
+    assert (
+        next(item for item in result.checks if item.key == "qualification").ok is False
+    )

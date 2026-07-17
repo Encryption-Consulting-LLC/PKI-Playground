@@ -15,15 +15,19 @@ interface ConnectionGestureState {
 }
 
 /** Transient pointer/focus state; deliberately excluded from project snapshots. */
-export const useConnectionGestureStore = create<ConnectionGestureState>()((set) => ({
-  gesture: null,
-  start: (sourceNodeId, sourceHandleId) => {
-    set({ gesture: { sourceNodeId, sourceHandleId } })
-  },
-  hoverTarget: (targetNodeId, targetHandleId) => {
-    set((state) => state.gesture
-      ? { gesture: { ...state.gesture, targetNodeId, targetHandleId } }
-      : state)
-  },
-  end: () => set({ gesture: null }),
-}))
+export const useConnectionGestureStore = create<ConnectionGestureState>()(
+  (set) => ({
+    gesture: null,
+    start: (sourceNodeId, sourceHandleId) => {
+      set({ gesture: { sourceNodeId, sourceHandleId } })
+    },
+    hoverTarget: (targetNodeId, targetHandleId) => {
+      set((state) =>
+        state.gesture
+          ? { gesture: { ...state.gesture, targetNodeId, targetHandleId } }
+          : state,
+      )
+    },
+    end: () => set({ gesture: null }),
+  }),
+)

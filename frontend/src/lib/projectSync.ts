@@ -116,7 +116,8 @@ interface LocalProjectState {
 function readLocalProjectState(): LocalProjectState {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.projects)
-    if (!raw) return { projects: [], activeProjectId: null, nextProjectNumber: 1 }
+    if (!raw)
+      return { projects: [], activeProjectId: null, nextProjectNumber: 1 }
     const envelope = JSON.parse(raw) as {
       state?: {
         projects?: Project[]
@@ -127,15 +128,19 @@ function readLocalProjectState(): LocalProjectState {
     const projects = (envelope.state?.projects ?? []).map((p) => ({
       ...p,
       // Idempotent v0→v1 node migration, same as the persist `migrate` fn.
-      nodes: (p.nodes ?? []).map((n) => ({ ...n, data: migrateNodeData(n.data) })),
+      nodes: (p.nodes ?? []).map((n) => ({
+        ...n,
+        data: migrateNodeData(n.data),
+      })),
       stagedOps: p.stagedOps ?? [],
       deployJobId: p.deployJobId ?? null,
       dirty: p.dirty ?? false,
     }))
     const storedActiveId = envelope.state?.activeProjectId
-    const activeProjectId = storedActiveId && projects.some((p) => p.id === storedActiveId)
-      ? storedActiveId
-      : projects[0]?.id ?? null
+    const activeProjectId =
+      storedActiveId && projects.some((p) => p.id === storedActiveId)
+        ? storedActiveId
+        : (projects[0]?.id ?? null)
     return {
       projects,
       activeProjectId,
@@ -186,12 +191,14 @@ export async function initServerProjects(): Promise<void> {
 
     const meta = readMeta()
     const activeId =
-      meta.activeProjectId && projects.some((p) => p.id === meta.activeProjectId)
+      meta.activeProjectId &&
+      projects.some((p) => p.id === meta.activeProjectId)
         ? meta.activeProjectId
         : projects.length > 0
           ? projects.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)).id
           : null
-    const nextNumber = meta.nextProjectNumber ?? inferNextProjectNumber(projects)
+    const nextNumber =
+      meta.nextProjectNumber ?? inferNextProjectNumber(projects)
 
     // Seed baselines BEFORE hydrating/subscribing: server-fetched docs are in
     // sync; imported/local/default ones are unknown and get pushed below.
@@ -204,7 +211,9 @@ export async function initServerProjects(): Promise<void> {
       }
     }
 
-    useProjectsStore.getState().hydrateFromServer(projects, activeId, nextNumber)
+    useProjectsStore
+      .getState()
+      .hydrateFromServer(projects, activeId, nextNumber)
     writeMeta(activeId, nextNumber)
     startSubscriptions(generation)
     useProjectSyncStore.setState({ status: "ready" })
@@ -217,7 +226,9 @@ export async function initServerProjects(): Promise<void> {
     }
     if (imported) {
       const n = projects.length
-      toast.success(`Imported ${n} locally saved project${n === 1 ? "" : "s"} to the server.`)
+      toast.success(
+        `Imported ${n} locally saved project${n === 1 ? "" : "s"} to the server.`,
+      )
     }
   } catch (e) {
     if (generation !== syncGeneration) return
@@ -426,7 +437,9 @@ function markPending(id: string) {
 function clearPending(id: string) {
   const { pendingIds } = useProjectSyncStore.getState()
   if (pendingIds.includes(id)) {
-    useProjectSyncStore.setState({ pendingIds: pendingIds.filter((x) => x !== id) })
+    useProjectSyncStore.setState({
+      pendingIds: pendingIds.filter((x) => x !== id),
+    })
   }
 }
 
@@ -449,7 +462,9 @@ function reportAuthorizationFailure() {
   if (retryTimer) clearTimeout(retryTimer)
   retryTimer = null
   useProjectSyncStore.setState({ saveFailed: true })
-  toast.error("Project saving is not permitted for this account. Sign out and back in.")
+  toast.error(
+    "Project saving is not permitted for this account. Sign out and back in.",
+  )
 }
 
 function clearSaveFailure() {

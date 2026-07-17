@@ -184,7 +184,9 @@ function attachJobSocket(
     onProgress: (e) => patch({ progress: e.percent, phase: e.phase }),
     onDone: () => {
       activeSockets.delete(nodeId)
-      const node = useTopologyStore.getState().nodes.find((n) => n.id === nodeId)
+      const node = useTopologyStore
+        .getState()
+        .nodes.find((n) => n.id === nodeId)
       patch({
         lifecycle: LIFECYCLE.deployed,
         poweredOn: true,
@@ -233,8 +235,8 @@ function removeNodeCore(id: string) {
   activeSockets.delete(id)
   // An uploaded-but-unconsumed ISO dies with its node — best-effort (a 404
   // just means the worker or the orphan sweep already deleted it).
-  const isoId = useTopologyStore.getState().nodes.find((n) => n.id === id)
-    ?.data.isoAuthoring?.isoId
+  const isoId = useTopologyStore.getState().nodes.find((n) => n.id === id)?.data
+    .isoAuthoring?.isoId
   if (isoId) deleteIso(isoId).catch(() => {})
   // Deleting the node makes any staged op referencing it meaningless —
   // cascade-remove them so the Staged panel never lists a dangling op.
@@ -289,7 +291,9 @@ function attachTeardownSocket(
       // may still finish. A retried teardown converges either way (the
       // worker treats an already-absent VM as success).
       if (e.status === 0) {
-        toast.warning("Lost connection to the teardown job — tear down again to retry.")
+        toast.warning(
+          "Lost connection to the teardown job — tear down again to retry.",
+        )
       } else {
         toast.error(e.detail || "Teardown failed.")
       }
@@ -436,7 +440,8 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
   },
 
   connect(connection) {
-    if (useStagingStore.getState().deploying) return "Canvas is locked while deploying."
+    if (useStagingStore.getState().deploying)
+      return "Canvas is locked while deploying."
     const { nodes, edges } = get()
     const { source, target, sourceHandle, targetHandle } = connection
     const result = canConnectServiceSockets(connection, nodes, edges)
@@ -444,27 +449,33 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
 
     const sourceNode = nodes.find((n) => n.id === source)!
     const targetNode = nodes.find((n) => n.id === target)!
-    const type = serviceSocketEdgeType(connection, nodes) ??
+    const type =
+      serviceSocketEdgeType(connection, nodes) ??
       inferEdgeType(sourceNode.data.typeId, targetNode.data.typeId)
-    const serviceSocket = type === EDGE_TYPE.webServerCert
-      ? parseServiceSocketHandle(sourceHandle)?.socket ?? SERVICE_SOCKET.publication
-      : null
+    const serviceSocket =
+      type === EDGE_TYPE.webServerCert
+        ? (parseServiceSocketHandle(sourceHandle)?.socket ??
+          SERVICE_SOCKET.publication)
+        : null
 
     if (type === EDGE_TYPE.domainJoin) {
-      get().applyDomainChanges([{
-        nodeId: sourceNode.id,
-        nodeName: sourceNode.data.name,
-        dcId: targetNode.id,
-        domainName: domainLabel(targetNode),
-      }])
+      get().applyDomainChanges([
+        {
+          nodeId: sourceNode.id,
+          nodeName: sourceNode.data.name,
+          dcId: targetNode.id,
+          domainName: domainLabel(targetNode),
+        },
+      ])
       return null
     }
     const rootIssuer = sourceNode.data.config?.caType === "Root"
     const style = edgeStyle(type, { rootIssuer, serviceSocket })
 
-    const edgeId = type === EDGE_TYPE.webServerCert
-      ? `e-${source}-${target}-${serviceSocket}`
-      : `e-${source}-${target}`
+    const edgeId =
+      type === EDGE_TYPE.webServerCert
+        ? `e-${source}-${target}-${serviceSocket}`
+        : `e-${source}-${target}`
     const newEdge: Edge = {
       id: edgeId,
       source,
@@ -504,20 +515,27 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       // An issuing CA's CDP/AIA + OCSP sockets together describe the one
       // atomic backend webServerCert operation.
       if (rootIssuer) return null
-      const relationshipEdges = get().edges.filter((edge) =>
-        edge.data?.edgeType === EDGE_TYPE.webServerCert &&
-        edge.source === source &&
-        edge.target === target,
+      const relationshipEdges = get().edges.filter(
+        (edge) =>
+          edge.data?.edgeType === EDGE_TYPE.webServerCert &&
+          edge.source === source &&
+          edge.target === target,
       )
       const sockets = new Set(relationshipEdges.map(edgeServiceSocket))
-      if (!sockets.has(SERVICE_SOCKET.publication) || !sockets.has(SERVICE_SOCKET.ocsp)) {
+      if (
+        !sockets.has(SERVICE_SOCKET.publication) ||
+        !sockets.has(SERVICE_SOCKET.ocsp)
+      ) {
         return null
       }
-      const alreadyStaged = useStagingStore.getState().ops.some((op) =>
-        op.kind === OP_KIND.webServerCert &&
-        op.targetNodeId === source &&
-        op.secondaryNodeId === target,
-      )
+      const alreadyStaged = useStagingStore
+        .getState()
+        .ops.some(
+          (op) =>
+            op.kind === OP_KIND.webServerCert &&
+            op.targetNodeId === source &&
+            op.secondaryNodeId === target,
+        )
       if (alreadyStaged) return null
     }
     const opTarget = isCaHierarchy ? targetNode : sourceNode
@@ -580,20 +598,29 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       // Capture what's being replaced before mutating — `domainLeave`'s
       // undo needs the DC it left to re-add the exact same edge.
       const prevEdge = get().edges.find(
-        (e) => e.source === c.nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin,
+        (e) =>
+          e.source === c.nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin,
       )
       const prevDcId = prevEdge?.target ?? null
 
       set((s) => ({
         edges: s.edges.filter(
-          (e) => !(e.source === c.nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin),
+          (e) =>
+            !(
+              e.source === c.nodeId && e.data?.edgeType === EDGE_TYPE.domainJoin
+            ),
         ),
       }))
 
       // Retargeting (or leaving) a membership that only existed as a staged
       // op is a pure undo of that op — no domainLeave op needed.
-      const existingJoinOp = findStagedOp(useStagingStore.getState().ops, OP_KIND.domainJoin, c.nodeId)
-      if (existingJoinOp) useStagingStore.getState().removeOpCascade(existingJoinOp.id)
+      const existingJoinOp = findStagedOp(
+        useStagingStore.getState().ops,
+        OP_KIND.domainJoin,
+        c.nodeId,
+      )
+      if (existingJoinOp)
+        useStagingStore.getState().removeOpCascade(existingJoinOp.id)
 
       // A *deployed* prior membership isn't undone by cascading a staged op —
       // the backend needs an explicit leave, staged before the new join (both
@@ -678,7 +705,10 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
         if (n.id !== id) return n
         // Only pre-deploy nodes have an editable form; guard so a stray call
         // can't overwrite a staged/deployed node's committed config.
-        if (n.data.lifecycle !== LIFECYCLE.draft && n.data.lifecycle !== LIFECYCLE.failed) {
+        if (
+          n.data.lifecycle !== LIFECYCLE.draft &&
+          n.data.lifecycle !== LIFECYCLE.failed
+        ) {
           return n
         }
         return { ...n, data: { ...n.data, config } }
@@ -701,7 +731,12 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       if (node.data.lifecycle === LIFECYCLE.destroying) {
         if (activeSockets.has(node.id)) continue
         if (node.data.teardownJobId) {
-          attachTeardownSocket(node.id, node.data.teardownJobId, token, LIFECYCLE.deployed)
+          attachTeardownSocket(
+            node.id,
+            node.data.teardownJobId,
+            token,
+            LIFECYCLE.deployed,
+          )
         } else {
           get().patchNodeData(node.id, {
             lifecycle: LIFECYCLE.deployed,
@@ -727,7 +762,11 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
         // No job to resume — a plan-driven op mid-flight, or a reload before
         // one enqueued. Revert to staged if a matching op survived the
         // reload (retryable via Deploy), else draft.
-        const hasStagedOp = !!findStagedOp(useStagingStore.getState().ops, OP_KIND.createVm, node.id)
+        const hasStagedOp = !!findStagedOp(
+          useStagingStore.getState().ops,
+          OP_KIND.createVm,
+          node.id,
+        )
         patch({
           lifecycle: hasStagedOp ? LIFECYCLE.staged : LIFECYCLE.draft,
           progress: undefined,
@@ -759,7 +798,8 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
         // ISO edits on a deployed node mark it drifted, mirroring
         // `configureNode`'s handling of config edits.
         const wasDeployed =
-          n.data.lifecycle === LIFECYCLE.deployed || n.data.lifecycle === LIFECYCLE.drifted
+          n.data.lifecycle === LIFECYCLE.deployed ||
+          n.data.lifecycle === LIFECYCLE.drifted
         // Fresh object every time — `lastDeployedIso` may hold the previous
         // reference as its drift snapshot.
         return {
@@ -835,7 +875,9 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
           progress: undefined,
           phase: undefined,
         })
-        toast.error(err instanceof Error ? err.message : "Failed to start teardown.")
+        toast.error(
+          err instanceof Error ? err.message : "Failed to start teardown.",
+        )
       })
   },
 
@@ -847,14 +889,18 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     // Idempotent: a retarget stages both a domainLeave and a domainJoin that
     // each carry the same `prevDcId`-derived edge, so undoing both in
     // sequence would otherwise restore it twice.
-    set((s) => (s.edges.some((e) => e.id === edge.id) ? s : { edges: [...s.edges, edge] }))
+    set((s) =>
+      s.edges.some((e) => e.id === edge.id) ? s : { edges: [...s.edges, edge] },
+    )
   },
 
   commitEdge(edgeId) {
     set((s) => ({
       edges: s.edges.map((e) => {
         if (e.id !== edgeId) return e
-        const edgeType = e.data?.edgeType as ReturnType<typeof inferEdgeType> | undefined
+        const edgeType = e.data?.edgeType as
+          | ReturnType<typeof inferEdgeType>
+          | undefined
         if (!edgeType) {
           return {
             ...e,
@@ -885,9 +931,7 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
   setEdgeHealth(edgeId, health) {
     set((s) => ({
       edges: s.edges.map((edge) =>
-        edge.id === edgeId
-          ? { ...edge, data: { ...edge.data, health } }
-          : edge,
+        edge.id === edgeId ? { ...edge, data: { ...edge.data, health } } : edge,
       ),
     }))
   },
@@ -895,9 +939,14 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
   applyLabEvidence(evidence) {
     set((s) => ({
       edges: s.edges.map((edge) => {
-        const serviceHealth: ServiceHealth = serviceHealthForEdge(edge, s.nodes, evidence)
+        const serviceHealth: ServiceHealth = serviceHealthForEdge(
+          edge,
+          s.nodes,
+          evidence,
+        )
         if (Object.keys(serviceHealth).length === 0) return edge
-        const fallback = (edge.data?.health as ConnectionHealth | undefined) ??
+        const fallback =
+          (edge.data?.health as ConnectionHealth | undefined) ??
           CONNECTION_HEALTH.verified
         return {
           ...edge,
@@ -931,13 +980,22 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
     for (const close of activeSockets.values()) close()
     activeSockets.clear()
     const migratedEdges = edges.flatMap((edge) => {
-      if (edge.data?.edgeType !== EDGE_TYPE.webServerCert || edge.data?.serviceSocket) {
+      if (
+        edge.data?.edgeType !== EDGE_TYPE.webServerCert ||
+        edge.data?.serviceSocket
+      ) {
         return [edge]
       }
       const publication: Edge = {
         ...edge,
-        sourceHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "source"),
-        targetHandle: serviceSocketHandleId(SERVICE_SOCKET.publication, "target"),
+        sourceHandle: serviceSocketHandleId(
+          SERVICE_SOCKET.publication,
+          "source",
+        ),
+        targetHandle: serviceSocketHandleId(
+          SERVICE_SOCKET.publication,
+          "target",
+        ),
         data: { ...edge.data, serviceSocket: SERVICE_SOCKET.publication },
       }
       const source = nodes.find((node) => node.id === edge.source)
@@ -952,14 +1010,18 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
       return [publication, ocsp]
     })
     const hydratedEdges = migratedEdges.map((edge) => {
-      const edgeType = edge.data?.edgeType as ReturnType<typeof inferEdgeType> | undefined
+      const edgeType = edge.data?.edgeType as
+        | ReturnType<typeof inferEdgeType>
+        | undefined
       if (!edgeType || edgeType === EDGE_TYPE.network) return edge
       const rootIssuer = edge.data?.rootIssuer === true
       const serviceSocket = edgeServiceSocket(edge)
       const visual = edgeStyle(edgeType, { rootIssuer, serviceSocket })
       const staged = edge.data?.staged === true
       const savedHealth = edge.data?.health as ConnectionHealth | undefined
-      const health = Object.values(CONNECTION_HEALTH).includes(savedHealth as ConnectionHealth)
+      const health = Object.values(CONNECTION_HEALTH).includes(
+        savedHealth as ConnectionHealth,
+      )
         ? savedHealth!
         : staged
           ? CONNECTION_HEALTH.planned
@@ -992,7 +1054,13 @@ export const useTopologyStore = create<TopologyState>()((set, get) => ({
           : visual.style,
       }
     })
-    set({ nodes, edges: hydratedEdges, counters, viewport, selectedNodeId: null })
+    set({
+      nodes,
+      edges: hydratedEdges,
+      counters,
+      viewport,
+      selectedNodeId: null,
+    })
     // Reattach/revert any `configuring` node in the graph just loaded — this
     // is what makes an in-flight clone resume after a reload or project switch.
     get().resumeJobs()

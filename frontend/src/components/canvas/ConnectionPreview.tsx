@@ -23,14 +23,15 @@ export function ConnectionPreview() {
   const parsed = parseServiceSocketHandle(gesture.sourceHandleId)
   if (!parsed) return null
   const socketGuidance = SERVICE_SOCKET_GUIDANCE[parsed.socket]
-  const connection = gesture.targetNodeId && gesture.targetHandleId
-    ? {
-        source: gesture.sourceNodeId,
-        sourceHandle: gesture.sourceHandleId,
-        target: gesture.targetNodeId,
-        targetHandle: gesture.targetHandleId,
-      }
-    : null
+  const connection =
+    gesture.targetNodeId && gesture.targetHandleId
+      ? {
+          source: gesture.sourceNodeId,
+          sourceHandle: gesture.sourceHandleId,
+          target: gesture.targetNodeId,
+          targetHandle: gesture.targetHandleId,
+        }
+      : null
   const edgeType = connection ? serviceSocketEdgeType(connection, nodes) : null
   const validation = connection
     ? canConnectServiceSockets(connection, nodes, edges)
@@ -42,31 +43,45 @@ export function ConnectionPreview() {
         serviceSocket: parsed.socket,
       })
     : null
-  const missing = edgeType && connection
-    ? connectionMissingRequirements(
-        edgeType,
-        connection.source,
-        connection.target,
-        nodes,
-        edges,
-        parsed.socket,
-      )
-    : []
+  const missing =
+    edgeType && connection
+      ? connectionMissingRequirements(
+          edgeType,
+          connection.source,
+          connection.target,
+          nodes,
+          edges,
+          parsed.socket,
+        )
+      : []
 
   const candidates = nodes.flatMap((node) =>
     serviceSocketsForNode(node, edges)
-      .filter((candidate) => candidate.type === "target" && candidate.socket === parsed.socket)
-      .map((candidate) => canConnectServiceSockets({
-        source: gesture.sourceNodeId,
-        sourceHandle: gesture.sourceHandleId,
-        target: node.id,
-        targetHandle: serviceSocketHandleId(candidate.socket, "target"),
-      }, nodes, edges)),
+      .filter(
+        (candidate) =>
+          candidate.type === "target" && candidate.socket === parsed.socket,
+      )
+      .map((candidate) =>
+        canConnectServiceSockets(
+          {
+            source: gesture.sourceNodeId,
+            sourceHandle: gesture.sourceHandleId,
+            target: node.id,
+            targetHandle: serviceSocketHandleId(candidate.socket, "target"),
+          },
+          nodes,
+          edges,
+        ),
+      ),
   )
   const compatibleCount = candidates.filter((candidate) => candidate.ok).length
-  const blockedReasons = [...new Set(
-    candidates.flatMap((candidate) => candidate.reason ? [candidate.reason] : []),
-  )].slice(0, 2)
+  const blockedReasons = [
+    ...new Set(
+      candidates.flatMap((candidate) =>
+        candidate.reason ? [candidate.reason] : [],
+      ),
+    ),
+  ].slice(0, 2)
 
   return (
     <div
@@ -76,7 +91,9 @@ export function ConnectionPreview() {
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-semibold">{guidance?.intent ?? socketGuidance.intent}</p>
+          <p className="font-semibold">
+            {guidance?.intent ?? socketGuidance.intent}
+          </p>
           <p className="mt-0.5 text-muted-foreground">
             {edgeType === EDGE_TYPE.caHierarchy
               ? "issues CA certificate"
@@ -101,17 +118,21 @@ export function ConnectionPreview() {
         </p>
       </div>
 
-      {(validation?.reason || missing.length > 0 || (!connection && compatibleCount === 0)) && (
+      {(validation?.reason ||
+        missing.length > 0 ||
+        (!connection && compatibleCount === 0)) && (
         <div className="mt-2 border-t pt-2">
           <p className="flex items-center gap-1 font-medium text-amber-500">
             <AlertTriangle className="h-3 w-3" /> Still missing
           </p>
           <ul className="mt-1 space-y-0.5 text-muted-foreground">
             {validation?.reason && <li>{validation.reason}</li>}
-            {missing.map((item) => <li key={item}>{item}</li>)}
-            {!connection && compatibleCount === 0 && blockedReasons.map((item) => (
+            {missing.map((item) => (
               <li key={item}>{item}</li>
             ))}
+            {!connection &&
+              compatibleCount === 0 &&
+              blockedReasons.map((item) => <li key={item}>{item}</li>)}
           </ul>
         </div>
       )}

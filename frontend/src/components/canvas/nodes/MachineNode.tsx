@@ -87,11 +87,12 @@ function socketPlacement(socket: ServiceSocket, type: "source" | "target") {
           labelClassName: "justify-start",
         }
   }
-  const top = socket === SERVICE_SOCKET.publication
-    ? 72
-    : socket === SERVICE_SOCKET.ocsp
-      ? 96
-      : 120
+  const top =
+    socket === SERVICE_SOCKET.publication
+      ? 72
+      : socket === SERVICE_SOCKET.ocsp
+        ? 96
+        : 120
   return type === "source"
     ? {
         position: Position.Right,
@@ -117,11 +118,18 @@ function machineNodeHeight(
   )
   const sideSocketRows = new Set(
     socketSpecs
-      .filter((spec) => !(spec.socket === SERVICE_SOCKET.issuance && spec.type === "source"))
+      .filter(
+        (spec) =>
+          !(spec.socket === SERVICE_SOCKET.issuance && spec.type === "source"),
+      )
       .map((spec) => socketPlacement(spec.socket, spec.type).handleStyle.top),
   ).size
-  return MACHINE_NODE_MIN_HEIGHT + (hasBottomSocket ? BOTTOM_SOCKET_GUTTER : 0) +
-    Math.max(0, sideSocketRows - COMPACT_CARD_SIDE_SOCKET_ROWS) * SOCKET_ROW_HEIGHT
+  return (
+    MACHINE_NODE_MIN_HEIGHT +
+    (hasBottomSocket ? BOTTOM_SOCKET_GUTTER : 0) +
+    Math.max(0, sideSocketRows - COMPACT_CARD_SIDE_SOCKET_ROWS) *
+      SOCKET_ROW_HEIGHT
+  )
 }
 
 function LifecycleBadge({
@@ -290,17 +298,30 @@ function compactFacts({
       ]
     }
     return [
-      { label: "Trust tier", value: tier === "standalone" ? "Standalone" : `T${depth ?? 1} ${tier ?? "CA"}` },
+      {
+        label: "Trust tier",
+        value:
+          tier === "standalone"
+            ? "Standalone"
+            : `T${depth ?? 1} ${tier ?? "CA"}`,
+      },
       { label: "Domain", value: domain ?? "Not joined" },
     ]
   }
   return [
-    { label: "Endpoint", value: isDeployed(data) && data.ip ? data.ip : "Pending" },
+    {
+      label: "Endpoint",
+      value: isDeployed(data) && data.ip ? data.ip : "Pending",
+    },
     { label: "Domain", value: domain ?? "Not joined" },
   ]
 }
 
-export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>) {
+export function MachineNode({
+  id,
+  data,
+  selected,
+}: NodeProps<Node<MachineData>>) {
   const def = TEMPLATE_BY_ID[data.typeId]
   const nodes = useNodes<Node<MachineData>>()
   const edges = useEdges()
@@ -323,29 +344,36 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
 
   // Derived chips — only meaningful once a node can carry real edges.
   const showDerived = isConnectable(data)
-  const tier = showDerived && data.typeId === "certificateAuthority"
-    ? caTier(id, edges)
-    : null
-  const depth = tier !== null && tier !== "root" && tier !== "standalone"
-    ? caDepth(id, edges)
-    : null
+  const tier =
+    showDerived && data.typeId === "certificateAuthority"
+      ? caTier(id, edges)
+      : null
+  const depth =
+    tier !== null && tier !== "root" && tier !== "standalone"
+      ? caDepth(id, edges)
+      : null
   const domain = showDerived ? domainMembership(id, edges, nodes) : null
-  const memberCount = showDerived && data.typeId === "domainController"
-    ? edges.filter((e) => e.target === id && e.data?.edgeType === EDGE_TYPE.domainJoin).length
-    : null
+  const memberCount =
+    showDerived && data.typeId === "domainController"
+      ? edges.filter(
+          (e) => e.target === id && e.data?.edgeType === EDGE_TYPE.domainJoin,
+        ).length
+      : null
   const evidence = findLabEvidence(nodes)
   const evidenceWarning = nodeHealthWarning(
     { id, data, position: { x: 0, y: 0 } },
     evidence,
   )
   const driftFields = driftedFields(data)
-  const warning = evidenceWarning ??
+  const warning =
+    evidenceWarning ??
     (data.lifecycle === LIFECYCLE.failed
-      ? data.errorDetail ?? data.phase ?? "Deployment failed"
+      ? (data.errorDetail ?? data.phase ?? "Deployment failed")
       : null) ??
     (driftFields.length > 0 ? "Configuration changed since deploy" : null)
   const facts = compactFacts({ data, tier, depth, domain, memberCount })
-  const activePhase = data.lifecycle === LIFECYCLE.deploying ||
+  const activePhase =
+    data.lifecycle === LIFECYCLE.deploying ||
     data.lifecycle === LIFECYCLE.destroying
 
   const Icon = def?.icon ?? AlertTriangle
@@ -364,16 +392,25 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
   }, [id, socketLayoutKey, updateNodeInternals])
   const socketCompatibility = (socket: ServiceSocket) => {
     if (!gesture) return null
-    return canConnectServiceSockets({
-      source: gesture.sourceNodeId,
-      sourceHandle: gesture.sourceHandleId,
-      target: id,
-      targetHandle: serviceSocketHandleId(socket, "target"),
-    }, nodes, edges)
+    return canConnectServiceSockets(
+      {
+        source: gesture.sourceNodeId,
+        sourceHandle: gesture.sourceHandleId,
+        target: id,
+        targetHandle: serviceSocketHandleId(socket, "target"),
+      },
+      nodes,
+      edges,
+    )
   }
-  const compatibleDestination = gesture && gesture.sourceNodeId !== id &&
-    socketSpecs.some((spec) => spec.type === "target" && socketCompatibility(spec.socket)?.ok)
-  const dimmedByGesture = gesture && gesture.sourceNodeId !== id && !compatibleDestination
+  const compatibleDestination =
+    gesture &&
+    gesture.sourceNodeId !== id &&
+    socketSpecs.some(
+      (spec) => spec.type === "target" && socketCompatibility(spec.socket)?.ok,
+    )
+  const dimmedByGesture =
+    gesture && gesture.sourceNodeId !== id && !compatibleDestination
   const socketsConnectable = isConnectable(data)
   const isDraft = data.lifecycle === LIFECYCLE.draft
   const nodeHeight = machineNodeHeight(socketSpecs, isDraft)
@@ -387,10 +424,14 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         height: nodeHeight,
       }}
       onAnimationEnd={(event) => {
-        if (event.animationName === "trust-gravity-settle") updateNodeInternals(id)
+        if (event.animationName === "trust-gravity-settle")
+          updateNodeInternals(id)
       }}
       onTransitionEnd={(event) => {
-        if (event.target === event.currentTarget && event.propertyName === "height") {
+        if (
+          event.target === event.currentTarget &&
+          event.propertyName === "height"
+        ) {
           updateNodeInternals(id)
         }
       }}
@@ -400,33 +441,41 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         tier === "root" && "trust-body trust-body-root",
         tier === "intermediate" && "trust-body trust-body-intermediate",
         tier === "issuing" && "trust-body trust-body-issuing",
-        compatibleDestination && "ring-2 ring-emerald-400 shadow-[0_0_22px_5px_rgba(52,211,153,0.28)]",
+        compatibleDestination &&
+          "ring-2 ring-emerald-400 shadow-[0_0_22px_5px_rgba(52,211,153,0.28)]",
         dimmedByGesture && "opacity-35 saturate-50",
         selected && "ring-2 ring-primary shadow-md",
         data.lifecycle === LIFECYCLE.draft && "border-amber-500/40",
-        data.lifecycle === LIFECYCLE.staged && "border-sky-500/40 border-dashed opacity-80",
+        data.lifecycle === LIFECYCLE.staged &&
+          "border-sky-500/40 border-dashed opacity-80",
         data.lifecycle === LIFECYCLE.deploying && "border-muted",
-        data.lifecycle === LIFECYCLE.provisioning && "border-emerald-500/30 border-dashed",
+        data.lifecycle === LIFECYCLE.provisioning &&
+          "border-emerald-500/30 border-dashed",
         data.lifecycle === LIFECYCLE.deployed && "border-border",
         data.lifecycle === LIFECYCLE.drifted && "border-orange-500/40",
         data.lifecycle === LIFECYCLE.failed && "border-red-500/50",
-        data.lifecycle === LIFECYCLE.destroying && "border-red-500/40 opacity-70",
-        !isOverlapping && memberCount !== null && memberCount > 0 &&
+        data.lifecycle === LIFECYCLE.destroying &&
+          "border-red-500/40 opacity-70",
+        !isOverlapping &&
+          memberCount !== null &&
+          memberCount > 0 &&
           "border-sky-500/60 shadow-[0_0_18px_4px_rgba(14,165,233,0.35)] " +
-          "dark:shadow-[0_0_20px_5px_rgba(56,189,248,0.55)]",
-        !isOverlapping && data.typeId === "certificateAuthority" && domain !== null &&
+            "dark:shadow-[0_0_20px_5px_rgba(56,189,248,0.55)]",
+        !isOverlapping &&
+          data.typeId === "certificateAuthority" &&
+          domain !== null &&
           "border-amber-500/60 shadow-[0_0_18px_4px_rgba(245,158,11,0.35)] " +
-          "dark:shadow-[0_0_20px_5px_rgba(251,191,36,0.55)]",
+            "dark:shadow-[0_0_20px_5px_rgba(251,191,36,0.55)]",
         // Overlap warning takes precedence over selection/lifecycle styling.
-        isOverlapping && "border-red-500 bg-red-500/40 opacity-70 ring-2 ring-red-500/40",
+        isOverlapping &&
+          "border-red-500 bg-red-500/40 opacity-70 ring-2 ring-red-500/40",
       )}
     >
       {socketSpecs.map((spec) => {
         const handleId = serviceSocketHandleId(spec.socket, spec.type)
         const placement = socketPlacement(spec.socket, spec.type)
-        const compatibility = spec.type === "target"
-          ? socketCompatibility(spec.socket)
-          : null
+        const compatibility =
+          spec.type === "target" ? socketCompatibility(spec.socket) : null
         const visible = gesture
           ? gesture.sourceNodeId === id
             ? spec.type === "source"
@@ -462,9 +511,7 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
                 "!rounded-full !border-0 !bg-transparent !shadow-none",
                 socketsConnectable ? "cursor-crosshair" : "cursor-default",
                 "transition-opacity duration-150 focus-visible:!outline-none focus-visible:!ring-2 focus-visible:!ring-ring",
-                visible
-                  ? "!opacity-100"
-                  : "pointer-events-none !opacity-0",
+                visible ? "!opacity-100" : "pointer-events-none !opacity-0",
               )}
             >
               <span
@@ -485,7 +532,9 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
                 placement.labelClassName,
               )}
             >
-              <SocketIcon className={cn("h-3 w-3 shrink-0", appearance.iconClassName)} />
+              <SocketIcon
+                className={cn("h-3 w-3 shrink-0", appearance.iconClassName)}
+              />
               <span className="truncate">{guidance.label}</span>
             </span>
           </Fragment>
@@ -500,25 +549,43 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
         )}
       >
         {def?.logo ? (
-          <img src={def.logo} alt="" className="h-5 w-5 shrink-0" draggable={false} />
+          <img
+            src={def.logo}
+            alt=""
+            className="h-5 w-5 shrink-0"
+            draggable={false}
+          />
         ) : (
-          <Icon className={cn("h-4 w-4 shrink-0", def?.accent ?? "text-muted-foreground")} />
+          <Icon
+            className={cn(
+              "h-4 w-4 shrink-0",
+              def?.accent ?? "text-muted-foreground",
+            )}
+          />
         )}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-semibold">{data.name}</span>
+          <span className="block truncate text-xs font-semibold">
+            {data.name}
+          </span>
           <span className="block truncate text-[9px] text-muted-foreground">
             {def?.label ?? data.typeId}
           </span>
         </span>
-        <LifecycleBadge lifecycle={data.lifecycle} preparing={preparingDeploy} />
-        {!activePhase && (
-          warning ? (
+        <LifecycleBadge
+          lifecycle={data.lifecycle}
+          preparing={preparingDeploy}
+        />
+        {!activePhase &&
+          (warning ? (
             <span
               className="flex shrink-0"
               title={warning}
               aria-label={warning}
             >
-              <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-red-500" />
+              <AlertTriangle
+                aria-hidden="true"
+                className="h-3.5 w-3.5 text-red-500"
+              />
             </span>
           ) : (
             <span
@@ -526,10 +593,12 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
               title="No active warnings"
               aria-label="No active warnings"
             >
-              <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 text-emerald-500" />
+              <CheckCircle2
+                aria-hidden="true"
+                className="h-3.5 w-3.5 text-emerald-500"
+              />
             </span>
-          )
-        )}
+          ))}
         <AgentStatusDot
           vmId={data.orchestratorVmId}
           deployed={Boolean(data.vmName || data.orchestratorVmId)}
@@ -557,14 +626,16 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
               )}
               {/* Failure reasons must be readable at a glance, not only via
                   the header icon's hover tooltip. */}
-              {!activePhase && data.lifecycle === LIFECYCLE.failed && warning && (
-                <p
-                  className="mx-auto line-clamp-2 min-w-0 text-center text-[10px] leading-tight text-red-500"
-                  title={warning}
-                >
-                  {warning}
-                </p>
-              )}
+              {!activePhase &&
+                data.lifecycle === LIFECYCLE.failed &&
+                warning && (
+                  <p
+                    className="mx-auto line-clamp-2 min-w-0 text-center text-[10px] leading-tight text-red-500"
+                    title={warning}
+                  >
+                    {warning}
+                  </p>
+                )}
             </div>
 
             <dl className="grid grid-cols-2 gap-4 border-t pt-2">
@@ -573,7 +644,10 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
                   <dt className="truncate text-[9px] uppercase tracking-wide text-muted-foreground">
                     {fact.label}
                   </dt>
-                  <dd className="truncate text-[10px] font-medium" title={fact.value}>
+                  <dd
+                    className="truncate text-[10px] font-medium"
+                    title={fact.value}
+                  >
                     {fact.value}
                   </dd>
                 </div>
@@ -582,7 +656,10 @@ export function MachineNode({ id, data, selected }: NodeProps<Node<MachineData>>
           </div>
 
           {hasBottomSocket && (
-            <div aria-hidden="true" className="machine-node-reveal absolute inset-x-5 bottom-9 border-t" />
+            <div
+              aria-hidden="true"
+              className="machine-node-reveal absolute inset-x-5 bottom-9 border-t"
+            />
           )}
         </>
       )}
