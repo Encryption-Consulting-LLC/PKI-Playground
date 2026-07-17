@@ -611,7 +611,7 @@ export function Canvas() {
   )
 
   return (
-    <div ref={wrapperRef} className="relative flex-1 h-full">
+    <div ref={wrapperRef} className="canvas-surface relative flex-1 h-full">
       <ReactFlow
         nodes={visibleNodes}
         edges={visibleEdges}

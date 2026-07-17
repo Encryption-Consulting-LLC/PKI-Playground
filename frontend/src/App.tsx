@@ -124,9 +124,11 @@ function App() {
       {/* Top bar */}
       <header className="flex shrink-0 items-center justify-between gap-4 border-b px-4 py-2">
         <div>
-          <h1 className="text-base font-semibold tracking-tight">
-            EC PKI Playground
-          </h1>
+          <img
+            src="/ec-logo.png"
+            alt="PQC Playground"
+            className="ec-logo h-6"
+          />
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <HealthBadge />

@@ -29,7 +29,11 @@ export function AppShell({ username, sections, active, onSelect, children }: App
     <div className="flex h-svh overflow-hidden">
       <aside className="flex w-56 shrink-0 flex-col gap-(--gap-stack) border-r bg-sidebar p-(--gap-row) text-sidebar-foreground">
         <div className="px-(--gap-inline) py-(--gap-inline)">
-          <p className="text-sm font-semibold tracking-tight">EC PKI Playground</p>
+          <img
+            src={`${import.meta.env.BASE_URL}ec-logo.png`}
+            alt="PQC Playground"
+            className="ec-logo mb-1 h-5"
+          />
           <p className="text-xs text-muted-foreground">Admin</p>
         </div>
         <nav className="flex flex-1 flex-col gap-1">

@@ -24,7 +24,7 @@ export function ProjectLanding() {
     "/?share=predeployed-pki"
 
   return (
-    <div className="flex flex-1 items-center justify-center overflow-y-auto bg-muted/20 p-6">
+    <div className="login-bg flex flex-1 items-center justify-center overflow-y-auto p-6">
       <div className="flex w-full max-w-4xl flex-col items-center gap-8">
         <div className="flex flex-col items-center gap-1.5 text-center">
           <h2 className="text-xl font-semibold tracking-tight">

@@ -1,7 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource/poppins/400.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
 @import "./tokens.css";
 
 @custom-variant dark (&:is(.dark *));
@@ -64,4 +67,65 @@
   html {
     @apply font-sans;
   }
+}
+
+/* Login screen brand treatment — full-viewport radial glow behind a
+   gradient-bordered card, mirroring the Encryption Consulting Client Portal. */
+.login-bg {
+  position: relative;
+  background: var(--background);
+}
+
+.login-bg::before,
+.login-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.login-bg::before {
+  background: radial-gradient(
+    ellipse 60% 55% at 50% 50%,
+    rgb(13 86 212 / 28%) 0%,
+    rgb(13 86 212 / 8%) 40%,
+    transparent 70%
+  );
+}
+
+.login-bg::after {
+  background: radial-gradient(
+    circle 40% at 80% 90%,
+    rgb(30 189 189 / 12%) 0%,
+    transparent 60%
+  );
+}
+
+.login-bg > * {
+  position: relative;
+  z-index: 1;
+}
+
+.login-card-border {
+  background: linear-gradient(90deg, #0d56d4, #b7cdf2);
+  /* Outer radius = the card radius (below) plus the 1px gradient padding, so
+     the gradient hugs the card corners. 0.5rem matches the reference's 7px
+     outer / 6px inner nesting (was a rounder 0.75rem). */
+  border-radius: calc(0.5rem + 1px);
+  padding: 1px;
+}
+
+.login-card {
+  border: none;
+  /* Tighter than the default rounded-xl to mirror the reference login card. */
+  border-radius: 0.5rem;
+}
+
+.ec-logo {
+  filter: none;
+}
+
+.dark .ec-logo {
+  filter: brightness(0) invert(1);
 }

@@ -59,7 +59,7 @@ export function ProjectTabBar() {
   }
 
   return (
-    <div className="flex shrink-0 items-center gap-1 border-b bg-muted/30 px-2 py-1">
+    <div className="flex h-9 shrink-0 items-center gap-1 border-b bg-muted/30 px-2">
       {projects.map((project) => {
         const isActive = project.id === activeProjectId
         const isEditing = editingId === project.id

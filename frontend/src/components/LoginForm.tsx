@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { QUERY_KEYS } from "@/constants"
 import {
   ApiError,
-  getAuthConfig,
   login,
   oidcCallback,
   oidcLoginUrl,
@@ -13,15 +11,14 @@ import {
 } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { FloatingField } from "@/components/ui/floating-field"
 import { Splash } from "@/components/Splash"
+import { ThemeToggle } from "@/components/ThemeToggle"
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card"
 
 function storeSession(s: SessionResponse) {
@@ -46,11 +43,6 @@ const showError = (err: unknown) =>
 export function LoginForm() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
-
-  const { data: config } = useQuery({
-    queryKey: QUERY_KEYS.config,
-    queryFn: getAuthConfig,
-  })
 
   const loginMutation = useMutation({
     mutationFn: (req: LoginRequest) => login(req),
@@ -91,68 +83,77 @@ export function LoginForm() {
   if (ssoFinish.isPending) return <Splash label="Completing SSO sign-in…" />
 
   return (
-    <div className="flex min-h-svh items-center justify-center px-6 py-10">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>EC-PKI-Playground</CardTitle>
-          <CardDescription>
-            Sign in with your account to continue.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="grid gap-4"
-            onSubmit={(e) => {
-              e.preventDefault()
-              loginMutation.mutate({ username, password })
-            }}
-          >
-            <div className="grid gap-2">
-              <Label htmlFor="login-username">Username</Label>
-              <Input
+    <div className="login-bg relative flex min-h-svh items-center justify-center px-6 py-10">
+      {/* `!absolute` overrides the `.login-bg > *` rule, which forces
+          position:relative on every direct child (for the glow z-stacking). */}
+      <div className="!absolute top-4 right-4 !z-20">
+        <ThemeToggle />
+      </div>
+      <div className="login-card-border w-full max-w-sm">
+        <Card className="login-card w-full ring-0 [--card-spacing:--spacing(6)]">
+          <CardHeader className="items-center justify-items-center gap-5 text-center">
+            <img
+              src="/ec-logo.png"
+              alt="Encryption Consulting"
+              className="ec-logo max-w-[9rem]"
+            />
+            <CardDescription>Sign in to PQC Playground</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="grid gap-5"
+              onSubmit={(e) => {
+                e.preventDefault()
+                loginMutation.mutate({ username, password })
+              }}
+            >
+              <FloatingField
                 id="login-username"
+                label="Username"
                 autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 autoFocus
               />
-            </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="login-password">Password</Label>
-              <Input
+              <FloatingField
                 id="login-password"
+                label="Password"
                 type="password"
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
+
+              <Button
+                type="submit"
+                className="mt-1 w-full"
+                disabled={loginMutation.isPending}
+              >
+                {loginMutation.isPending ? "Signing in…" : "Sign in"}
+              </Button>
+            </form>
+
+            <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              or
+              <div className="h-px flex-1 bg-border" />
             </div>
 
             <Button
-              type="submit"
-              className="mt-2 w-full"
-              disabled={loginMutation.isPending}
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled
+              title="SSO sign-in is not yet available"
             >
-              {loginMutation.isPending ? "Signing in…" : "Sign in"}
+              {ssoStart.isPending ? "Redirecting…" : "Sign in with SSO"}
             </Button>
-
-            {config?.oidcEnabled && (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={ssoStart.isPending}
-                onClick={() => ssoStart.mutate()}
-              >
-                {ssoStart.isPending ? "Redirecting…" : "Sign in with SSO"}
-              </Button>
-            )}
-          </form>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

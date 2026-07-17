@@ -28,11 +28,11 @@ export function Toolbox() {
         tab === "staged" ? "w-72" : "w-48",
       )}
     >
-      <div className="flex shrink-0 border-b text-[11px] font-semibold uppercase tracking-wider">
+      <div className="flex h-9 shrink-0 border-b text-[11px] font-semibold uppercase tracking-wider">
         <button
           onClick={() => setTab("templates")}
           className={cn(
-            "flex-1 border-b-2 px-2 py-2 transition-colors",
+            "flex flex-1 items-center justify-center border-b-2 px-2 transition-colors",
             tab === "templates"
               ? "border-primary text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground",
@@ -43,7 +43,7 @@ export function Toolbox() {
         <button
           onClick={() => setTab("staged")}
           className={cn(
-            "flex-1 border-b-2 px-2 py-2 transition-colors",
+            "flex flex-1 items-center justify-center border-b-2 px-2 transition-colors",
             tab === "staged"
               ? "border-primary text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground",
@@ -103,7 +103,7 @@ export function Toolbox() {
                   }}
                   title={`${product.description} · clones ${product.cloneBase}`}
                   className={cn(
-                    "flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg border bg-card p-1.5 shadow-sm select-none transition-colors",
+                    "flex flex-col items-center justify-center gap-2 rounded-lg border bg-card px-2 py-3 shadow-sm select-none transition-colors",
                     deploying
                       ? "cursor-not-allowed opacity-50"
                       : "cursor-grab hover:bg-accent hover:text-accent-foreground active:cursor-grabbing",
