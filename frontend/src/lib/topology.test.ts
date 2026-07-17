@@ -15,10 +15,12 @@ import {
   connectionGuidance,
   connectionHealthForOperation,
   connectionPorts,
+  configurationNameCollision,
   domainJoinBlockReason,
   domainJoinEdge,
   domainJoinOperations,
   domainRadius,
+  domainRegionBlocker,
   domainRegionSummary,
   edgeStyle,
   isConnectable,
@@ -168,7 +170,7 @@ describe("topology relationship linter", () => {
     ])
 
     expect(diagnostics.map((item) => item.message)).toEqual([
-      "CA02 has a parent but is not inside an AD domain.",
+      "CA02 is an issuing CA and must be joined to an AD domain.",
       "CA02 publishes HTTP CDP/AIA, but no web host is connected.",
       "SRV1 has OCSP enabled, but no issuing CA grants its enrollment templates.",
     ])
@@ -266,6 +268,37 @@ describe("living domain model", () => {
     expect(
       domainJoinBlockReason(machine("web", "SRV1", "webServer"), dc, []),
     ).toBeNull()
+  })
+
+  it("rejects a domain bubble that touches an offline root CA", () => {
+    const movedDc = { ...dc, position: { x: 0, y: 0 } }
+    const root = {
+      ...machine("root", "CA01", "certificateAuthority", { caType: "Root" }),
+      position: { x: 510, y: 0 },
+    }
+
+    expect(domainRegionBlocker(movedDc, [movedDc, root], []))?.toMatchObject({
+      node: { id: "root" },
+      reason:
+        "CA01 is an offline root CA and must remain outside Active Directory.",
+    })
+  })
+
+  it("finds domain and CA name collisions before configuration", () => {
+    const nodes = [
+      dc,
+      machine("root", "CA01", "certificateAuthority", {
+        commonName: "EC-Root-CA",
+      }),
+      machine("draft-dc", "DC02", "domainController"),
+    ]
+
+    expect(
+      configurationNameCollision("draft-dc", "domainName", "ENCON.PKI.", nodes),
+    ).toBe("This domain name is already used by DC01.")
+    expect(
+      configurationNameCollision("issuing", "commonName", "ec-root-ca", nodes),
+    ).toBe("This CA common name is already used by CA01.")
   })
 
   it("starts with a large domain boundary before members expand it", () => {

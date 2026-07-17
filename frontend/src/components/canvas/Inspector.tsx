@@ -23,6 +23,7 @@ import {
   ISO_DRIFT_FIELD,
   caTier,
   caDepth,
+  configurationNameCollision,
   domainMembership,
   driftedFields,
   isDeployed,
@@ -136,6 +137,7 @@ function ConfigForm({
   onChange,
   onSubmit,
   disabled = false,
+  validateField,
 }: {
   fields: ConfigField[]
   vmName?: string
@@ -144,6 +146,7 @@ function ConfigForm({
   onChange?: (values: Record<string, string>) => void
   onSubmit: (values: Record<string, string>) => void
   disabled?: boolean
+  validateField?: (key: string, value: string) => string | null
 }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -161,7 +164,10 @@ function ConfigForm({
   )
 
   function set(key: string, value: string) {
-    const next = { ...values, [key]: value }
+    const field = fields.find((candidate) => candidate.key === key)
+    const optionDefaults =
+      field?.type === "select" ? field.defaultsByOption?.[value] : undefined
+    const next = { ...values, [key]: value, ...optionDefaults }
     setValues(next)
     // Persist the draft on every edit (visible fields only, matching submit)
     // so it rides the node's `config` into localStorage/server and survives a
@@ -175,6 +181,16 @@ function ConfigForm({
   const passwordsOk = visibleFields.every(
     (f) => f.type !== "password" || isPasswordValid(values[f.key], vmName),
   )
+  const fieldErrors = Object.fromEntries(
+    visibleFields.map((field) => [
+      field.key,
+      validateField?.(
+        field.key,
+        `${fixedPrefixes[field.key] ?? ""}${values[field.key]}`,
+      ) ?? null,
+    ]),
+  )
+  const fieldsOk = Object.values(fieldErrors).every((error) => error === null)
 
   function submit() {
     onSubmit(withFixedPrefixes(fields, values, fixedPrefixes))
@@ -238,9 +254,11 @@ function ConfigForm({
                     ? 15 - (fixedPrefixes[field.key]?.length ?? 0)
                     : undefined
                 }
+                aria-invalid={!!fieldErrors[field.key]}
                 className={cn(
                   "h-7 min-w-0 text-xs",
                   fixedPrefixes[field.key] && "rounded-l-none",
+                  fieldErrors[field.key] && "border-red-500",
                 )}
               />
             </div>
@@ -261,12 +279,17 @@ function ConfigForm({
               </SelectContent>
             </Select>
           )}
+          {fieldErrors[field.key] && (
+            <p className="text-[10px] font-medium text-red-500">
+              {fieldErrors[field.key]}
+            </p>
+          )}
         </div>
       ))}
       <Button
         size="sm"
         className="mt-1 w-full"
-        disabled={disabled || !passwordsOk}
+        disabled={disabled || !passwordsOk || !fieldsOk}
         onClick={submit}
       >
         <Settings className="mr-2 h-3.5 w-3.5" />
@@ -863,6 +886,9 @@ export function Inspector() {
                   onChange={(config) => store.setNodeConfig(nodeId, config)}
                   onSubmit={handleConfigure}
                   disabled={deploying}
+                  validateField={(key, value) =>
+                    configurationNameCollision(nodeId, key, value, nodes)
+                  }
                 />
               </>
             )}

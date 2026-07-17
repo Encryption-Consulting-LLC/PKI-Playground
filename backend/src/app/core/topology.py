@@ -269,6 +269,36 @@ def validate_topology(topology: TopologyDocument) -> None:
         else:
             nodes[node.id] = node
 
+    # AD forest DNS names and AD CS common names are case-insensitive
+    # identities. Reject collisions in the semantic document as well as in
+    # the form so imports and older saved projects cannot bypass the guard.
+    authored_names: dict[tuple[str, str], TopologyNode] = {}
+    for node in nodes.values():
+        if node.role is TopologyRole.domain_controller:
+            field, label, code = "domainName", "domain name", "duplicate-domain-name"
+        elif node.role in (TopologyRole.root_ca, TopologyRole.issuing_ca):
+            field, label, code = "commonName", "CA common name", "duplicate-ca-name"
+        else:
+            continue
+        value = node.config.get(field, "").strip().rstrip(".")
+        if not value:
+            continue
+        key = (field, value.casefold())
+        previous = authored_names.get(key)
+        if previous:
+            diagnostics.append(
+                TopologyDiagnostic(
+                    code=code,
+                    message=(
+                        f"{node.name} and {previous.name} use the same {label} "
+                        f"'{value}'."
+                    ),
+                    node_ids=[previous.id, node.id],
+                )
+            )
+        else:
+            authored_names[key] = node
+
     edge_ids: set[str] = set()
     edge_keys: set[tuple[TopologyEdgeKind, str, str]] = set()
     valid_edges: list[TopologyEdge] = []
@@ -465,7 +495,10 @@ def validate_topology(topology: TopologyDocument) -> None:
             diagnostics.append(
                 TopologyDiagnostic(
                     code="issuing-ca-outside-domain",
-                    message=f"{issuing.name} has a parent but is not inside an AD domain.",
+                    message=(
+                        f"{issuing.name} is an issuing CA and must be joined "
+                        "to an AD domain."
+                    ),
                     node_ids=[issuing.id],
                 )
             )

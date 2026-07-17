@@ -494,13 +494,14 @@ export function lintTopologyRelationships(
         nodeIds: [issuing.id],
         edgeIds: [],
       })
-    } else if (!memberships.has(issuing.id)) {
+    }
+    if (!memberships.has(issuing.id)) {
       diagnostics.push({
         code: "issuing-ca-outside-domain",
-        message: `${issuing.data.name} has a parent but is not inside an AD domain.`,
-        severity: "warning",
-        nodeIds: [issuing.id, parent.source],
-        edgeIds: [parent.id],
+        message: `${issuing.data.name} is an issuing CA and must be joined to an AD domain.`,
+        severity: "error",
+        nodeIds: [issuing.id, ...(parent ? [parent.source] : [])],
+        edgeIds: parent ? [parent.id] : [],
       })
     }
 
@@ -934,6 +935,38 @@ export function domainLabel(dc: Node<MachineData>): string {
   return dc.data.config?.domainName ?? dc.data.name
 }
 
+/** Case-insensitive authored identity collision surfaced while a form is edited. */
+export function configurationNameCollision(
+  nodeId: string,
+  fieldKey: string,
+  value: string,
+  nodes: Node<MachineData>[],
+): string | null {
+  const normalized = value.trim().replace(/\.+$/, "").toLocaleLowerCase()
+  if (!normalized) return null
+
+  const spec =
+    fieldKey === "domainName"
+      ? { typeId: "domainController", label: "domain name" }
+      : fieldKey === "commonName"
+        ? { typeId: "certificateAuthority", label: "CA common name" }
+        : null
+  if (!spec) return null
+
+  const duplicate = nodes.find((candidate) => {
+    if (candidate.id === nodeId || candidate.data.typeId !== spec.typeId)
+      return false
+    const candidateValue = candidate.data.config?.[fieldKey]
+    return (
+      candidateValue?.trim().replace(/\.+$/, "").toLocaleLowerCase() ===
+      normalized
+    )
+  })
+  return duplicate
+    ? `This ${spec.label} is already used by ${duplicate.data.name}.`
+    : null
+}
+
 const DOMAIN_LABEL_MAX_CHARS = 24
 
 /** Truncates a label to `max` characters, appending an ellipsis if it was cut. */
@@ -1126,6 +1159,74 @@ export function findDomainForNode(
     }
   }
   return best
+}
+
+/**
+ * The nearest domain circle touched by any part of a node. This is stricter
+ * than membership's centre-point test and is used for nodes that must never
+ * occupy a domain (offline roots and unconfigured machines).
+ */
+export function findDomainOverlappingNode(
+  node: Node<MachineData>,
+  nodes: Node<MachineData>[],
+  edges: Edge[],
+): Node<MachineData> | null {
+  let best: Node<MachineData> | null = null
+  let bestDist = Infinity
+  for (const dc of nodes) {
+    if (dc.id === node.id) continue
+    if (dc.data.typeId !== "domainController" || !isConnectable(dc.data))
+      continue
+    const center = nodeCenter(dc)
+    const centerDist = Math.hypot(
+      nodeCenter(node).x - center.x,
+      nodeCenter(node).y - center.y,
+    )
+    if (nodeOverlapsDomain(node, dc, nodes, edges) && centerDist < bestDist) {
+      best = dc
+      bestDist = centerDist
+    }
+  }
+  return best
+}
+
+/** True when a node rectangle touches any part of one specific domain circle. */
+export function nodeOverlapsDomain(
+  node: Node<MachineData>,
+  dc: Node<MachineData>,
+  nodes: Node<MachineData>[],
+  edges: Edge[],
+): boolean {
+  const rect = nodeRect(node)
+  const center = nodeCenter(dc)
+  const closestX = Math.max(rect.x, Math.min(center.x, rect.x + rect.w))
+  const closestY = Math.max(rect.y, Math.min(center.y, rect.y + rect.h))
+  return (
+    Math.hypot(closestX - center.x, closestY - center.y) <=
+    domainRadius(dc, nodes, edges)
+  )
+}
+
+/** First non-member that cannot legally occupy a domain's current circle. */
+export function domainRegionBlocker(
+  dc: Node<MachineData>,
+  nodes: Node<MachineData>[],
+  edges: Edge[],
+): { node: Node<MachineData>; reason: string } | null {
+  for (const candidate of nodes) {
+    if (candidate.id === dc.id) continue
+    const isMember = edges.some(
+      (edge) =>
+        edge.source === candidate.id &&
+        edge.target === dc.id &&
+        edge.data?.edgeType === EDGE_TYPE.domainJoin,
+    )
+    if (isMember) continue
+    if (!nodeOverlapsDomain(candidate, dc, nodes, edges)) continue
+    const reason = domainJoinBlockReason(candidate, dc, edges)
+    if (reason) return { node: candidate, reason }
+  }
+  return null
 }
 
 /**

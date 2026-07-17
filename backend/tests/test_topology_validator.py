@@ -144,6 +144,29 @@ def test_root_domain_membership_is_rejected():
     assert "invalid-domain-member" in _codes(caught.value)
 
 
+def test_domain_and_ca_authored_names_are_unique_case_insensitively():
+    topology = _full_topology()
+    topology.nodes[0].config = {"domainName": "encon.pki"}
+    topology.nodes.append(
+        TopologyNode(
+            id="dc2",
+            name="DC02",
+            role=TopologyRole.domain_controller,
+            config={"domainName": "ENCON.PKI."},
+        )
+    )
+    topology.nodes[1].config = {"commonName": "EC-Root-CA"}
+    topology.nodes[2].config = {"commonName": "ec-root-ca"}
+
+    with pytest.raises(TopologyValidationError) as caught:
+        validate_topology(topology)
+
+    assert _codes(caught.value) >= {
+        "duplicate-domain-name",
+        "duplicate-ca-name",
+    }
+
+
 def test_ca_cycle_diagnostic_names_the_closed_path():
     topology = _full_topology()
     topology.edges = [edge for edge in topology.edges if edge.id != "parent"]

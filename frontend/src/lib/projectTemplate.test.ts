@@ -48,9 +48,9 @@ describe("supplied PKI project template", () => {
     )
 
     expect(positions).toEqual({
-      CA01: { x: 180, y: 100 },
+      CA01: { x: 80, y: 100 },
       CA02: { x: 500, y: 140 },
-      DC01: { x: 500, y: 340 },
+      DC01: { x: 720, y: 420 },
       SRV1: { x: 740, y: 340 },
     })
   })

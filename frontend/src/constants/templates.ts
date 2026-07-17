@@ -26,6 +26,8 @@ export type ConfigField =
       type: "select"
       options: string[]
       default: string
+      /** Values to reset when this option changes another configuration mode. */
+      defaultsByOption?: Record<string, Record<string, string>>
       hideWhen?: HideWhen
     }
   | {
@@ -125,6 +127,16 @@ export const TEMPLATE_CATALOG: TemplateDef[] = [
         type: "select",
         options: ["Root", "Issuing"],
         default: "Root",
+        defaultsByOption: {
+          Root: {
+            commonName: "EC-Root-CA",
+            validityYears: "20",
+          },
+          Issuing: {
+            commonName: "EC-Issuing-CA",
+            validityYears: "10",
+          },
+        },
       },
       {
         key: "commonName",

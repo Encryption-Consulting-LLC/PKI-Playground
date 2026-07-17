@@ -83,7 +83,7 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
   const rootId = addConfigured(
     "certificateAuthority",
     "CA01",
-    { x: 180, y: 100 },
+    { x: 80, y: 100 },
     {
       caType: "Root",
       commonName: PKI.rootCaCn,
@@ -106,7 +106,7 @@ export function buildPkiTemplateIntoStores(projectId?: string) {
   const dcId = addConfigured(
     "domainController",
     "DC01",
-    { x: 500, y: 340 },
+    { x: 720, y: 420 },
     {
       domainName: PKI.domainName,
       netbiosName: `${projectNetbiosPrefix(projectId ?? null)}${PKI.netbiosName}`,

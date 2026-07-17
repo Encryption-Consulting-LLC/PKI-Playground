@@ -34,8 +34,10 @@ import { EDGE_TYPE } from "@/constants/topology"
 import {
   domainJoinBlockReason,
   domainJoinOperations,
+  domainRegionBlocker,
   canConnectServiceSockets,
   findDomainForNode,
+  findDomainOverlappingNode,
   findOverlappingId,
   isDeployed,
   nearestFreePosition,
@@ -379,15 +381,53 @@ export function Canvas() {
         )
       }
 
-      const others = nodes.filter(
+      const dragNodes = nodes.map((candidate) => {
+        if (candidate.id === node.id) return node
+        const memberStart = start?.members.find(
+          (member) => member.id === candidate.id,
+        )
+        if (!memberStart || !start) return candidate
+        return {
+          ...candidate,
+          position: {
+            x: memberStart.position.x + node.position.x - start.position.x,
+            y: memberStart.position.y + node.position.y - start.position.y,
+          },
+        }
+      })
+      const others = dragNodes.filter(
         (n) => n.id !== node.id && !memberIds.includes(n.id),
       )
       setOverlapNode(findOverlappingId(node, others) ? node.id : null)
 
-      const dragNodes = nodes.map((candidate) =>
-        candidate.id === node.id ? node : candidate,
+      if (node.data.typeId === "domainController") {
+        const blocker = domainRegionBlocker(node, dragNodes, edges)
+        setDomainDragPreview(
+          blocker
+            ? {
+                nodeId: blocker.node.id,
+                dcId: node.id,
+                allowed: false,
+                reason: blocker.reason,
+                operations: [],
+              }
+            : null,
+        )
+        return
+      }
+
+      const centeredDomain = findDomainForNode(node, dragNodes, edges)
+      const overlappingDomain = findDomainOverlappingNode(
+        node,
+        dragNodes,
+        edges,
       )
-      const dc = findDomainForNode(node, dragNodes, edges)
+      const dc =
+        centeredDomain ??
+        (overlappingDomain &&
+        domainJoinBlockReason(node, overlappingDomain, edges)
+          ? overlappingDomain
+          : null)
       const currentDomain = edges.find(
         (edge) =>
           edge.source === node.id &&
@@ -459,16 +499,54 @@ export function Canvas() {
           : node.position,
       }
       const dragNodes = nodes.map((candidate) =>
-        candidate.id === node.id ? droppedNode : candidate,
+        candidate.id === node.id
+          ? droppedNode
+          : start?.members.some((member) => member.id === candidate.id) && start
+            ? {
+                ...candidate,
+                position: {
+                  x:
+                    start.members.find((member) => member.id === candidate.id)!
+                      .position.x +
+                    droppedNode.position.x -
+                    start.position.x,
+                  y:
+                    start.members.find((member) => member.id === candidate.id)!
+                      .position.y +
+                    droppedNode.position.y -
+                    start.position.y,
+                },
+              }
+            : candidate,
       )
-      const dropDomain = findDomainForNode(droppedNode, dragNodes, edges)
+      const dcBlocker =
+        droppedNode.data.typeId === "domainController"
+          ? domainRegionBlocker(droppedNode, dragNodes, edges)
+          : null
+      const centeredDropDomain = findDomainForNode(
+        droppedNode,
+        dragNodes,
+        edges,
+      )
+      const overlappingDropDomain = findDomainOverlappingNode(
+        droppedNode,
+        dragNodes,
+        edges,
+      )
+      const dropDomain =
+        centeredDropDomain ??
+        (overlappingDropDomain &&
+        domainJoinBlockReason(droppedNode, overlappingDropDomain, edges)
+          ? overlappingDropDomain
+          : null)
       const currentDomain = edges.find(
         (edge) =>
           edge.source === node.id &&
           edge.data?.edgeType === EDGE_TYPE.domainJoin,
       )?.target
-      const invalidReason =
-        dropDomain && currentDomain !== dropDomain.id
+      const invalidReason = dcBlocker
+        ? dcBlocker.reason
+        : dropDomain && currentDomain !== dropDomain.id
           ? domainJoinBlockReason(droppedNode, dropDomain, edges)
           : null
       if (invalidReason) {
@@ -605,9 +683,33 @@ export function Canvas() {
         x: e.clientX,
         y: e.clientY,
       })
+      const draftNode: Node<MachineData> = {
+        id: "drop-preview",
+        type: "machine",
+        position,
+        data: {
+          typeId,
+          name: "This unconfigured node",
+          lifecycle: "draft",
+          poweredOn: false,
+        },
+      }
+      const domain = findDomainOverlappingNode(draftNode, nodes, edges)
+      if (domain) {
+        toast.error("Configure the node before placing it inside a domain.")
+        setDomainDragPreview({
+          nodeId: draftNode.id,
+          dcId: domain.id,
+          allowed: false,
+          reason: "Unconfigured nodes cannot be placed inside a domain.",
+          operations: [],
+        })
+        window.setTimeout(() => setDomainDragPreview(null), 700)
+        return
+      }
       addNode(typeId, position)
     },
-    [screenToFlowPosition, addNode, deploying, evidenceActive],
+    [screenToFlowPosition, addNode, deploying, evidenceActive, nodes, edges],
   )
 
   return (
