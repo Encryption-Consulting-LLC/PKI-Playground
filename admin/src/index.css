@@ -74,6 +74,20 @@
 .login-bg {
   position: relative;
   background: var(--background);
+  /* Admin login is deliberately red-tinted (distinct from the blue app). These
+     token overrides are scoped to the login page only: the primary button and
+     focus ring turn red here without touching the rest of the admin console. */
+  --primary: #d30d0d;
+  --primary-foreground: #ffffff;
+  --ring: #d30d0d;
+}
+
+.dark .login-bg {
+  --primary: #f04747;
+  --ring: #f04747;
+  /* Dark form surface shifts from the app's bluish charcoal to a reddish one. */
+  --card: #1d1618;
+  --popover: #1d1618;
 }
 
 .login-bg::before,
@@ -88,8 +102,8 @@
 .login-bg::before {
   background: radial-gradient(
     ellipse 60% 55% at 50% 50%,
-    rgb(13 86 212 / 28%) 0%,
-    rgb(13 86 212 / 8%) 40%,
+    rgb(212 13 13 / 28%) 0%,
+    rgb(212 13 13 / 8%) 40%,
     transparent 70%
   );
 }
@@ -97,7 +111,7 @@
 .login-bg::after {
   background: radial-gradient(
     circle 40% at 80% 90%,
-    rgb(30 189 189 / 12%) 0%,
+    rgb(212 90 30 / 12%) 0%,
     transparent 60%
   );
 }
@@ -108,7 +122,7 @@
 }
 
 .login-card-border {
-  background: linear-gradient(90deg, #0d56d4, #b7cdf2);
+  background: linear-gradient(90deg, #d30d0d, #f2c1c1);
   /* Outer radius = the card radius (below) plus the 1px gradient padding, so
      the gradient hugs the card corners. 0.5rem matches the reference's 7px
      outer / 6px inner nesting (was a rounder 0.75rem). */
