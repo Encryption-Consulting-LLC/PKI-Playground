@@ -193,115 +193,115 @@ export function CapabilityEdge(props: EdgeProps) {
         </g>
       )}
       {expanded && (
-      <EdgeLabelRenderer>
-        <div
-          className="nodrag nopan absolute z-10"
-          style={{
-            // Leave the path clear for the sealed relay package animation.
-            // Other edge labels stay centered on their paths as before.
-            transform: `translate(-50%, -50%) translate(${labelX}px, ${
-              labelY + (hasOfflineRelay ? OFFLINE_RELAY_LABEL_OFFSET_Y : 0)
-            }px)`,
-          }}
-        >
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label={`${guidance.intent}. Connection requirements.`}
-            className={cn(
-              "flex max-w-64 items-center gap-1.5 rounded-full border bg-background/95 px-2 py-1 text-[10px] font-semibold shadow-sm",
-              "transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              props.selected && "ring-2 ring-ring",
-            )}
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan absolute z-10"
+            style={{
+              // Leave the path clear for the sealed relay package animation.
+              // Other edge labels stay centered on their paths as before.
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${
+                labelY + (hasOfflineRelay ? OFFLINE_RELAY_LABEL_OFFSET_Y : 0)
+              }px)`,
+            }}
           >
-            <span className="truncate">{guidance.intent}</span>
-            <span
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-label={`${guidance.intent}. Connection requirements.`}
               className={cn(
-                "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide",
-                health === CONNECTION_HEALTH.planned &&
-                  "bg-sky-500/15 text-sky-500",
-                health === CONNECTION_HEALTH.applying &&
-                  "bg-violet-500/15 text-violet-500",
-                health === CONNECTION_HEALTH.verified &&
-                  "bg-emerald-500/15 text-emerald-500",
-                health === CONNECTION_HEALTH.degraded &&
-                  "bg-amber-500/15 text-amber-500",
-                health === CONNECTION_HEALTH.broken &&
-                  "bg-red-500/15 text-red-500",
+                "flex max-w-64 items-center gap-1.5 rounded-full border bg-background/95 px-2 py-1 text-[10px] font-semibold shadow-sm",
+                "transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                props.selected && "ring-2 ring-ring",
               )}
             >
-              {liveProbe ? "Live probes" : healthGuidance.label}
-            </span>
-          </button>
+              <span className="truncate">{guidance.intent}</span>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide",
+                  health === CONNECTION_HEALTH.planned &&
+                    "bg-sky-500/15 text-sky-500",
+                  health === CONNECTION_HEALTH.applying &&
+                    "bg-violet-500/15 text-violet-500",
+                  health === CONNECTION_HEALTH.verified &&
+                    "bg-emerald-500/15 text-emerald-500",
+                  health === CONNECTION_HEALTH.degraded &&
+                    "bg-amber-500/15 text-amber-500",
+                  health === CONNECTION_HEALTH.broken &&
+                    "bg-red-500/15 text-red-500",
+                )}
+              >
+                {liveProbe ? "Live probes" : healthGuidance.label}
+              </span>
+            </button>
 
-          {expanded && (
-            <div className="absolute left-1/2 top-full mt-2 w-80 -translate-x-1/2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-xl">
-              <p className="text-[11px] font-semibold">Capabilities</p>
-              <div className="mt-1.5 space-y-1.5">
-                {guidance.ports.map((port) => {
-                  const item = CONNECTION_PORT_GUIDANCE[port]
-                  return (
-                    <div key={port} className="text-[10px] leading-snug">
-                      <span className="font-medium">{item.label}:</span>{" "}
-                      <span className="text-muted-foreground">
-                        {item.capabilities.join(" · ")}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <p className="mt-3 text-[11px] font-semibold">Health</p>
-              {liveProbe ? (
+            {expanded && (
+              <div className="absolute left-1/2 top-full mt-2 w-80 -translate-x-1/2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-xl">
+                <p className="text-[11px] font-semibold">Capabilities</p>
                 <div className="mt-1.5 space-y-1.5">
                   {guidance.ports.map((port) => {
                     const item = CONNECTION_PORT_GUIDANCE[port]
-                    const state = serviceHealth[port] ?? health
                     return (
-                      <div
-                        key={port}
-                        className="flex items-start gap-2 text-[10px]"
-                      >
-                        <span
-                          className="mt-1 h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: serviceColor(state) }}
-                        />
-                        <span className="min-w-0">
-                          <span className="font-medium">{item.label}</span>{" "}
-                          <span className="text-muted-foreground">
-                            · {CONNECTION_HEALTH_GUIDANCE[state].label} ·{" "}
-                            {item.capabilities.join(" / ")}
-                          </span>
+                      <div key={port} className="text-[10px] leading-snug">
+                        <span className="font-medium">{item.label}:</span>{" "}
+                        <span className="text-muted-foreground">
+                          {item.capabilities.join(" · ")}
                         </span>
                       </div>
                     )
                   })}
                 </div>
-              ) : (
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  {healthGuidance.label}: {healthGuidance.detail}
+
+                <p className="mt-3 text-[11px] font-semibold">Health</p>
+                {liveProbe ? (
+                  <div className="mt-1.5 space-y-1.5">
+                    {guidance.ports.map((port) => {
+                      const item = CONNECTION_PORT_GUIDANCE[port]
+                      const state = serviceHealth[port] ?? health
+                      return (
+                        <div
+                          key={port}
+                          className="flex items-start gap-2 text-[10px]"
+                        >
+                          <span
+                            className="mt-1 h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: serviceColor(state) }}
+                          />
+                          <span className="min-w-0">
+                            <span className="font-medium">{item.label}</span>{" "}
+                            <span className="text-muted-foreground">
+                              · {CONNECTION_HEALTH_GUIDANCE[state].label} ·{" "}
+                              {item.capabilities.join(" / ")}
+                            </span>
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {healthGuidance.label}: {healthGuidance.detail}
+                  </p>
+                )}
+
+                <p className="mt-3 text-[11px] font-semibold">Requirements</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-muted-foreground">
+                  {guidance.requirements.map((requirement) => (
+                    <li key={requirement}>{requirement}</li>
+                  ))}
+                </ul>
+
+                <p className="mt-3 text-[11px] font-semibold">
+                  Generated operations
                 </p>
-              )}
-
-              <p className="mt-3 text-[11px] font-semibold">Requirements</p>
-              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-muted-foreground">
-                {guidance.requirements.map((requirement) => (
-                  <li key={requirement}>{requirement}</li>
-                ))}
-              </ul>
-
-              <p className="mt-3 text-[11px] font-semibold">
-                Generated operations
-              </p>
-              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-muted-foreground">
-                {guidance.operations.map((operation) => (
-                  <li key={operation}>{operation}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </EdgeLabelRenderer>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-muted-foreground">
+                  {guidance.operations.map((operation) => (
+                    <li key={operation}>{operation}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </EdgeLabelRenderer>
       )}
     </>
   )
