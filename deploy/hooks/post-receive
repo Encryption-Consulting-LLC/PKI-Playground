@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# post-receive — push-to-deploy hook for the EC PKI Playground prod host.
+#
+# Model: `git push prod master` pushes straight into the live checkout on the
+# server. receive.denyCurrentBranch=updateInstead updates the working tree as
+# part of the push (only when it is clean), then this hook runs the in-place
+# production deploy against that fresh tree — a direct CI/CD-like flow with no
+# bare repo and no separate `git pull` step.
+#
+# Install (one-time, on the prod host, from the repo root):
+#   git config receive.denyCurrentBranch updateInstead
+#   ln -sf ../../deploy/hooks/post-receive .git/hooks/post-receive
+#   chmod +x deploy/hooks/post-receive
+#
+set -euo pipefail
+
+DEPLOY_BRANCH="master"
+
+# Resolve the working tree before we drop git's environment. In a receive-pack
+# hook GIT_DIR points at the repo; its parent is the checkout root.
+WORKTREE="$(cd "${GIT_DIR:-.}/.." && pwd)"
+
+deployed=0
+while read -r _old _new ref; do
+  [ "$ref" = "refs/heads/$DEPLOY_BRANCH" ] || continue
+  deployed=1
+
+  # Hooks inherit git's receive-pack environment (GIT_DIR, quarantine, index)
+  # which would hijack the deploy script's own git calls — shed it.
+  unset GIT_DIR GIT_WORK_TREE GIT_QUARANTINE_PATH GIT_INDEX_FILE \
+        GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+
+  # Hooks also run with a stripped PATH and no user-session vars; restore what
+  # prod-deploy.sh needs (uv, pnpm, systemctl --user).
+  export PNPM_HOME="$HOME/.local/share/pnpm"
+  export PATH="$HOME/.local/bin:$PNPM_HOME:$PNPM_HOME/bin:/usr/local/bin:/usr/bin:/bin"
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+  echo "==> push-to-deploy: $DEPLOY_BRANCH -> ${_new:0:12}"
+  cd "$WORKTREE"
+  DEPLOY_SKIP_GIT_UPDATE=1 ./deploy/prod-deploy.sh
+done
+
+[ "$deployed" -eq 1 ] || echo "==> no push to $DEPLOY_BRANCH — nothing to deploy"

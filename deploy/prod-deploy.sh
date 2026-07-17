@@ -96,8 +96,15 @@ done
 # ----------------------------------------------------------------------------
 # 1. Update the repo (in place by default — see APP_DIR above; clone only when
 #    APP_DIR points somewhere that isn't a checkout yet)
+#
+#    Push-to-deploy: when invoked from the post-receive hook (deploy/hooks/
+#    post-receive), the push has already updated the working tree via
+#    receive.denyCurrentBranch=updateInstead, so re-pulling from origin here
+#    would fight the direct push. The hook sets DEPLOY_SKIP_GIT_UPDATE=1.
 # ----------------------------------------------------------------------------
-if [ -d "$APP_DIR/.git" ]; then
+if [ "${DEPLOY_SKIP_GIT_UPDATE:-0}" = "1" ]; then
+  log "Skipping repo update — push-to-deploy already updated the working tree"
+elif [ -d "$APP_DIR/.git" ]; then
   log "Updating existing checkout at $APP_DIR"
   git -C "$APP_DIR" fetch --prune origin
   git -C "$APP_DIR" checkout "$BRANCH"
