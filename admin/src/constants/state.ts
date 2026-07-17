@@ -21,4 +21,5 @@ export const QUERY_KEYS = {
   settings: ["admin-settings"] as const,
   ipPool: ["admin-ip-pool"] as const,
   registry: ["admin-vm-registry"] as const,
+  deployments: ["admin-deployments"] as const,
 } as const

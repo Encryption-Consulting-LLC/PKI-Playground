@@ -55,6 +55,9 @@ class Capability(str, Enum):
     ISO_AUTHOR = "iso:author"
     VM_EXEC_ARBITRARY = "vm:exec-arbitrary"  # reserved — operator-only escape hatch
     DEPLOY = "deploy"
+    DEPLOY_ADMIN = (
+        "deploy:admin"  # admin cross-user deployment stop (the /admin console)
+    )
     PROJECT_READ = "project:read"
     PROJECT_WRITE = "project:write"
     SETTINGS_READ = "settings:read"
@@ -94,6 +97,9 @@ class Capability(str, Enum):
 #   SETTINGS_* / REGISTRY_* / USER_ADMIN are admin-only: the shared ESXi
 #     target, base-image profiles, and account provisioning are platform
 #     concerns, not something an operator building a topology touches.
+#   DEPLOY_ADMIN is admin-only: the cross-user deployment kill-switch (stop a
+#     whole user's or every user's active deployments from the /admin console)
+#     is platform oversight, distinct from operators' own-job DEPLOY cancel.
 ROLE_CAPABILITIES: dict[Role, set[Capability]] = {
     Role.ADMIN: {
         Capability.SETTINGS_READ,
@@ -101,6 +107,7 @@ ROLE_CAPABILITIES: dict[Role, set[Capability]] = {
         Capability.REGISTRY_READ,
         Capability.REGISTRY_WRITE,
         Capability.USER_ADMIN,
+        Capability.DEPLOY_ADMIN,
     },
     Role.OPERATOR: set(Capability)
     - {
@@ -109,6 +116,7 @@ ROLE_CAPABILITIES: dict[Role, set[Capability]] = {
         Capability.REGISTRY_READ,
         Capability.REGISTRY_WRITE,
         Capability.USER_ADMIN,
+        Capability.DEPLOY_ADMIN,
     },
     Role.GUEST: {
         Capability.VM_LIST,

@@ -370,3 +370,31 @@ export interface VmRegistryEntry {
 
 export const listVmRegistry = () =>
   request<{ entries: VmRegistryEntry[]; count: number }>(URLS.vmRegistry)
+
+// --- /admin/deployments ------------------------------------------------------
+
+export interface ActiveDeployment {
+  jobId: string
+  owner: string | null
+  ownerRole: string | null
+  startedAt: number | null
+  updatedAt: number | null
+  opTotal: number
+  opActive: number
+  opDone: number
+  opFailed: number
+}
+
+export const listDeployments = () =>
+  request<{ deployments: ActiveDeployment[]; count: number }>(URLS.deployments.list)
+
+/**
+ * Cooperatively stop deployments. Omit `owner` to stop every user's active
+ * deployments; pass one to stop just that user's. `mode` defaults to "step"
+ * (the most immediate cooperative boundary) on the backend.
+ */
+export const stopDeployments = (body: { owner?: string; mode?: "step" | "operation" }) =>
+  request<{ stopped: string[]; count: number }>(URLS.deployments.stop, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })

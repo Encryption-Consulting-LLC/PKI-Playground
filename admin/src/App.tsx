@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Network, Server, ShieldAlert, Users2 } from "lucide-react"
+import { Network, Rocket, Server, ShieldAlert, Users2 } from "lucide-react"
 
 import { ROLES } from "@/constants"
 import { useAuthStore } from "@/store/auth"
@@ -13,10 +13,12 @@ import { UsersSection } from "@/sections/UsersSection"
 import { InfrastructureSection } from "@/sections/InfrastructureSection"
 import { IpPoolSection } from "@/sections/IpPoolSection"
 import { RegistrySection } from "@/sections/RegistrySection"
+import { DeploymentsSection } from "@/sections/DeploymentsSection"
 
 const SECTIONS: NavItem[] = [
   { id: "users", label: "Accounts", icon: Users2 },
   { id: "infrastructure", label: "Infrastructure", icon: Server },
+  { id: "deployments", label: "Deployments", icon: Rocket },
   { id: "ip-pool", label: "IP Pool", icon: Network },
   { id: "registry", label: "VM Registry", icon: ShieldAlert },
 ]
@@ -55,6 +57,7 @@ function App() {
     <AppShell username={me.username} sections={SECTIONS} active={active} onSelect={setActive}>
       {active === "users" && <UsersSection />}
       {active === "infrastructure" && <InfrastructureSection />}
+      {active === "deployments" && <DeploymentsSection />}
       {active === "ip-pool" && <IpPoolSection />}
       {active === "registry" && <RegistrySection />}
     </AppShell>

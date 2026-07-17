@@ -43,16 +43,33 @@ def cancel_key(job_id: str) -> str:
     return f"jobs:{job_id}:cancel"
 
 
-def request_cancel(job_id: str, mode: str) -> None:
-    """Request a cooperative stop at the next step or operation boundary."""
+def cancel_reason_key(job_id: str) -> str:
+    return f"jobs:{job_id}:cancel:reason"
+
+
+def request_cancel(job_id: str, mode: str, reason: str | None = None) -> None:
+    """Request a cooperative stop at the next step or operation boundary.
+
+    *reason*, when given (e.g. an admin cross-user stop), is stored alongside the
+    flag so the worker can surface it as the cancelled ops' ``detail`` and the
+    terminal ``ErrorMsg`` — that's how the affected user learns *why* it stopped.
+    """
 
     if mode not in ("step", "operation"):
         raise ValueError("cancel mode must be 'step' or 'operation'")
-    _client.set(cancel_key(job_id), mode, ex=_ACTIVE_TTL_SECONDS)
+    pipe = _client.pipeline()
+    pipe.set(cancel_key(job_id), mode, ex=_ACTIVE_TTL_SECONDS)
+    if reason:
+        pipe.set(cancel_reason_key(job_id), reason, ex=_ACTIVE_TTL_SECONDS)
+    pipe.execute()
 
 
 def cancel_mode(job_id: str) -> str | None:
     return _client.get(cancel_key(job_id))
+
+
+def cancel_reason(job_id: str) -> str | None:
+    return _client.get(cancel_reason_key(job_id))
 
 
 def publish(

@@ -31,4 +31,8 @@ export const URLS = {
   },
   ipPool: "/ip-pool",
   vmRegistry: "/vm-registry",
+  deployments: {
+    list: "/admin/deployments",
+    stop: "/admin/deployments/stop",
+  },
 } as const

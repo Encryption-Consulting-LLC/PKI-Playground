@@ -1499,11 +1499,15 @@ def _advance_plan(
     while blocked:
         changed = False
         for op_id in blocked:
-            detail = (
-                "Skipped: deployment cancellation was requested."
-                if transport.cancel_mode(job_id)
-                else "Skipped: a dependency failed or was cancelled."
-            )
+            if transport.cancel_mode(job_id):
+                # A cross-user admin stop stores a reason so the affected user
+                # sees *why* their op was cancelled; own-job cancels have none.
+                detail = (
+                    transport.cancel_reason(job_id)
+                    or "Skipped: deployment cancellation was requested."
+                )
+            else:
+                detail = "Skipped: a dependency failed or was cancelled."
             result = db["plan_runs"].update_one(
                 {"jobId": job_id, f"scheduler.ops.{op_id}.status": "pending"},
                 {
@@ -1567,18 +1571,30 @@ def _advance_plan(
         _advance_plan(job_id, request, plan, owner_role, preflight_snapshot, owner, db)
         return
     if states and all(state.status in _PLAN_TERMINAL for state in states.values()):
-        transport.publish(
-            job_id,
-            DoneMsg(
-                result={
-                    "ops": {
-                        op_id: state.model_dump() for op_id, state in states.items()
+        stop_reason = transport.cancel_reason(job_id)
+        if stop_reason:
+            # Stopped (not completed): drain to a terminal ErrorMsg so the
+            # canvas toasts the reason and releases the deploy lock, instead of
+            # a misleading "Deploy complete." from DoneMsg.
+            transport.publish(
+                job_id,
+                ErrorMsg(status=409, detail=stop_reason),
+                status=JobStatus.error,
+                terminal=True,
+            )
+        else:
+            transport.publish(
+                job_id,
+                DoneMsg(
+                    result={
+                        "ops": {
+                            op_id: state.model_dump() for op_id, state in states.items()
+                        }
                     }
-                }
-            ),
-            status=JobStatus.done,
-            terminal=True,
-        )
+                ),
+                status=JobStatus.done,
+                terminal=True,
+            )
 
 
 @celery_app.task(name="start_plan_v2")
