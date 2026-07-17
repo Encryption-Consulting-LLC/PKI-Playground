@@ -28,12 +28,6 @@ const HEALTH_COLOR: Record<ConnectionHealth, string> = {
   [CONNECTION_HEALTH.broken]: "#ef4444",
 }
 
-const SERVICE_LABELS = [
-  ["DNS", "dns"],
-  ["LDAP", "ldap"],
-  ["AUTH", "authentication"],
-] as const
-
 /** A domain boundary that exposes forest state, member gravity, and service reach. */
 export function DomainRegions({ preview }: { preview?: DomainDragPreview | null }) {
   const nodes = useTopologyStore((state) => state.nodes)
@@ -129,30 +123,6 @@ export function DomainRegions({ preview }: { preview?: DomainDragPreview | null 
                       background: `radial-gradient(circle, ${rimColor}24 0%, ${rimColor}0d 38%, transparent 72%)`,
                     }}
                   />
-                )
-              })}
-
-              {SERVICE_LABELS.map(([label, service], index) => {
-                const health = summary.services[service]
-                const color = HEALTH_COLOR[health]
-                const inset = 18 + index * 16
-                return (
-                  <span
-                    key={service}
-                    className="absolute rounded-full border"
-                    style={{
-                      inset,
-                      borderColor: `${color}38`,
-                      borderStyle: index === 1 ? "dashed" : "solid",
-                    }}
-                  >
-                    <span
-                      className="absolute right-3 rounded-full border bg-background/85 px-1.5 py-0.5 font-mono text-[8px] font-semibold tracking-wider shadow-sm"
-                      style={{ top: index === 0 ? 36 : index === 1 ? 54 : 72, color, borderColor: `${color}55` }}
-                    >
-                      {label} · {health}
-                    </span>
-                  </span>
                 )
               })}
 

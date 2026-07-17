@@ -1029,11 +1029,6 @@ export interface DomainRegionSummary {
   forestLevel: string
   forestHealth: ConnectionHealth
   domainHealth: ConnectionHealth
-  services: {
-    dns: ConnectionHealth
-    ldap: ConnectionHealth
-    authentication: ConnectionHealth
-  }
 }
 
 /** Rim and nested-service state derived from the forest lifecycle and membership edges. */
@@ -1058,11 +1053,6 @@ export function domainRegionSummary(
     forestLevel: dc.data.config?.forestLevel ?? "Forest level pending",
     forestHealth,
     domainHealth: reachHealth,
-    services: {
-      dns: reachHealth,
-      ldap: reachHealth,
-      authentication: reachHealth,
-    },
   }
 }
 

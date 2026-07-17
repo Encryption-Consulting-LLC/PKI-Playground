@@ -261,7 +261,7 @@ describe("living domain model", () => {
     ])
   })
 
-  it("summarizes forest, member, and service reach health for the rim", () => {
+  it("summarizes forest, member, and domain reach health for the rim", () => {
     const summary = domainRegionSummary(dc, [
       relationship("member", "web", "dc", EDGE_TYPE.domainJoin, CONNECTION_HEALTH.degraded),
     ])
@@ -271,11 +271,6 @@ describe("living domain model", () => {
       forestLevel: "Windows Server 2025",
       forestHealth: CONNECTION_HEALTH.planned,
       domainHealth: CONNECTION_HEALTH.degraded,
-      services: {
-        dns: CONNECTION_HEALTH.degraded,
-        ldap: CONNECTION_HEALTH.degraded,
-        authentication: CONNECTION_HEALTH.degraded,
-      },
     })
   })
 })
