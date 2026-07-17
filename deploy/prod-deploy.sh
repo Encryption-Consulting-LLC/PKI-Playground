@@ -8,10 +8,10 @@
 #   3. Install backend deps (uv sync) and download the Windows orchestrator
 #      agent (wget from GitHub Releases) into backend/agent/.
 #   4. Build the frontend (pnpm build → frontend/dist), served same-origin by
-#      the API's static mount — the tunnel keeps routing only to :8000.
+#      the API's static mount.
 #   5. Health-check the already-running MongoDB and Valkey.
-#   6. Install and (re)start systemd *user* services: API, both Celery workers,
-#      and the cloudflared tunnel. Enable linger so they start at boot.
+#   6. Install and (re)start systemd *user* services: API and both Celery
+#      workers. Enable linger so they start at boot.
 #
 # The orchestrator binary is a Windows artifact — it is NOT run here; it is
 # fetched so the worker can bundle it into firstboot ISOs.
@@ -37,7 +37,7 @@ BRANCH="${BRANCH:-master}"
 # Origin deployed guest VMs dial home to (baked into each firstboot agent config).
 BACKEND_PUBLIC_URL="${BACKEND_PUBLIC_URL:-https://pqc-lab.encryptionconsulting.com}"
 
-# API bind (kept on loopback; the cloudflared tunnel fronts it publicly).
+# API bind.
 API_HOST="${API_HOST:-127.0.0.1}"
 API_PORT="${API_PORT:-8000}"
 
@@ -49,9 +49,6 @@ API_PORT="${API_PORT:-8000}"
 ORCH_RELEASE_REPO="${ORCH_RELEASE_REPO:-Encryption-Consulting-LLC/pki-orchestrator}"
 ORCH_RELEASE_TAG="${ORCH_RELEASE_TAG:-latest}"
 ORCH_ASSET="${ORCH_ASSET:-pki-orchestrator.exe}"
-
-# cloudflared tunnel config (fronts the API at BACKEND_PUBLIC_URL).
-CLOUDFLARED_CONFIG="${CLOUDFLARED_CONFIG:-$HOME/cloudflared-pki-lab.yml}"
 
 # Datastores are assumed already running; we only health-check them.
 MONGO_URL="${MONGO_URL:-mongodb://localhost:27017}"
@@ -81,7 +78,7 @@ check_tcp() {
   if timeout 3 bash -c ": >/dev/tcp/$host/$port" 2>/dev/null; then
     log "$name reachable at $host:$port"
   else
-    die "$name not reachable at $host:$port — start it before deploying (chosen: 'already running')."
+    die "$name not reachable at $host:$port — start it before deploying."
   fi
 }
 
@@ -89,10 +86,9 @@ check_tcp() {
 # 0. Preflight
 # ----------------------------------------------------------------------------
 log "Preflight: checking tools"
-for t in git uv pnpm node wget openssl systemctl loginctl cloudflared timeout; do
+for t in git uv pnpm node wget openssl systemctl loginctl timeout; do
   require_tool "$t"
 done
-[ -f "$CLOUDFLARED_CONFIG" ] || warn "cloudflared config not found at $CLOUDFLARED_CONFIG — tunnel service will fail until it exists."
 
 # ----------------------------------------------------------------------------
 # 1. Update the repo (in place by default — see APP_DIR above; clone only when
@@ -186,7 +182,6 @@ check_tcp Valkey "$VALKEY_URL"
 log "Installing systemd user units into $SYSTEMD_DIR"
 mkdir -p "$SYSTEMD_DIR"
 UV_BIN="$(command -v uv)"
-CLOUDFLARED_BIN="$(command -v cloudflared)"
 
 # API — single uvicorn worker on purpose: the agent-dispatch bridge forwards to
 # whichever process holds the agent WebSocket, so multiple workers would break
@@ -242,26 +237,10 @@ RestartSec=5
 WantedBy=pki.target default.target
 EOF
 
-cat >"$SYSTEMD_DIR/pki-cloudflared.service" <<EOF
-[Unit]
-Description=EC PKI Playground — cloudflared tunnel
-After=network-online.target pki-api.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=$CLOUDFLARED_BIN tunnel --config $CLOUDFLARED_CONFIG run
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=pki.target default.target
-EOF
-
 cat >"$SYSTEMD_DIR/pki.target" <<EOF
 [Unit]
 Description=EC PKI Playground — full stack
-Wants=pki-api.service pki-worker-esxi.service pki-worker-provision.service pki-cloudflared.service
+Wants=pki-api.service pki-worker-esxi.service pki-worker-provision.service
 
 [Install]
 WantedBy=default.target
@@ -275,7 +254,7 @@ if ! loginctl show-user "$USER" 2>/dev/null | grep -q 'Linger=yes'; then
 fi
 
 log "Reloading and (re)starting services"
-SERVICES=(pki-api.service pki-worker-esxi.service pki-worker-provision.service pki-cloudflared.service)
+SERVICES=(pki-api.service pki-worker-esxi.service pki-worker-provision.service)
 systemctl --user daemon-reload
 systemctl --user enable pki.target "${SERVICES[@]}"
 systemctl --user restart "${SERVICES[@]}"
@@ -285,7 +264,7 @@ systemctl --user restart "${SERVICES[@]}"
 # ----------------------------------------------------------------------------
 log "Deploy complete. Status:"
 systemctl --user --no-pager --no-legend status \
-  pki-api.service pki-worker-esxi.service pki-worker-provision.service pki-cloudflared.service \
+  pki-api.service pki-worker-esxi.service pki-worker-provision.service \
   | sed -n '1,4p;/Active:/p' || true
 
 cat <<EOF
@@ -293,7 +272,7 @@ cat <<EOF
 Next steps:
   - Bootstrap an operator (interactive password prompt):
       cd $BACKEND && uv run create-admin <name>
-  - Logs:   journalctl --user -u pki-api -f   (or -worker-esxi / -worker-provision / -cloudflared)
+  - Logs:   journalctl --user -u pki-api -f   (or -worker-esxi / -worker-provision)
   - Control: systemctl --user restart pki.target   |   systemctl --user stop pki.target
-  - App is live at: $BACKEND_PUBLIC_URL  (tunnel -> $API_HOST:$API_PORT, SPA + /api same origin)
+  - API listening at: $API_HOST:$API_PORT  (SPA + /api same origin)
 EOF
