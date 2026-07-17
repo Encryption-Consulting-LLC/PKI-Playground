@@ -276,7 +276,15 @@ export const updateSettings = (update: OperatorSettingsUpdate) =>
   })
 
 export interface InfrastructurePreflightCheck {
-  key: "vmNames" | "image" | "guestOs" | "network" | "datastore" | "capacity" | "qualification"
+  key:
+    | "connection"
+    | "vmNames"
+    | "image"
+    | "guestOs"
+    | "network"
+    | "datastore"
+    | "capacity"
+    | "qualification"
   ok: boolean
   detail: string
   role: PkiRole | null

@@ -18,18 +18,24 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from vmkit import Connection
+from vmkit.errors import VmkitError
 
 from app.core.authz import Capability, require_capability
 from app.core.db import SETTINGS_DOC_ID, from_mongo, now_ms, settings_col
-from app.core.esxi import get_esxi
+from app.core.esxi import load_target, manager
 from app.core.golden_image import (
     golden_image_config_from_doc,
     preflight_golden_image,
+    unreachable_golden_image,
 )
 from app.core.ippool import guest_network_from_doc, sync_pool_async, validate_network
 from app.core.infrastructure import InfrastructureProfile
 from app.core.infrastructure import infrastructure_profiles_from_doc
-from app.core.infrastructure_preflight import PlannedMachine, preflight_infrastructure
+from app.core.infrastructure_preflight import (
+    PlannedMachine,
+    preflight_infrastructure,
+    unreachable_infrastructure,
+)
 from app.core.environment_preflight import preflight_control_plane
 from app.core.db import get_db
 from app.core.secrets import encrypt_secret
@@ -111,18 +117,42 @@ async def get_settings() -> dict:
     return _present(doc)
 
 
+async def _acquire_esxi() -> tuple[Connection | None, str | None]:
+    """Open (or reuse) the shared ESXi connection for a validate route.
+
+    Returns ``(conn, None)`` on success or ``(None, detail)`` when the target is
+    unconfigured, unreachable, or rejects the stored credentials. The validate
+    routes report that failure as a ``ready: false`` preflight check rather than
+    a 502 — the whole point of a preflight is to diagnose exactly this.
+    """
+    target = await load_target()
+    if target is None:
+        return None, "No shared ESXi target is configured."
+    try:
+        return await run_in_threadpool(manager.get, target), None
+    except VmkitError as exc:
+        return None, f"Could not connect to the configured ESXi target: {exc}"
+
+
 @router.post(
     "/golden-image/validate",
     dependencies=[Depends(require_capability(Capability.SETTINGS_READ))],
 )
 async def validate_golden_image(
     body: GoldenImageValidationRequest,
-    conn: Connection = Depends(get_esxi),
 ) -> dict:
     """Validate the saved Windows golden image without mutating ESXi."""
 
     doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
     config = golden_image_config_from_doc(doc)
+    conn, error = await _acquire_esxi()
+    if conn is None:
+        return unreachable_golden_image(
+            config,
+            error or "ESXi target unavailable.",
+            requested_vm_names=body.requested_vm_names,
+            clone_count=body.clone_count,
+        ).model_dump(by_alias=True)
     result = await run_in_threadpool(
         partial(
             preflight_golden_image,
@@ -141,11 +171,15 @@ async def validate_golden_image(
 )
 async def validate_infrastructure(
     body: InfrastructureValidationRequest,
-    conn: Connection = Depends(get_esxi),
 ) -> dict:
     """Validate all selected role profiles as one capacity reservation."""
 
     doc = await settings_col().find_one({"_id": SETTINGS_DOC_ID})
+    conn, error = await _acquire_esxi()
+    if conn is None:
+        return unreachable_infrastructure(
+            error or "ESXi target unavailable."
+        ).model_dump(by_alias=True)
     result = await run_in_threadpool(
         partial(
             preflight_infrastructure,

@@ -26,7 +26,9 @@ class GoldenImageConfig(BaseModel):
     max_usage_pct: float = Field(alias="maxUsagePct", gt=0, le=100)
 
 
-PreflightKey = Literal["image", "datastore", "guestOs", "capacity", "vmNames"]
+PreflightKey = Literal[
+    "connection", "image", "datastore", "guestOs", "capacity", "vmNames"
+]
 
 
 class PreflightCheck(BaseModel):
@@ -80,6 +82,38 @@ def _check(key: PreflightKey, ok: bool, detail: str) -> PreflightCheck:
 def _snapshot_id(facts: dict) -> str:
     payload = json.dumps(facts, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def unreachable_golden_image(
+    config: GoldenImageConfig,
+    detail: str,
+    *,
+    requested_vm_names: list[str] | None = None,
+    clone_count: int | None = None,
+) -> GoldenImagePreflight:
+    """A ``ready: false`` result for when the shared ESXi target could not be
+    reached/authenticated, so the real preflight never ran. Mirrors
+    ``infrastructure_preflight.unreachable_infrastructure``: the validate route
+    reports the connection failure as one failed check rather than a 502."""
+
+    names = sorted(set(requested_vm_names or []))
+    count = clone_count if clone_count is not None else len(names)
+    checks = [_check("connection", False, detail)]
+    facts = {
+        "base": config.base,
+        "datastore": config.datastore,
+        "expectedGuestOs": config.expected_guest_os,
+        "cloneCount": count,
+        "requestedVmNames": names,
+        "maxUsagePct": config.max_usage_pct,
+        "checks": [item.model_dump(by_alias=True) for item in checks],
+    }
+    return GoldenImagePreflight(
+        ready=False,
+        checkedAt=now_ms(),
+        snapshotId=_snapshot_id(facts),
+        **facts,
+    )
 
 
 def preflight_golden_image(

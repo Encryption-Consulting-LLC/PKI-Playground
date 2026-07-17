@@ -34,6 +34,7 @@ from pymongo import MongoClient
 from pyVim.connect import Disconnect
 from starlette.concurrency import run_in_threadpool
 from vmkit import Connection, open_connection
+from vmkit.errors import AuthenticationError, VmkitError
 
 from app.core.authz import AuthedUser, get_current_user
 from app.core.db import SETTINGS_DOC_ID, settings_col
@@ -135,9 +136,15 @@ async def get_esxi(_user: AuthedUser = Depends(get_current_user)) -> Connection:
 
     Authenticated (identity resolution is per-request-cached, so pairing with
     ``require_capability`` costs nothing extra); 503 until an admin has
-    configured the target. vmkit connection errors propagate to the app-level
-    handlers (bad stored creds → 401 is confusing for a non-login route, but
-    the 502-on-unreachable mapping is right, and both name the real cause).
+    configured the target.
+
+    ESXi connection failures are surfaced as 502 (bad *downstream* gateway),
+    **including bad stored ESXi credentials** — an ESXi ``AuthenticationError``
+    is deliberately not mapped to 401 here. 401 is reserved for the caller's own
+    session being invalid; the frontend auto-logs-out on any 401, so letting an
+    ESXi-credential failure reach the client as 401 would kick the signed-in
+    admin out mid-edit while they're fixing the target. The detail names the
+    real cause either way.
     """
     target = await load_target()
     if target is None:
@@ -145,4 +152,15 @@ async def get_esxi(_user: AuthedUser = Depends(get_current_user)) -> Connection:
             status_code=503,
             detail="No shared ESXi target configured",
         )
-    return await run_in_threadpool(manager.get, target)
+    try:
+        return await run_in_threadpool(manager.get, target)
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"ESXi login failed for the configured target: {exc}",
+        ) from exc
+    except VmkitError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not reach the configured ESXi target: {exc}",
+        ) from exc

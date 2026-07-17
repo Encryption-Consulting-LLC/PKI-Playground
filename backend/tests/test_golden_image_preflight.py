@@ -158,12 +158,16 @@ def test_settings_validation_endpoint_returns_wire_snapshot(monkeypatch):
 
     monkeypatch.setattr(settings_router, "run_in_threadpool", run_now)
 
+    async def fake_acquire():
+        return SimpleNamespace(content=object()), None
+
+    monkeypatch.setattr(settings_router, "_acquire_esxi", fake_acquire)
+
     response = asyncio.run(
         settings_router.validate_golden_image(
             settings_router.GoldenImageValidationRequest(
                 requestedVmNames=["DC01", "CA01"],
             ),
-            SimpleNamespace(content=object()),
         )
     )
 

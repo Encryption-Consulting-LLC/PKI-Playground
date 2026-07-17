@@ -26,9 +26,14 @@ from pymongo import ASCENDING, ReturnDocument, UpdateOne
 
 from app.core.db.client import SETTINGS_DOC_ID, ip_pool_col, settings_col
 from app.core.db.models import now_ms
+from app.core.settings import settings
 
-#: Sanity cap so a typo'd range can't seed a six-figure collection.
-MAX_POOL_SIZE = 1024
+
+def _max_pool_size() -> int:
+    """Sanity cap so a typo'd range can't seed a runaway collection. Read at
+    call time (not import) so ``GUEST_POOL_MAX_SIZE`` env edits take effect and
+    tests can override it."""
+    return settings.guest_pool_max_size
 
 
 class IpPoolExhaustedError(Exception):
@@ -76,10 +81,9 @@ def range_ips(start: str, end: str) -> list[str]:
     if hi < lo:
         raise ValueError(f"Guest IP range end {end} is below start {start}.")
     size = int(hi) - int(lo) + 1
-    if size > MAX_POOL_SIZE:
-        raise ValueError(
-            f"Guest IP range spans {size} addresses (max {MAX_POOL_SIZE})."
-        )
+    max_size = _max_pool_size()
+    if size > max_size:
+        raise ValueError(f"Guest IP range spans {size} addresses (max {max_size}).")
     return [str(IPv4Address(n)) for n in range(int(lo), int(hi) + 1)]
 
 

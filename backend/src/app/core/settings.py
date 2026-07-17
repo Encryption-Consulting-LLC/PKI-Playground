@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     guest_dns1: str | None = None
     guest_dns2: str | None = None
     guest_dns_suffix: str | None = None
+    # Sanity cap on the number of addresses the guest range may span (one Mongo
+    # ``ip_pool`` document is pre-seeded per address). Guards against a typo'd
+    # range seeding a runaway collection; raise it for larger guest subnets.
+    guest_pool_max_size: int = 8192
 
     # Golden image used by guided deploys. These values seed the shared settings
     # document on first boot; operator edits there become authoritative. The

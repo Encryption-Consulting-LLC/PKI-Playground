@@ -29,6 +29,7 @@ class PlannedMachine(BaseModel):
 
 
 InfrastructureCheckKey = Literal[
+    "connection",
     "vmNames",
     "image",
     "guestOs",
@@ -86,6 +87,30 @@ class InfrastructurePreflight(BaseModel):
     machines: list[MachineReservation]
     datastores: list[DatastoreReservation]
     checks: list[InfrastructureCheck]
+
+
+def unreachable_infrastructure(detail: str) -> InfrastructurePreflight:
+    """A ``ready: false`` result standing in for a preflight that never ran
+    because the shared ESXi target could not be reached or authenticated.
+
+    Preflight is a diagnostic: an unreachable/misconfigured target is a blocking
+    issue to *report* in the settings UI's checklist, not a hard error, so the
+    validate routes fold the connection failure into one failed ``connection``
+    check instead of returning 502.
+    """
+    checks = [InfrastructureCheck(key="connection", ok=False, detail=detail)]
+    facts = {
+        "esxiInstanceUuid": None,
+        "machines": [],
+        "datastores": [],
+        "checks": [item.model_dump(by_alias=True) for item in checks],
+    }
+    return InfrastructurePreflight(
+        ready=False,
+        checkedAt=now_ms(),
+        snapshotId=_snapshot_id(facts),
+        **facts,
+    )
 
 
 def _network_names(content) -> set[str]:
