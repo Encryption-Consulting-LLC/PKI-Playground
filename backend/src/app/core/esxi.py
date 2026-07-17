@@ -25,6 +25,7 @@ which is also what removed the old "real clones only work if the worker has
 ``ESXI_*`` env vars" wart.
 """
 
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from dataclasses import dataclass
 from fastapi import Depends, HTTPException
 from pymongo import MongoClient
 from pyVim.connect import Disconnect
+from pyVmomi import vim
 from starlette.concurrency import run_in_threadpool
 from vmkit import Connection, open_connection
 from vmkit.errors import AuthenticationError, VmkitError
@@ -42,6 +44,9 @@ from app.core.secrets import decrypt_secret
 from app.core.settings import settings
 
 _PROBE_INTERVAL_SECONDS = 60.0
+_ROOT_VIEW_RETRY_DELAY_SECONDS = 1.0
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -50,6 +55,27 @@ class EsxiTarget:
     user: str
     password: str
     port: int = 443
+
+
+def _is_root_view_denial(exc: BaseException) -> bool:
+    """Whether vmkit wrapped ESXi's transient root ``System.View`` denial.
+
+    ``vmkit.connect`` translates every non-login failure raised by
+    ``SmartConnect`` into ``ConnectionFailedError``. Python retains the
+    original pyVmomi fault as its exception context, so inspect the chain
+    instead of matching vmkit's rendered error text.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, vim.fault.NoPermission):
+            object_id = getattr(getattr(current, "object", None), "_moId", None)
+            return (
+                current.privilegeId == "System.View" and object_id == "ha-folder-root"
+            )
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _target_from_doc(doc: dict | None) -> EsxiTarget | None:
@@ -108,9 +134,30 @@ class ConnectionManager:
                     Disconnect(self._conn.si)
                 except Exception:  # noqa: BLE001 — the old session may already be dead
                     pass
-            self._conn = open_connection(
-                target.host, target.user, target.password, target.port
-            )
+            self._conn = None
+            self._target = None
+            try:
+                conn = open_connection(
+                    target.host, target.user, target.password, target.port
+                )
+            except Exception as exc:
+                # ESXi can briefly authenticate a newly granted/updated user
+                # before its root-folder authorization is visible to the SOAP
+                # session. The next login succeeds once that propagation lands.
+                # Retry only this precise fault: bad credentials, unreachable
+                # hosts, and other inventory permission failures keep their
+                # normal single-attempt behavior.
+                if not _is_root_view_denial(exc):
+                    raise
+                log.warning(
+                    "ESXi denied System.View on the root folder during login; "
+                    "retrying the connection once"
+                )
+                time.sleep(_ROOT_VIEW_RETRY_DELAY_SECONDS)
+                conn = open_connection(
+                    target.host, target.user, target.password, target.port
+                )
+            self._conn = conn
             self._target = target
             self._probed_at = time.monotonic()
             return self._conn
