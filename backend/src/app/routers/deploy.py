@@ -38,15 +38,17 @@ from app.core.authz import (
     require_capability,
 )
 from app.core.db import (
-    SETTINGS_DOC_ID, get_db, plan_runs_col, settings_col, vm_registry_col,
+    SETTINGS_DOC_ID,
+    get_db,
+    plan_runs_col,
+    settings_col,
+    vm_registry_col,
 )
 from app.core.evidence import build_evidence_bundle, redact_evidence
 from app.core.esxi import _target_from_doc, manager
 from app.core.firstboot import TEMPLATE_IDS
 from app.core.golden_image import (
-    GoldenImagePreflight,
     golden_image_config_from_doc,
-    preflight_golden_image,
 )
 from app.core.ippool import guest_network_from_doc
 from app.core.infrastructure import (
@@ -171,7 +173,9 @@ def _compiled_response(
         "criticalPath": compiled.critical_path,
         "estimatedDurationSeconds": compiled.estimated_duration_seconds,
         "criticalPathDurationSeconds": compiled.critical_path_duration_seconds,
-        "groups": build_execution_groups(req.topology, compiled.operations, settings_doc),
+        "groups": build_execution_groups(
+            req.topology, compiled.operations, settings_doc
+        ),
         "resources": {
             "nodes": len(req.topology.nodes),
             "relationships": len(req.topology.edges),
@@ -256,10 +260,7 @@ def validate_plan(
                     422,
                     detail=f"Op '{op.id}': ISO content is only valid on createVm ops.",
                 )
-            if (
-                op.kind is PlanOpKind.domain_join
-                and op.target in linux_product_nodes
-            ):
+            if op.kind is PlanOpKind.domain_join and op.target in linux_product_nodes:
                 raise HTTPException(
                     422,
                     detail=(
@@ -278,7 +279,12 @@ def validate_plan(
                     422, detail=f"Op '{op.id}' has itself as its secondary node."
                 )
             if (
-                op.kind in (PlanOpKind.domain_join, PlanOpKind.ca_connect, PlanOpKind.web_server_cert)
+                op.kind
+                in (
+                    PlanOpKind.domain_join,
+                    PlanOpKind.ca_connect,
+                    PlanOpKind.web_server_cert,
+                )
                 and not op.secondary
             ):
                 raise HTTPException(
@@ -352,7 +358,8 @@ def validate_plan(
                     )
                 if file.name in names:
                     raise HTTPException(
-                        422, detail=f"Op '{op.id}': duplicate script filename '{file.name}'."
+                        422,
+                        detail=f"Op '{op.id}': duplicate script filename '{file.name}'.",
                     )
                 names.add(file.name)
                 op_bytes += len(file.content.encode("utf-8"))
@@ -394,15 +401,15 @@ def validate_plan(
                     f"Op '{op.id}' (createVm) needs a guest IP range, but none is configured"
                 ),
             )
-        op.params["vmName"] = enforce_guest_vm_name(op.params["vmName"], user, project_id)
+        op.params["vmName"] = enforce_guest_vm_name(
+            op.params["vmName"], user, project_id
+        )
         # Guard the golden image: a clone whose resolved name equals the base
         # copies ``<base>/<base>.vmdk`` onto itself (same src and dst), which
         # ESXi rejects as "file already exists" — but only after clobbering the
         # directory. Reject it up front. Guests can't reach this (their names are
         # namespaced), so this catches free-form operator names.
-        selected_base = template_clone_bases.get(
-            op.params["template"], clone_base
-        )
+        selected_base = template_clone_bases.get(op.params["template"], clone_base)
         if op.params["vmName"] == selected_base:
             raise HTTPException(
                 422,
@@ -498,7 +505,9 @@ async def deploy(
     ``app.tasks.start_plan_task``) — this route validates the plan and, for
     plans containing real clones, that a target is configured at all.
     """
-    from app.tasks import start_plan_task  # local import: avoids loading Celery for every route
+    from app.tasks import (
+        start_plan_task,
+    )  # local import: avoids loading Celery for every route
 
     compiled = _compile_or_422(req)
     # From this point forward, every check and the queued worker payload sees
@@ -625,17 +634,19 @@ async def deploy(
                 "jobId": job_id,
                 "owner": user.username,
                 "ownerRole": user.role.value,
-                "topology": redact_evidence(
-                    req.topology.model_dump(by_alias=True)
-                ),
+                "topology": redact_evidence(req.topology.model_dump(by_alias=True)),
                 "operations": redact_evidence(
                     [op.model_dump(by_alias=True) for op in req.ops]
                 ),
                 "preflight": (
                     preflight.model_dump(by_alias=True) if preflight else None
                 ),
-                "createdAt": int(datetime.datetime.now(datetime.UTC).timestamp() * 1000),
-                "updatedAt": int(datetime.datetime.now(datetime.UTC).timestamp() * 1000),
+                "createdAt": int(
+                    datetime.datetime.now(datetime.UTC).timestamp() * 1000
+                ),
+                "updatedAt": int(
+                    datetime.datetime.now(datetime.UTC).timestamp() * 1000
+                ),
                 "ttlAt": datetime.datetime.now(datetime.UTC)
                 + datetime.timedelta(days=7),
             }
@@ -745,9 +756,7 @@ async def reconcile_deployment(
         }
     )
     transport.publish(reconcile_job_id, QueuedMsg(), status=JobStatus.queued)
-    reconcile_plan_task.delay(
-        reconcile_job_id, job_id, user.role.value, user.username
-    )
+    reconcile_plan_task.delay(reconcile_job_id, job_id, user.role.value, user.username)
     return {"job_id": reconcile_job_id, "source_job_id": job_id}
 
 
@@ -787,7 +796,5 @@ async def teardown_deployment(
         }
     )
     transport.publish(teardown_job_id, QueuedMsg(), status=JobStatus.queued)
-    teardown_plan_task.delay(
-        teardown_job_id, job_id, user.role.value, user.username
-    )
+    teardown_plan_task.delay(teardown_job_id, job_id, user.role.value, user.username)
     return {"job_id": teardown_job_id, "source_job_id": job_id}

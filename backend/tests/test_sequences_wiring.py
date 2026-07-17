@@ -5,7 +5,7 @@ import pytest
 
 from app.core.agentbus import DispatchError, _frame_outcome, _terminal_result
 from app.core.sequences.definitions import provision_steps
-from app.core.sequences.model import NodeContext, RunContext, StepRuntime
+from app.core.sequences.model import NodeContext, RunContext
 
 
 def test_certificate_authority_root_provisions_install_and_verify():
@@ -36,7 +36,11 @@ def test_ca_install_params_come_from_template_config():
         hostname="guest-abc12-ca01",
         agent_vm_id="vm-9",
         template_id="certificateAuthority",
-        template_config={"caType": "Root", "commonName": "EC-Root-CA", "keyAlgorithm": "RSA"},
+        template_config={
+            "caType": "Root",
+            "commonName": "EC-Root-CA",
+            "keyAlgorithm": "RSA",
+        },
     )
     ctx = RunContext(nodes={"primary": node})
     params = steps[0].resolve_params(ctx)

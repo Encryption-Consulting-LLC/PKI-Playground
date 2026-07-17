@@ -211,6 +211,8 @@ With `backend/.env` configured:
 
 ```sh
 cd backend
+uv run ruff check .          # lint
+uv run ruff format --check . # formatting (drop --check to apply)
 uv run pytest
 ```
 
@@ -218,10 +220,35 @@ Frontend checks:
 
 ```sh
 cd frontend
+pnpm exec biome format .     # formatting (add --write to apply)
 pnpm test
 pnpm lint
 pnpm build
 ```
+
+### Pre-commit hook
+
+A version-controlled hook in [`.githooks/pre-commit`](.githooks/pre-commit)
+runs these checks automatically before each commit, scoped to the package that
+has staged changes (a docs-only or single-side commit stays fast):
+
+- `backend/` staged → `ruff check .` (lint), `ruff format --check` on staged
+  `.py`, then `uv run pytest -q`
+- `frontend/` staged → `biome format` on staged files, then `pnpm exec tsc -b`,
+  `pnpm test`, `pnpm lint`
+
+Formatting is **check-only** — the hook never rewrites your files, it only
+errors on unformatted code (fix with `ruff format` / `biome format --write`).
+Format checks are scoped to *staged* files, so the not-yet-formatted legacy
+files don't block unrelated commits; you format each file as you touch it.
+
+Hooks are not copied on clone, so enable it once per checkout:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+Bypass with `git commit --no-verify` when needed.
 
 These checks do not replace the ESXi/Windows canary. Before treating a guided
 PKI deployment as successful, follow

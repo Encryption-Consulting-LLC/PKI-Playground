@@ -119,12 +119,14 @@ def _live_worker_connection(conn):
                 pass
     return _open_worker_connection()
 
+
 if TYPE_CHECKING:
     from vmkit import Connection
 
     from app.core.infrastructure import InfrastructureProfile
     from app.core.topology import TopologyDocument
     from app.routers.deploy import PlanOp
+
 
 #: Server-side mirror of the frontend's STANDALONE_CLONE (constants/templates.ts /
 #: the pre-staging topology.ts) — the backend does not accept arbitrary hardware
@@ -140,6 +142,7 @@ def _plan_clone_defaults(config: "GoldenImageConfig | InfrastructureProfile") ->
         "cpus": getattr(config, "cpus", None) or 8,
         "mem_mb": getattr(config, "memory_mb", None) or 8192,
     }
+
 
 #: Three named phases per simulated op kind, ticked at a fixed cadence.
 #: ``createVm`` is deliberately absent — it is always a real clone.
@@ -170,7 +173,9 @@ def clone_vm_task(job_id: str, params: dict) -> None:
     try:
         req = CloneRequest(**params)
         conn = _open_worker_connection()
-        reducer = CloneProgressReducer(transport.make_publisher(job_id), _clone_total_ops(req))
+        reducer = CloneProgressReducer(
+            transport.make_publisher(job_id), _clone_total_ops(req)
+        )
         result = clone_workflow(conn, progress=reducer, **params)
         transport.publish(
             job_id, DoneMsg(result=asdict(result)), status=JobStatus.done, terminal=True
@@ -178,11 +183,17 @@ def clone_vm_task(job_id: str, params: dict) -> None:
     except VmkitError as exc:
         status, detail = map_vmkit_error(exc)
         transport.publish(
-            job_id, ErrorMsg(status=status, detail=detail), status=JobStatus.error, terminal=True
+            job_id,
+            ErrorMsg(status=status, detail=detail),
+            status=JobStatus.error,
+            terminal=True,
         )
     except Exception as exc:  # noqa: BLE001 — surface anything as a terminal error
         transport.publish(
-            job_id, ErrorMsg(status=500, detail=str(exc)), status=JobStatus.error, terminal=True
+            job_id,
+            ErrorMsg(status=500, detail=str(exc)),
+            status=JobStatus.error,
+            terminal=True,
         )
 
 
@@ -241,11 +252,17 @@ def destroy_vm_task(job_id: str, name: str) -> None:
     except VmkitError as exc:
         status, detail = map_vmkit_error(exc)
         transport.publish(
-            job_id, ErrorMsg(status=status, detail=detail), status=JobStatus.error, terminal=True
+            job_id,
+            ErrorMsg(status=status, detail=detail),
+            status=JobStatus.error,
+            terminal=True,
         )
     except Exception as exc:  # noqa: BLE001 — surface anything as a terminal error
         transport.publish(
-            job_id, ErrorMsg(status=500, detail=str(exc)), status=JobStatus.error, terminal=True
+            job_id,
+            ErrorMsg(status=500, detail=str(exc)),
+            status=JobStatus.error,
+            terminal=True,
         )
 
 
@@ -407,13 +424,20 @@ def _plan_domain_facts(
     from app.routers.deploy import PlanOpKind
 
     for op in ops:
-        if op.kind is PlanOpKind.create_vm and op.params.get("template") == "domainController":
+        if (
+            op.kind is PlanOpKind.create_vm
+            and op.params.get("template") == "domainController"
+        ):
             return op.params.get("domainName"), op.params.get("netbiosName")
     if topology is not None:
         from app.core.topology import TopologyRole
 
         dc = next(
-            (node for node in topology.nodes if node.role is TopologyRole.domain_controller),
+            (
+                node
+                for node in topology.nodes
+                if node.role is TopologyRole.domain_controller
+            ),
             None,
         )
         if dc is not None:
@@ -450,7 +474,10 @@ def _run_provision_op(
     from app.core import agentbus
     from app.core.firstboot import hostname_for
     from app.core.sequences import (
-        NodeContext, RunContext, SequenceCancelled, SequenceError,
+        NodeContext,
+        RunContext,
+        SequenceCancelled,
+        SequenceError,
     )
     from app.core.sequences.context import dns_records_for_context
     from app.core.sequences.definitions import provision_steps
@@ -477,20 +504,32 @@ def _run_provision_op(
     ip = registry.get("ip")
     if template in LINUX_PRODUCT_TEMPLATES:
         _set_visible_step(
-            state, op.id, "service-setup", "running", push,
-            percent=0.0, phase=_PRODUCT_SETUP_LABELS[template],
+            state,
+            op.id,
+            "service-setup",
+            "running",
+            push,
+            percent=0.0,
+            phase=_PRODUCT_SETUP_LABELS[template],
         )
         # Intentional placeholder until product installation automation lands.
         # Keeping it as a real provision step makes the future implementation a
         # drop-in replacement without changing the plan/topology contract.
         time.sleep(_SIMULATED_STEP_SECONDS)
         _set_visible_step(
-            state, op.id, "service-setup", "done", push,
-            percent=100.0, phase="Service setup stub complete",
+            state,
+            op.id,
+            "service-setup",
+            "done",
+            push,
+            percent=100.0,
+            phase="Service setup stub complete",
         )
         _set_provision_state(conn_db, vm_name, "applied")
         state[op.id] = OpRunState(
-            status="done", percent=100.0, phase="Service setup stub complete",
+            status="done",
+            percent=100.0,
+            phase="Service setup stub complete",
             result={
                 "vmName": vm_name,
                 "setupStub": True,
@@ -509,7 +548,9 @@ def _run_provision_op(
                 state, op.id, step_id, "done", push, percent=100.0, phase=phase
             )
         state[op.id] = OpRunState(
-            status="done", percent=100.0, phase="No orchestrator agent required",
+            status="done",
+            percent=100.0,
+            phase="No orchestrator agent required",
             result={"vmName": vm_name, **({"ip": ip} if ip else {})},
             steps=state[op.id].steps,
         )
@@ -529,19 +570,33 @@ def _run_provision_op(
     # (and can show its presence dot) long before the op finishes.
     partial = {"agentVmId": vm_id}
     _set_visible_step(
-        state, op.id, "agent-ready", "running", push,
-        percent=0.0, phase="Waiting for agent", result=partial,
+        state,
+        op.id,
+        "agent-ready",
+        "running",
+        push,
+        percent=0.0,
+        phase="Waiting for agent",
+        result=partial,
     )
     op_started = time.monotonic()
     try:
         agentbus.wait_for_agent(vm_id, timeout_s=settings.agent_phone_home_timeout_s)
         _set_visible_step(
-            state, op.id, "agent-ready", "done", push,
-            percent=100.0, phase="Agent connected", result=partial,
+            state,
+            op.id,
+            "agent-ready",
+            "done",
+            push,
+            percent=100.0,
+            phase="Agent connected",
+            result=partial,
         )
         logger.info(
             "op %s: agent %s phoned home after %.1fs",
-            op.id, vm_id, time.monotonic() - op_started,
+            op.id,
+            vm_id,
+            time.monotonic() - op_started,
         )
 
         # A fresh clone can phone home before its one firstboot reboot applies
@@ -552,8 +607,13 @@ def _run_provision_op(
         # wait_for_settled_boot.
         def _boot_phase(phase: str) -> None:
             _set_visible_step(
-                state, op.id, "boot-settle", "running", push,
-                phase=phase, result=partial,
+                state,
+                op.id,
+                "boot-settle",
+                "running",
+                push,
+                phase=phase,
+                result=partial,
             )
 
         _boot_phase("Waiting for boot to settle")
@@ -568,15 +628,26 @@ def _run_provision_op(
         )
         logger.info(
             "op %s: boot settled on %s after %.1fs",
-            op.id, vm_id, time.monotonic() - settle_started,
+            op.id,
+            vm_id,
+            time.monotonic() - settle_started,
         )
         _set_visible_step(
-            state, op.id, "boot-settle", "done", push,
-            percent=100.0, phase="Boot settled", result=partial,
+            state,
+            op.id,
+            "boot-settle",
+            "done",
+            push,
+            percent=100.0,
+            phase="Boot settled",
+            result=partial,
         )
         if steps:
             state[op.id] = OpRunState(
-                status="running", percent=0.0, phase="Provisioning", result=partial,
+                status="running",
+                percent=0.0,
+                phase="Provisioning",
+                result=partial,
                 steps=state[op.id].steps,
             )
             push()
@@ -600,12 +671,21 @@ def _run_provision_op(
                 dns_records=dns_records,
             )
             callbacks = _sequence_progress(
-                op.id, len(steps), state, push, result=partial,
+                op.id,
+                len(steps),
+                state,
+                push,
+                result=partial,
                 medians=_step_median_seconds(conn_db, steps),
             )
             on_step_complete, on_step_progress, on_step_tick = callbacks
             run_op_sequence(
-                conn_db, steps, ctx, plan_job_id=job_id, op_id=op.id, role=owner_role,
+                conn_db,
+                steps,
+                ctx,
+                plan_job_id=job_id,
+                op_id=op.id,
+                role=owner_role,
                 on_step_complete=on_step_complete,
                 on_step_progress=on_step_progress,
                 on_step_tick=on_step_tick,
@@ -621,12 +701,17 @@ def _run_provision_op(
         )
         push()
         return False
-    except (SequenceError, agentbus.AgentUnreachableError, agentbus.DispatchError,
-            agentbus.ReconnectTimeoutError) as exc:
+    except (
+        SequenceError,
+        agentbus.AgentUnreachableError,
+        agentbus.DispatchError,
+        agentbus.ReconnectTimeoutError,
+    ) as exc:
         _set_provision_state(conn_db, vm_name, "failed")
         detail = f"provisioning failed: {exc}"
         state[op.id] = OpRunState(
-            status="error", detail=detail,
+            status="error",
+            detail=detail,
             steps=_fail_running_visible_step(state, op.id, detail),
         )
         push()
@@ -635,7 +720,9 @@ def _run_provision_op(
         _set_provision_state(conn_db, vm_name, "failed")
         detail = str(exc)
         state[op.id] = OpRunState(
-            status="error", detail=detail, trace=traceback.format_exc(),
+            status="error",
+            detail=detail,
+            trace=traceback.format_exc(),
             steps=_fail_running_visible_step(state, op.id, detail),
         )
         push()
@@ -643,13 +730,18 @@ def _run_provision_op(
 
     logger.info(
         "op %s: provision of %s (%d steps) completed in %.1fs",
-        op.id, vm_name, len(steps), time.monotonic() - op_started,
+        op.id,
+        vm_name,
+        len(steps),
+        time.monotonic() - op_started,
     )
     _set_provision_state(conn_db, vm_name, "applied")
     # vmName/ip/agentVmId ride the terminal result so the frontend row (and
     # its node) keeps identity facts even on a replayed terminal frame.
     state[op.id] = OpRunState(
-        status="done", percent=100.0, phase="Done",
+        status="done",
+        percent=100.0,
+        phase="Done",
         result={
             "vmName": vm_name,
             "agentVmId": vm_id,
@@ -718,8 +810,13 @@ def _run_clone_op(
         and template not in LINUX_PRODUCT_TEMPLATES
     )
     _set_visible_step(
-        state, op.id, "prepare", "running", push,
-        percent=0.0, phase="Preparing guest and first-boot media",
+        state,
+        op.id,
+        "prepare",
+        "running",
+        push,
+        percent=0.0,
+        phase="Preparing guest and first-boot media",
     )
 
     ip: str | None = None
@@ -732,7 +829,8 @@ def _run_clone_op(
             # means it was cleared between enqueue and execution.
             detail = "Guest IP range is not configured."
             state[op.id] = OpRunState(
-                status="error", detail=detail,
+                status="error",
+                detail=detail,
                 steps=_fail_running_visible_step(state, op.id, detail),
             )
             push()
@@ -756,7 +854,8 @@ def _run_clone_op(
         except IpPoolExhaustedError as exc:
             detail = str(exc)
             state[op.id] = OpRunState(
-                status="error", detail=detail,
+                status="error",
+                detail=detail,
                 steps=_fail_running_visible_step(state, op.id, detail),
             )
             push()
@@ -840,12 +939,22 @@ def _run_clone_op(
                 **_plan_clone_defaults(image_config),
             )
             _set_visible_step(
-                state, op.id, "prepare", "done", push,
-                percent=100.0, phase="Guest and first-boot media ready",
+                state,
+                op.id,
+                "prepare",
+                "done",
+                push,
+                percent=100.0,
+                phase="Guest and first-boot media ready",
             )
             _set_visible_step(
-                state, op.id, "clone", "running", push,
-                percent=0.0, phase="Cloning virtual machine",
+                state,
+                op.id,
+                "clone",
+                "running",
+                push,
+                percent=0.0,
+                phase="Cloning virtual machine",
             )
             reducer = CloneProgressReducer(
                 _op_progress_publisher(state, op.id, push, step_id="clone"),
@@ -854,8 +963,13 @@ def _run_clone_op(
             result = clone_workflow(conn, progress=reducer, **req.model_dump())
 
         _set_visible_step(
-            state, op.id, "clone", "done", push,
-            percent=100.0, phase="Virtual machine cloned and powered on",
+            state,
+            op.id,
+            "clone",
+            "done",
+            push,
+            percent=100.0,
+            phase="Virtual machine cloned and powered on",
         )
 
         vm = get_vm_by_name(conn.content, vm_name)
@@ -902,7 +1016,8 @@ def _run_clone_op(
         status, detail = map_vmkit_error(exc)
         detail = f"{status}: {detail}"
         state[op.id] = OpRunState(
-            status="error", detail=detail,
+            status="error",
+            detail=detail,
             steps=_fail_running_visible_step(state, op.id, detail),
         )
         push()
@@ -912,7 +1027,8 @@ def _run_clone_op(
         _cleanup_failed_clone(conn, db, vm_name, ip)
         detail = f"{status}: {detail}"
         state[op.id] = OpRunState(
-            status="error", detail=detail,
+            status="error",
+            detail=detail,
             steps=_fail_running_visible_step(state, op.id, detail),
         )
         push()
@@ -921,7 +1037,9 @@ def _run_clone_op(
         _cleanup_failed_clone(conn, db, vm_name, ip)
         detail = str(exc)
         state[op.id] = OpRunState(
-            status="error", detail=detail, trace=traceback.format_exc(),
+            status="error",
+            detail=detail,
+            trace=traceback.format_exc(),
             steps=_fail_running_visible_step(state, op.id, detail),
         )
         push()
@@ -961,9 +1079,7 @@ def _step_median_seconds(db, steps) -> dict[str, float]:
 
     medians_ms = load_step_medians(db, [s.command for s in steps])
     return {
-        s.id: medians_ms[s.command] / 1000.0
-        for s in steps
-        if s.command in medians_ms
+        s.id: medians_ms[s.command] / 1000.0 for s in steps if s.command in medians_ms
     }
 
 
@@ -1012,7 +1128,10 @@ def _sequence_progress(
         percent: float, phase: str, steps: dict[str, StepRunState] | None = None
     ) -> None:
         state[op_id] = OpRunState(
-            status="running", percent=percent, phase=phase, result=result,
+            status="running",
+            percent=percent,
+            phase=phase,
+            result=result,
             steps=steps if steps is not None else _steps(),
         )
         push()
@@ -1032,7 +1151,9 @@ def _sequence_progress(
             steps,
         )
 
-    def on_step_progress(step_id: str, phase: str | None, percent: float | None) -> None:
+    def on_step_progress(
+        step_id: str, phase: str | None, percent: float | None
+    ) -> None:
         agent_progress[step_id] = (phase, percent)
         n = done_count["n"]
         label = f"Step {n + 1}/{total} · {step_id}"
@@ -1114,10 +1235,10 @@ def _run_sequence_op(
     try:
         ctx = build_run_context(db, op, ops, topology)
         try:
-            prior_run = db["plan_runs"].find_one(
-                {"jobId": job_id}, {"artifacts": 1}
-            ) or {}
-        except (KeyError, TypeError):
+            prior_run = (
+                db["plan_runs"].find_one({"jobId": job_id}, {"artifacts": 1}) or {}
+            )
+        except KeyError, TypeError:
             prior_run = {}
         ctx.artifacts.update(prior_run.get("artifacts") or {})
         steps = op_sequence(op.kind.value, ctx)
@@ -1137,8 +1258,12 @@ def _run_sequence_op(
     op_started = time.monotonic()
     try:
         sequence_results = run_op_sequence(
-            db, steps, ctx,
-            plan_job_id=job_id, op_id=op.id, role=owner_role,
+            db,
+            steps,
+            ctx,
+            plan_job_id=job_id,
+            op_id=op.id,
+            role=owner_role,
             on_step_complete=on_step_complete,
             on_step_progress=on_step_progress,
             on_step_tick=on_step_tick,
@@ -1182,7 +1307,10 @@ def _run_sequence_op(
 
     logger.info(
         "op %s: %s sequence (%d steps) completed in %.1fs",
-        op.id, op.kind.value, total, time.monotonic() - op_started,
+        op.id,
+        op.kind.value,
+        total,
+        time.monotonic() - op_started,
     )
     result = {"steps": total}
     if "lab-health" in sequence_results:
@@ -1191,7 +1319,10 @@ def _run_sequence_op(
 
         result["certificateJourney"] = build_certificate_journey(ctx, sequence_results)
     state[op.id] = OpRunState(
-        status="done", percent=100.0, phase="Done", result=result,
+        status="done",
+        percent=100.0,
+        phase="Done",
+        result=result,
         steps=state[op.id].steps,
     )
     push()
@@ -1247,7 +1378,9 @@ def _verify_worker_infrastructure_preflight(
     """Re-check the complete role mapping and reservation before cloning."""
 
     if accepted_payload is None:
-        raise RuntimeError("Deploy job is missing its infrastructure preflight snapshot.")
+        raise RuntimeError(
+            "Deploy job is missing its infrastructure preflight snapshot."
+        )
     accepted = InfrastructurePreflight(**accepted_payload)
     doc = db["settings"].find_one({"_id": "global"})
     profiles = deployment_profiles_from_doc(doc)
@@ -1271,7 +1404,11 @@ def _verify_worker_infrastructure_preflight(
 
 
 def _initialize_plan_run(
-    db, job_id: str, request, owner_role: str, owner: str | None,
+    db,
+    job_id: str,
+    request,
+    owner_role: str,
+    owner: str | None,
     preflight_snapshot: dict | None,
 ) -> None:
     """Persist a redacted recovery/evidence snapshot before the first step."""
@@ -1323,25 +1460,32 @@ def _scheduler_states(db, job_id: str) -> dict[str, OpRunState]:
 
 def _publish_scheduler_states(db, job_id: str) -> dict[str, OpRunState]:
     states = _scheduler_states(db, job_id)
-    transport.publish(
-        job_id, PlanStateMsg(ops=states), status=JobStatus.running
-    )
+    transport.publish(job_id, PlanStateMsg(ops=states), status=JobStatus.running)
     return states
 
 
 def _persist_scheduler_op(db, job_id: str, op_id: str, state: OpRunState) -> None:
     db["plan_runs"].update_one(
         {"jobId": job_id},
-        {"$set": {
-            f"scheduler.ops.{op_id}": state.model_dump(),
-            "scheduler.updatedAt": now_ms(),
-            "updatedAt": now_ms(),
-        }},
+        {
+            "$set": {
+                f"scheduler.ops.{op_id}": state.model_dump(),
+                "scheduler.updatedAt": now_ms(),
+                "updatedAt": now_ms(),
+            }
+        },
     )
 
 
-def _advance_plan(job_id: str, request, plan: dict, owner_role: str,
-                  preflight_snapshot: dict | None, owner: str | None, db) -> None:
+def _advance_plan(
+    job_id: str,
+    request,
+    plan: dict,
+    owner_role: str,
+    preflight_snapshot: dict | None,
+    owner: str | None,
+    db,
+) -> None:
     """Atomically claim newly-ready operations and publish terminal state."""
 
     states = _scheduler_states(db, job_id)
@@ -1362,12 +1506,14 @@ def _advance_plan(job_id: str, request, plan: dict, owner_role: str,
             )
             result = db["plan_runs"].update_one(
                 {"jobId": job_id, f"scheduler.ops.{op_id}.status": "pending"},
-                {"$set": {
-                    f"scheduler.ops.{op_id}": OpRunState(
-                        status="cancelled", detail=detail
-                    ).model_dump(),
-                    "scheduler.updatedAt": now_ms(),
-                }},
+                {
+                    "$set": {
+                        f"scheduler.ops.{op_id}": OpRunState(
+                            status="cancelled", detail=detail
+                        ).model_dump(),
+                        "scheduler.updatedAt": now_ms(),
+                    }
+                },
             )
             if result.modified_count:
                 statuses[op_id] = "cancelled"
@@ -1381,17 +1527,17 @@ def _advance_plan(job_id: str, request, plan: dict, owner_role: str,
             }
         ready, blocked = ready_plan_operations(request.ops, statuses)
 
-    kinds = {
-        op.id: str(getattr(op.kind, "value", op.kind)) for op in request.ops
-    }
+    kinds = {op.id: str(getattr(op.kind, "value", op.kind)) for op in request.ops}
     enqueue_failed = False
     for op_id in ready:
         result = db["plan_runs"].update_one(
             {"jobId": job_id, f"scheduler.ops.{op_id}.status": "pending"},
-            {"$set": {
-                f"scheduler.ops.{op_id}.status": "queued",
-                "scheduler.updatedAt": now_ms(),
-            }},
+            {
+                "$set": {
+                    f"scheduler.ops.{op_id}.status": "queued",
+                    "scheduler.updatedAt": now_ms(),
+                }
+            },
         )
         if not result.modified_count:
             continue
@@ -1408,22 +1554,28 @@ def _advance_plan(job_id: str, request, plan: dict, owner_role: str,
         except Exception as exc:
             enqueue_failed = True
             _persist_scheduler_op(
-                db, job_id, op_id,
-                OpRunState(status="error", detail=f"Unable to enqueue operation: {exc}"),
+                db,
+                job_id,
+                op_id,
+                OpRunState(
+                    status="error", detail=f"Unable to enqueue operation: {exc}"
+                ),
             )
 
     states = _publish_scheduler_states(db, job_id)
     if enqueue_failed:
-        _advance_plan(
-            job_id, request, plan, owner_role, preflight_snapshot, owner, db
-        )
+        _advance_plan(job_id, request, plan, owner_role, preflight_snapshot, owner, db)
         return
     if states and all(state.status in _PLAN_TERMINAL for state in states.values()):
         transport.publish(
             job_id,
-            DoneMsg(result={
-                "ops": {op_id: state.model_dump() for op_id, state in states.items()}
-            }),
+            DoneMsg(
+                result={
+                    "ops": {
+                        op_id: state.model_dump() for op_id, state in states.items()
+                    }
+                }
+            ),
             status=JobStatus.done,
             terminal=True,
         )
@@ -1476,16 +1628,17 @@ def start_plan_task(
                     conn, db, request.ops, preflight_snapshot
                 )
             initial = {
-                op.id: OpRunState(status="pending").model_dump()
-                for op in request.ops
+                op.id: OpRunState(status="pending").model_dump() for op in request.ops
             }
             db["plan_runs"].update_one(
                 {"jobId": job_id},
-                {"$set": {
-                    "scheduler.version": 2,
-                    "scheduler.ops": initial,
-                    "scheduler.updatedAt": now_ms(),
-                }},
+                {
+                    "$set": {
+                        "scheduler.version": 2,
+                        "scheduler.ops": initial,
+                        "scheduler.updatedAt": now_ms(),
+                    }
+                },
             )
             transport.publish(job_id, RunningMsg(), status=JobStatus.running)
             _advance_plan(
@@ -1493,8 +1646,10 @@ def start_plan_task(
             )
     except Exception as exc:  # noqa: BLE001
         transport.publish(
-            job_id, ErrorMsg(status=500, detail=str(exc)),
-            status=JobStatus.error, terminal=True,
+            job_id,
+            ErrorMsg(status=500, detail=str(exc)),
+            status=JobStatus.error,
+            terminal=True,
         )
     finally:
         if conn is not None:
@@ -1524,19 +1679,22 @@ def run_plan_operation_task(
         with worker_db() as db:
             claim = db["plan_runs"].update_one(
                 {"jobId": job_id, f"scheduler.ops.{op_id}.status": "queued"},
-                {"$set": {
-                    f"scheduler.ops.{op_id}.status": "running",
-                    f"scheduler.ops.{op_id}.percent": 0.0,
-                    f"scheduler.ops.{op_id}.phase": "Starting",
-                    "scheduler.updatedAt": now_ms(),
-                }},
+                {
+                    "$set": {
+                        f"scheduler.ops.{op_id}.status": "running",
+                        f"scheduler.ops.{op_id}.percent": 0.0,
+                        f"scheduler.ops.{op_id}.phase": "Starting",
+                        "scheduler.updatedAt": now_ms(),
+                    }
+                },
             )
             if not claim.modified_count:
                 return
             states = _scheduler_states(db, job_id)
             if transport.cancel_mode(job_id):
                 states[op_id] = OpRunState(
-                    status="cancelled", detail="Skipped: deployment cancellation was requested."
+                    status="cancelled",
+                    detail="Skipped: deployment cancellation was requested.",
                 )
                 _persist_scheduler_op(db, job_id, op_id, states[op_id])
                 _advance_plan(
@@ -1555,21 +1713,41 @@ def run_plan_operation_task(
                     db["settings"].find_one({"_id": "global"})
                 )
                 ok = _run_clone_op(
-                    conn, db, op, job_id, states, push, owner_role,
-                    profiles[role_for_template(
-                        op.params["template"], op.params.get("caType")
-                    )],
+                    conn,
+                    db,
+                    op,
+                    job_id,
+                    states,
+                    push,
+                    owner_role,
+                    profiles[
+                        role_for_template(
+                            op.params["template"], op.params.get("caType")
+                        )
+                    ],
                 )
             elif op.kind is PlanOpKind.provision:
                 # Deliberately no ESXi connection here — provision ops run on
                 # the provision queue and must never consume esxi capacity.
                 ok = _run_provision_op(
-                    db, op, request.ops, job_id, owner_role, states, push,
+                    db,
+                    op,
+                    request.ops,
+                    job_id,
+                    owner_role,
+                    states,
+                    push,
                     request.topology,
                 )
             else:
                 result = _run_sequence_op(
-                    db, op, request.ops, job_id, owner_role, states, push,
+                    db,
+                    op,
+                    request.ops,
+                    job_id,
+                    owner_role,
+                    states,
+                    push,
                     request.topology,
                 )
                 ok = _simulate_op(op, states, push) if result is None else result
@@ -1582,8 +1760,10 @@ def run_plan_operation_task(
     except Exception as exc:  # noqa: BLE001
         if request is None:
             transport.publish(
-                job_id, ErrorMsg(status=500, detail=str(exc)),
-                status=JobStatus.error, terminal=True,
+                job_id,
+                ErrorMsg(status=500, detail=str(exc)),
+                status=JobStatus.error,
+                terminal=True,
             )
             return
         with worker_db() as db:
@@ -1608,7 +1788,7 @@ def reconcile_plan_task(
     """Reapply convergent non-clone operations from a persisted plan snapshot."""
 
     from app.core.topology import TopologyDocument
-    from app.routers.deploy import PlanOp, PlanOpKind
+    from app.routers.deploy import PlanOp
 
     transport.publish(job_id, RunningMsg(), status=JobStatus.running)
     try:
@@ -1625,10 +1805,7 @@ def reconcile_plan_task(
                 # sequence fallback and mark every provision op stopped.
                 if raw.get("kind") not in ("createVm", "provision", "domainLeave")
             ]
-            state = {
-                op.id: OpRunState(status="pending")
-                for op in ops
-            }
+            state = {op.id: OpRunState(status="pending") for op in ops}
 
             def push() -> None:
                 transport.publish(
@@ -1655,26 +1832,34 @@ def reconcile_plan_task(
 
             db["plan_runs"].update_one(
                 {"jobId": job_id},
-                {"$set": {
-                    "updatedAt": now_ms(),
-                    "reconcileComplete": not stopped,
-                    "owner": owner,
-                }},
+                {
+                    "$set": {
+                        "updatedAt": now_ms(),
+                        "reconcileComplete": not stopped,
+                        "owner": owner,
+                    }
+                },
             )
             transport.publish(
                 job_id,
-                DoneMsg(result={
-                    "sourceJobId": source_job_id,
-                    "reconciled": not stopped,
-                    "ops": {key: value.model_dump() for key, value in state.items()},
-                }),
+                DoneMsg(
+                    result={
+                        "sourceJobId": source_job_id,
+                        "reconciled": not stopped,
+                        "ops": {
+                            key: value.model_dump() for key, value in state.items()
+                        },
+                    }
+                ),
                 status=JobStatus.done,
                 terminal=True,
             )
     except Exception as exc:  # noqa: BLE001
         transport.publish(
-            job_id, ErrorMsg(status=500, detail=str(exc)),
-            status=JobStatus.error, terminal=True,
+            job_id,
+            ErrorMsg(status=500, detail=str(exc)),
+            status=JobStatus.error,
+            terminal=True,
         )
 
 
@@ -1703,10 +1888,7 @@ def teardown_plan_task(
                 raise RuntimeError(f"source deployment '{source_job_id}' was not found")
             topology = TopologyDocument(**(source.get("topology") or {}))
             actions = compile_teardown(topology)
-            state = {
-                action.id: OpRunState(status="pending")
-                for action in actions
-            }
+            state = {action.id: OpRunState(status="pending") for action in actions}
             warnings: list[str] = []
 
             def push() -> None:
@@ -1719,7 +1901,8 @@ def teardown_plan_task(
                 if transport.cancel_mode(job_id):
                     for pending in actions[position:]:
                         state[pending.id] = OpRunState(
-                            status="cancelled", detail="Teardown cancellation requested."
+                            status="cancelled",
+                            detail="Teardown cancellation requested.",
                         )
                     push()
                     break
@@ -1734,7 +1917,9 @@ def teardown_plan_task(
                     )
                     if registry is None:
                         state[action.id] = OpRunState(
-                            status="done", percent=100.0, phase="Already absent",
+                            status="done",
+                            percent=100.0,
+                            phase="Already absent",
                             result={"alreadyAbsent": True},
                         )
                         push()
@@ -1748,15 +1933,21 @@ def teardown_plan_task(
                             pass
                         release_ip_sync(db, vm_name)
                         _registry_upsert_sync(
-                            db, vm_name, status="deleted", powerState=None,
-                            ip=None, agent=None,
+                            db,
+                            vm_name,
+                            status="deleted",
+                            powerState=None,
+                            ip=None,
+                            agent=None,
                         )
                     except Exception as exc:  # noqa: BLE001
                         state[action.id] = OpRunState(status="error", detail=str(exc))
                         warnings.append(f"{action.id}: {exc}")
                     else:
                         state[action.id] = OpRunState(
-                            status="done", percent=100.0, phase="Destroyed",
+                            status="done",
+                            percent=100.0,
+                            phase="Destroyed",
                             result={"vmName": vm_name},
                         )
                     push()
@@ -1767,8 +1958,12 @@ def teardown_plan_task(
                     steps = teardown_action_sequence(action.kind, ctx)
                     if steps:
                         run_op_sequence(
-                            db, steps, ctx, plan_job_id=job_id,
-                            op_id=action.id, role=owner_role,
+                            db,
+                            steps,
+                            ctx,
+                            plan_job_id=job_id,
+                            op_id=action.id,
+                            role=owner_role,
                             should_stop=lambda: transport.cancel_mode(job_id) == "step",
                         )
                 except SequenceCancelled:
@@ -1788,31 +1983,40 @@ def teardown_plan_task(
 
             db["plan_runs"].update_one(
                 {"jobId": job_id},
-                {"$set": {
-                    "updatedAt": now_ms(), "teardownWarnings": warnings,
-                    "owner": owner,
-                }},
+                {
+                    "$set": {
+                        "updatedAt": now_ms(),
+                        "teardownWarnings": warnings,
+                        "owner": owner,
+                    }
+                },
             )
             transport.publish(
                 job_id,
-                DoneMsg(result={
-                    "sourceJobId": source_job_id,
-                    "removed": not any(
-                        item.status == "error" and action.kind == "vm.destroy"
-                        for action, item in (
-                            (action, state[action.id]) for action in actions
-                        )
-                    ),
-                    "warnings": warnings,
-                    "ops": {key: value.model_dump() for key, value in state.items()},
-                }),
+                DoneMsg(
+                    result={
+                        "sourceJobId": source_job_id,
+                        "removed": not any(
+                            item.status == "error" and action.kind == "vm.destroy"
+                            for action, item in (
+                                (action, state[action.id]) for action in actions
+                            )
+                        ),
+                        "warnings": warnings,
+                        "ops": {
+                            key: value.model_dump() for key, value in state.items()
+                        },
+                    }
+                ),
                 status=JobStatus.done,
                 terminal=True,
             )
     except Exception as exc:  # noqa: BLE001
         transport.publish(
-            job_id, ErrorMsg(status=500, detail=str(exc)),
-            status=JobStatus.error, terminal=True,
+            job_id,
+            ErrorMsg(status=500, detail=str(exc)),
+            status=JobStatus.error,
+            terminal=True,
         )
     finally:
         if conn is not None:

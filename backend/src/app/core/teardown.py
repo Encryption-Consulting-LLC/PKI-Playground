@@ -8,8 +8,12 @@ from app.core.topology import TopologyDocument, TopologyEdgeKind, TopologyRole
 
 
 TeardownKind = Literal[
-    "web.cleanup", "ca.cleanup", "domain.leave", "dns.cleanup",
-    "forest.cleanup", "vm.destroy",
+    "web.cleanup",
+    "ca.cleanup",
+    "domain.leave",
+    "dns.cleanup",
+    "forest.cleanup",
+    "vm.destroy",
 ]
 
 
@@ -37,7 +41,10 @@ def compile_teardown(topology: TopologyDocument) -> list[TeardownAction]:
     def add(kind: TeardownKind, node_id: str, depends: list[str] | None = None) -> str:
         action_id = f"{kind}:{node_id}"
         actions[action_id] = TeardownAction(
-            id=action_id, kind=kind, nodeId=node_id, role=nodes[node_id].role,
+            id=action_id,
+            kind=kind,
+            nodeId=node_id,
+            role=nodes[node_id].role,
             dependsOn=depends or [],
         )
         return action_id
@@ -52,11 +59,9 @@ def compile_teardown(topology: TopologyDocument) -> list[TeardownAction]:
         for node in topology.nodes
         if node.role is TopologyRole.issuing_ca
     ]
-    root_cleanups = [
-        add("ca.cleanup", node.id, issuing_cleanups)
-        for node in topology.nodes
-        if node.role is TopologyRole.root_ca
-    ]
+    for node in topology.nodes:
+        if node.role is TopologyRole.root_ca:
+            add("ca.cleanup", node.id, issuing_cleanups)
 
     leaves: list[str] = []
     for member_id in memberships:
@@ -69,7 +74,8 @@ def compile_teardown(topology: TopologyDocument) -> list[TeardownAction]:
         leaves.append(add("domain.leave", member_id, prerequisites))
 
     dc_ids = [
-        node.id for node in topology.nodes
+        node.id
+        for node in topology.nodes
         if node.role is TopologyRole.domain_controller
     ]
     forest_actions: list[str] = []

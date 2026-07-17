@@ -1,0 +1,95 @@
+#!/bin/sh
+# Pre-commit checks for the two packages in this repo.
+#
+# Runs only the checks whose package has staged changes, so a docs-only or
+# single-side commit stays fast:
+#   backend/   -> ruff check .              (lint, whole package — currently clean)
+#                 ruff format --check       (formatting, staged .py only)
+#                 uv run pytest -q          (tests)
+#   frontend/  -> biome format             (formatting, staged files only)
+#                 pnpm exec tsc -b          (typecheck; vitest runs untyped)
+#                 pnpm test                 (vitest run)
+#                 pnpm lint                 (eslint)
+#
+# Formatting is CHECK-ONLY: the hook never rewrites your files, it only errors
+# out on unformatted code. Fix with `ruff format` / `biome format --write`.
+# Format checks are scoped to STAGED files so the not-yet-formatted legacy
+# files don't block unrelated commits — you format each file as you touch it.
+#
+# Bypass with `git commit --no-verify` when you know what you're doing.
+#
+# Install once per clone (hooks are not copied automatically):
+#   git config core.hooksPath .githooks
+
+set -e
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# Staged, non-deleted paths in this commit.
+STAGED="$(git diff --cached --name-only --diff-filter=ACMR)"
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+backend_changed=false
+frontend_changed=false
+case "$STAGED" in
+  *backend/*) backend_changed=true ;;
+esac
+case "$STAGED" in
+  *frontend/*) frontend_changed=true ;;
+esac
+
+step() {
+  printf '\n\033[1m▶ %s\033[0m\n' "$1"
+}
+
+if [ "$backend_changed" = true ]; then
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "pre-commit: 'uv' not found but backend/ has staged changes." >&2
+    echo "  Install uv or bypass with 'git commit --no-verify'." >&2
+    exit 1
+  fi
+
+  step "backend: ruff lint"
+  ( cd backend && uv run ruff check . )
+
+  # Format only the staged .py files (paths made relative to backend/).
+  py_staged="$(printf '%s\n' "$STAGED" | grep -E '^backend/.*\.py$' | sed 's#^backend/##' || true)"
+  if [ -n "$py_staged" ]; then
+    step "backend: ruff format --check"
+    printf '%s\n' "$py_staged" | ( cd backend && xargs uv run ruff format --check -- )
+  fi
+
+  step "backend: pytest"
+  ( cd backend && uv run pytest -q )
+fi
+
+if [ "$frontend_changed" = true ]; then
+  if ! command -v pnpm >/dev/null 2>&1; then
+    echo "pre-commit: 'pnpm' not found but frontend/ has staged changes." >&2
+    echo "  Install pnpm or bypass with 'git commit --no-verify'." >&2
+    exit 1
+  fi
+
+  # Format only the staged Biome-supported files (paths relative to frontend/).
+  fe_staged="$(printf '%s\n' "$STAGED" \
+    | grep -E '^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc)$' \
+    | sed 's#^frontend/##' || true)"
+  if [ -n "$fe_staged" ]; then
+    step "frontend: biome format"
+    printf '%s\n' "$fe_staged" | ( cd frontend && xargs pnpm exec biome format )
+  fi
+
+  step "frontend: typecheck"
+  ( cd frontend && pnpm exec tsc -b )
+
+  step "frontend: vitest"
+  ( cd frontend && pnpm test )
+
+  step "frontend: eslint"
+  ( cd frontend && pnpm lint )
+fi
+
+printf '\n\033[32m✓ pre-commit checks passed\033[0m\n'
